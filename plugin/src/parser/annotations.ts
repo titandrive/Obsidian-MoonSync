@@ -105,20 +105,30 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 	}
 }
 
+interface ProgressData {
+	progress: number;
+	chapter: number;
+	timestamp: number;
+}
+
 /**
  * Parse a .po position file to extract reading progress
  * Format: timestamp*chapter@marker#position:PERCENTAGE%
  * Example: 1761402987558*25@0#2018:41.1%
  */
-function parseProgressFile(data: Buffer): number | null {
+function parseProgressFile(data: Buffer): ProgressData | null {
 	try {
 		const content = data.toString("utf-8").trim();
-		// Extract percentage from the end of the string
-		const match = content.match(/:(\d+(?:\.\d+)?)%$/);
+		// Parse the full format: timestamp*chapter@marker#position:percentage%
+		const match = content.match(/^(\d+)\*(\d+)@\d+#\d+:(\d+(?:\.\d+)?)%$/);
 		if (match) {
-			return parseFloat(match[1]);
+			return {
+				timestamp: parseInt(match[1], 10),
+				chapter: parseInt(match[2], 10),
+				progress: parseFloat(match[3]),
+			};
 		}
-	} catch (error) {
+	} catch {
 		// Failed to parse progress
 	}
 	return null;
@@ -164,6 +174,8 @@ export async function parseAnnotationFiles(dropboxPath: string): Promise<BookDat
 							highlights: [],
 							statistics: null,
 							progress: null,
+							currentChapter: null,
+							lastReadTimestamp: null,
 							coverPath: null,
 							fetchedDescription: null,
 							rating: null,
@@ -194,9 +206,12 @@ export async function parseAnnotationFiles(dropboxPath: string): Promise<BookDat
 				if (bookDataMap.has(key)) {
 					const filePath = join(cacheDir, poFile);
 					const data = await readFile(filePath);
-					const progress = parseProgressFile(data);
-					if (progress !== null) {
-						bookDataMap.get(key)!.progress = progress;
+					const progressData = parseProgressFile(data);
+					if (progressData !== null) {
+						const bookData = bookDataMap.get(key)!;
+						bookData.progress = progressData.progress;
+						bookData.currentChapter = progressData.chapter;
+						bookData.lastReadTimestamp = progressData.timestamp;
 					}
 				}
 			} catch (error) {

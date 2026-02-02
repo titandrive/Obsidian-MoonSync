@@ -184,6 +184,17 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
+		containerEl.createEl("h3", { text: "Support" });
+
+		new Setting(containerEl)
+			.setName("Buy me a coffee")
+			.setDesc("If you find this plugin useful, consider supporting its development!")
+			.addButton((button) =>
+				button.setButtonText("Ko-fi").onClick(() => {
+					window.open("https://ko-fi.com/titandrive");
+				})
+			);
+
 	}
 
 	private async openFolderPicker(): Promise<string | null> {

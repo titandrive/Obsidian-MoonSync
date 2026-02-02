@@ -40,6 +40,8 @@ export interface BookData {
 	highlights: MoonReaderHighlight[];
 	statistics: MoonReaderStatistics | null;
 	progress: number | null; // percentage
+	currentChapter: number | null; // current chapter number
+	lastReadTimestamp: number | null; // when the book was last read
 	coverPath: string | null; // path to cover image in vault
 	fetchedDescription: string | null; // description from Google Books/Open Library
 	rating: number | null; // Google Books average rating (1-5)

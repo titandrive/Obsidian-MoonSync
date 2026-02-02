@@ -11,7 +11,7 @@ import {
  * Generate a markdown note for a book with its highlights and reading progress
  */
 export function generateBookNote(bookData: BookData, settings: MoonSyncSettings): string {
-	const { book, highlights, statistics, progress, coverPath, fetchedDescription, rating, ratingsCount } = bookData;
+	const { book, highlights, statistics, progress, currentChapter, lastReadTimestamp, coverPath, fetchedDescription, rating, ratingsCount } = bookData;
 
 	const lines: string[] = [];
 
@@ -29,6 +29,9 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	}
 	if (progress !== null) {
 		lines.push(`progress: ${progress.toFixed(1)}%`);
+	}
+	if (currentChapter !== null) {
+		lines.push(`current_chapter: ${currentChapter}`);
 	}
 	if (statistics?.usedTime) {
 		lines.push(`reading_time: "${formatDuration(statistics.usedTime)}"`);
@@ -67,18 +70,13 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	}
 
 	// Reading Progress section
-	if (settings.showReadingProgress && (progress !== null || statistics)) {
+	if (settings.showReadingProgress && (progress !== null || currentChapter !== null)) {
 		lines.push("## Reading Progress");
 		if (progress !== null) {
 			lines.push(`- **Progress:** ${progress.toFixed(1)}%`);
 		}
-		if (statistics?.usedTime) {
-			lines.push(`- **Time Spent:** ${formatDuration(statistics.usedTime)}`);
-		}
-		if (statistics?.readWords) {
-			lines.push(
-				`- **Words Read:** ${statistics.readWords.toLocaleString()}`
-			);
+		if (currentChapter !== null) {
+			lines.push(`- **Chapter:** ${currentChapter}`);
 		}
 		lines.push("");
 	}
