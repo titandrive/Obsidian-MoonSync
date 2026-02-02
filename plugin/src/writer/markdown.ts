@@ -221,8 +221,13 @@ export function generateIndexNote(books: BookData[]): string {
 		const author = bookData.book.author ? ` by ${bookData.book.author}` : "";
 		const progress = bookData.progress !== null ? ` (${bookData.progress.toFixed(0)}%)` : "";
 		const highlightCount = bookData.highlights.length;
+		const noteCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
 
-		lines.push(`- [[${filename}|${bookData.book.title}]]${author}${progress} — ${highlightCount} highlights`);
+		const statsText = noteCount > 0
+			? `${highlightCount} highlights, ${noteCount} ${noteCount === 1 ? "note" : "notes"}`
+			: `${highlightCount} highlights`;
+
+		lines.push(`- [[${filename}|${bookData.book.title}]]${author}${progress} — ${statsText}`);
 	}
 
 	lines.push("");
