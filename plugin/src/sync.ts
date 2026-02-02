@@ -175,6 +175,9 @@ async function processBook(
 			if (cachedInfo.ratingsCount !== null) {
 				bookData.ratingsCount = cachedInfo.ratingsCount;
 			}
+			if (!bookData.book.author && cachedInfo.author) {
+				bookData.book.author = cachedInfo.author;
+			}
 		}
 
 		// Fetch from APIs only if we need cover (and don't have it) OR we don't have cached data
@@ -215,11 +218,17 @@ async function processBook(
 					bookData.ratingsCount = bookInfo.ratingsCount;
 				}
 
+				// Use fetched author if book has no author from filename
+				if (!bookData.book.author && bookInfo.author) {
+					bookData.book.author = bookInfo.author;
+				}
+
 				// Update cache
 				setCachedInfo(cache, bookData.book.title, bookData.book.author, {
 					description: bookInfo.description,
 					rating: bookInfo.rating,
 					ratingsCount: bookInfo.ratingsCount,
+					author: bookInfo.author,
 				});
 				cacheModified = true;
 			} catch (error) {

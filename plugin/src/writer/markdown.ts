@@ -63,9 +63,9 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	}
 	lines.push("");
 
-	// Cover image (using Obsidian wikilink syntax to handle spaces in filenames)
+	// Cover image (using Obsidian wikilink syntax with width constraint)
 	if (coverPath) {
-		lines.push(`![[${coverPath}]]`);
+		lines.push(`![[${coverPath}|200]]`);
 		lines.push("");
 	}
 

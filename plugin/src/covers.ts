@@ -5,12 +5,14 @@ export interface BookInfoResult {
 	description: string | null;
 	rating: number | null;
 	ratingsCount: number | null;
+	author: string | null;
 	source: "openlibrary" | "googlebooks" | null;
 }
 
 interface OpenLibraryResult {
 	coverUrl: string | null;
 	description: string | null;
+	author: string | null;
 }
 
 interface GoogleBooksResult {
@@ -18,6 +20,7 @@ interface GoogleBooksResult {
 	description: string | null;
 	rating: number | null;
 	ratingsCount: number | null;
+	author: string | null;
 }
 
 /**
@@ -46,13 +49,16 @@ export async function fetchBookInfo(
 	const rating = googleBooksResult.rating;
 	const ratingsCount = googleBooksResult.ratingsCount;
 
+	// Prefer Google Books for author (usually more accurate)
+	const fetchedAuthor = googleBooksResult.author || openLibraryResult.author;
+
 	// Determine source based on what we're using
 	let source: "openlibrary" | "googlebooks" | null = null;
 	if (coverUrl || description) {
 		source = googleBooksResult.description ? "googlebooks" : "openlibrary";
 	}
 
-	return { coverUrl, description, rating, ratingsCount, source };
+	return { coverUrl, description, rating, ratingsCount, author: fetchedAuthor, source };
 }
 
 /**
@@ -73,7 +79,7 @@ async function fetchFromOpenLibrary(
 	title: string,
 	author: string
 ): Promise<OpenLibraryResult> {
-	const result: OpenLibraryResult = { coverUrl: null, description: null };
+	const result: OpenLibraryResult = { coverUrl: null, description: null, author: null };
 
 	try {
 		const query = encodeURIComponent(`${title} ${author}`);
@@ -90,6 +96,11 @@ async function fetchFromOpenLibrary(
 				result.coverUrl = `https://covers.openlibrary.org/b/id/${book.cover_i}-L.jpg`;
 			} else if (book.isbn && book.isbn.length > 0) {
 				result.coverUrl = `https://covers.openlibrary.org/b/isbn/${book.isbn[0]}-L.jpg`;
+			}
+
+			// Get author
+			if (book.author_name && book.author_name.length > 0) {
+				result.author = book.author_name[0];
 			}
 
 			// Get description - Open Library search doesn't include full description
@@ -126,7 +137,7 @@ async function fetchFromGoogleBooks(
 	title: string,
 	author: string
 ): Promise<GoogleBooksResult> {
-	const result: GoogleBooksResult = { coverUrl: null, description: null, rating: null, ratingsCount: null };
+	const result: GoogleBooksResult = { coverUrl: null, description: null, rating: null, ratingsCount: null, author: null };
 
 	try {
 		const query = encodeURIComponent(`${title} ${author}`);
@@ -161,6 +172,11 @@ async function fetchFromGoogleBooks(
 			}
 			if (volumeInfo?.ratingsCount) {
 				result.ratingsCount = volumeInfo.ratingsCount;
+			}
+
+			// Get author
+			if (volumeInfo?.authors && volumeInfo.authors.length > 0) {
+				result.author = volumeInfo.authors[0];
 			}
 		}
 	} catch (error) {

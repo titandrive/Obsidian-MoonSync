@@ -19,7 +19,7 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 		const decompressed = inflateSync(data).toString("utf-8");
 		const lines = decompressed.split("\n");
 
-		// Extract book title and author from filename
+		// Extract book title and author from filename (fallback if not in annotation data)
 		// Format: "Book Title - Author Name.epub.an"
 		const baseName = filename.replace(/\.epub\.an$/, "").replace(/\.pdf\.an$/, "");
 		const parts = baseName.split(" - ");
@@ -152,13 +152,14 @@ export async function parseAnnotationFiles(dropboxPath: string): Promise<BookDat
 				const parsed = parseAnnotationFile(data, anFile);
 
 				if (parsed && parsed.highlights.length > 0) {
-					// Use book title as key to group highlights
-					const key = parsed.bookTitle.toLowerCase();
+					// Use the title from inside the annotation file (more reliable than filename)
+					const actualTitle = parsed.highlights[0]?.book || parsed.bookTitle;
+					const key = actualTitle.toLowerCase();
 
 					if (!bookDataMap.has(key)) {
 						const book: MoonReaderBook = {
 							id: 0,
-							title: parsed.bookTitle,
+							title: actualTitle,
 							filename: parsed.highlights[0]?.filename || "",
 							author: parsed.author,
 							description: "",
@@ -199,7 +200,11 @@ export async function parseAnnotationFiles(dropboxPath: string): Promise<BookDat
 				// Extract book title from .po filename (same format as .an files)
 				const baseName = poFile.replace(/\.epub\.po$/, "").replace(/\.pdf\.po$/, "");
 				const parts = baseName.split(" - ");
-				const bookTitle = parts[0] || baseName;
+				let bookTitle = parts[0] || baseName;
+				// Convert underscores to spaces to match the title from inside .an files
+				if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
+					bookTitle = bookTitle.replace(/_/g, " ");
+				}
 				const key = bookTitle.toLowerCase();
 
 				// Only add progress if we have highlights for this book
