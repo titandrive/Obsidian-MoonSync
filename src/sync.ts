@@ -30,10 +30,14 @@ export async function syncFromMoonReader(
 		errors: [],
 	};
 
+	// Single progress notice that we'll hide when done
+	const progressNotice = new Notice("MoonSync: Syncing...", 0);
+
 	try {
 		// Validate settings
 		if (!settings.dropboxPath) {
 			result.errors.push("Dropbox path not configured");
+			progressNotice.hide();
 			return result;
 		}
 
@@ -41,20 +45,18 @@ export async function syncFromMoonReader(
 		const backupDir = join(settings.dropboxPath, ".Moon+", "Backup");
 
 		// Find the latest backup
-		new Notice("MoonSync: Finding latest backup...");
 		const backupPath = await findLatestBackup(backupDir);
 
 		if (!backupPath) {
 			result.errors.push(`No .mrpro backup files found in ${backupDir}`);
+			progressNotice.hide();
 			return result;
 		}
 
 		// Extract the database from the backup
-		new Notice("MoonSync: Extracting database...");
 		const mrproContents = await extractMrpro(backupPath);
 
 		// Parse the database
-		new Notice("MoonSync: Parsing book data...");
 		const bookDataList = await parseDatabase(mrproContents.database, wasmPath);
 
 		// Filter to only books with highlights
@@ -63,6 +65,7 @@ export async function syncFromMoonReader(
 		);
 
 		if (booksWithHighlights.length === 0) {
+			progressNotice.hide();
 			new Notice("MoonSync: No books with highlights found");
 			result.success = true;
 			return result;
@@ -86,9 +89,11 @@ export async function syncFromMoonReader(
 			}
 		}
 
+		progressNotice.hide();
 		result.success = true;
 		return result;
 	} catch (error) {
+		progressNotice.hide();
 		result.errors.push(`Sync failed: ${error}`);
 		return result;
 	}
