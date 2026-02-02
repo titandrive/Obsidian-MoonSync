@@ -1,0 +1,9 @@
+{
+	"id": "moonsync",
+	"name": "MoonSync",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Sync reading highlights and progress from Moon Reader+ to Obsidian",
+	"author": "MoonSync",
+	"isDesktopOnly": true
+}

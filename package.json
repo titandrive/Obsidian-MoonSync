@@ -1,0 +1,24 @@
+{
+	"name": "moonsync",
+	"version": "1.0.0",
+	"description": "Sync reading highlights and progress from Moon Reader+ to Obsidian",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "node esbuild.config.mjs production"
+	},
+	"keywords": ["obsidian", "moon-reader", "highlights", "sync"],
+	"author": "",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^20.11.0",
+		"builtin-modules": "^3.3.0",
+		"esbuild": "^0.20.0",
+		"obsidian": "^1.5.0",
+		"typescript": "^5.3.0"
+	},
+	"dependencies": {
+		"jszip": "^3.10.1",
+		"sql.js": "^1.10.0"
+	}
+}
