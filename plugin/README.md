@@ -4,7 +4,7 @@ Sync your reading highlights and progress from Moon Reader+ to Obsidian.
 
 ## How It Works
 
-MoonSync is a **read-only** sync plugin. It reads your Moon Reader backup data from Dropbox and creates markdown notes in your Obsidian vault. It never modifies your Moon Reader data.
+MoonSync is a **read-only** sync plugin. It reads your Moon Reader data from Dropbox and creates markdown notes in your Obsidian vault. It never modifies your Moon Reader data.
 
 **Data flow:** Moon Reader → Dropbox → MoonSync → Obsidian
 
@@ -12,91 +12,103 @@ MoonSync is a **read-only** sync plugin. It reads your Moon Reader backup data f
 
 - Book metadata (title, author, description, category)
 - All highlights with timestamps and colors
-- Reading progress and statistics
-- Book covers (fetched from Open Library/Google Books)
+- Your personal notes/annotations on highlights
+- Reading progress (percentage and current chapter)
+- Book covers and ratings (from Open Library/Google Books)
+- Library index with summary statistics
 
 ### Requirements
 
 - Moon Reader+ with Dropbox sync enabled
-- Backup files synced to `Dropbox/Apps/Books/.Moon+/Backup/`
+- Real-time sync enabled in Moon Reader (syncs to `Dropbox/Apps/Books/.Moon+/Cache/`)
 
 ## Installation
 
-1. Copy the `moonsync` folder to your vault's `.obsidian/plugins/` directory
-2. Enable the plugin in Obsidian Settings → Community Plugins
-3. Configure the Dropbox path in plugin settings
+### From Release
+
+1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/titandrive/moonsync/releases)
+2. Create folder: `.obsidian/plugins/moonsync/` in your vault
+3. Place both files in the folder
+4. Enable MoonSync in Obsidian Settings → Community Plugins
+
+### Manual Build
+
+1. Clone the repository
+2. Run `npm install` and `npm run build`
+3. Copy `main.js` and `manifest.json` to your vault's `.obsidian/plugins/moonsync/`
 
 ## Settings
 
-### Sync Now
-Manually trigger a sync. Creates or updates notes for all books with highlights.
+### Configuration
 
-### Sync on Startup
-Automatically sync when Obsidian starts. Useful for keeping notes up to date.
-
-### Show Ribbon Icon
-Show sync button in ribbon menu. Click the book icon to trigger a sync.
-
-### Moon Reader Dropbox Path
-Path to your Books folder in Dropbox (e.g., `/Users/you/Dropbox/Apps/Books`). The plugin automatically looks for the hidden `.Moon+/Backup` folder inside.
+**Moon Reader Dropbox Path**
+Path to your Books folder in Dropbox (e.g., `/Users/you/Dropbox/Apps/Books`). The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
 
 **Tip:** On macOS, press `Cmd+Shift+.` in the folder picker to show hidden folders.
 
-### Output Folder
+**Output Folder**
 Vault folder where book notes are created. Defaults to `Books`.
 
-### Show Description
-Include the book description in generated notes. Pulled from Moon Reader's metadata.
+### Sync
 
-### Show Reading Progress
-Include a reading progress section with:
-- Progress percentage
-- Time spent reading
-- Words read
+**Sync Now** - Manually trigger a sync. Creates or updates notes for all books with highlights.
 
-**Note:** Progress data depends on Moon Reader's sync and may not always be accurate.
+**Sync on Startup** - Automatically sync when Obsidian starts.
 
-### Show Highlight Colors
-Use different callout styles based on highlight color:
+**Show Ribbon Icon** - Show sync button in ribbon menu.
+
+### Note Content
+
+**Show Description** - Include book description (from Google Books/Open Library).
+
+**Show Ratings** - Include Google Books rating and review count.
+
+**Show Reading Progress** - Include reading progress section with percentage and current chapter.
+
+**Show Highlight Colors** - Use different callout styles based on highlight color:
 - Yellow → `[!quote]`
 - Blue → `[!info]`
 - Red → `[!warning]`
 - Green → `[!tip]`
 
-When disabled, all highlights appear as standard quotes.
+**Fetch Book Covers** - Download book covers from Open Library/Google Books. Saved in a `covers` subfolder.
 
-### Fetch Book Covers
-Download book covers from Open Library or Google Books. Covers are saved in a `covers` subfolder within your output folder.
+**Show Notes** - Include your personal notes/annotations below highlights.
+
+**Generate Library Index** - Create an index note with summary stats and links to all books.
 
 ## Output Format
 
-Each book creates a markdown file with:
+### Book Notes
+
+Each book creates a markdown file:
 
 ```markdown
 ---
 title: "Book Title"
 author: "Author Name"
-category: "Fiction"
 progress: 45.5%
+current_chapter: 12
 reading_time: "2h 34m"
 last_synced: 2026-02-02
-moon_reader_path: "/sdcard/Books/book.epub"
 highlights_count: 12
+rating: 4.2
+ratings_count: 1234
 cover: "covers/Book Title.jpg"
 ---
 
 # Book Title
 **Author:** Author Name
+**Rating:** ⭐ 4.2/5 (1,234 ratings)
 
-![[covers/Book Title.jpg]]
+![[covers/Book Title.jpg|200]]
 
 ## Reading Progress
 - **Progress:** 45.5%
-- **Time Spent:** 2h 34m
-- **Words Read:** 12,450
+- **Chapter:** 12
 
 ## Description
-Book description from metadata...
+Book description from Google Books...
 
 ## Highlights
 
@@ -106,29 +118,51 @@ Book description from metadata...
 > [!info] Chapter 4 • Jan 16, 2026
 > "Blue highlighted text..."
 >
-> **Note:** Your annotation appears here
+> ---
+> **Note:** Your personal annotation appears here
+```
+
+### Library Index
+
+When enabled, creates `A. Library Index.md` with:
+
+```markdown
+# Reading Library
+
+## Summary
+- **Books:** 5
+- **Highlights:** 42
+- **Notes:** 8
+- **Average Progress:** 65.2%
+
+## Books
+
+- [[Book Title|Book Title]] by Author (75%) — 12 highlights, 3 notes
+- [[Another Book|Another Book]] by Writer (30%) — 8 highlights
 ```
 
 ## Privacy & Security
 
 - **Read-only access**: MoonSync only reads from your Dropbox folder. It never writes to or modifies your Moon Reader data.
-- **Local processing**: All data stays on your machine. No external servers are contacted except for fetching book covers (Open Library/Google Books).
+- **Local processing**: All data stays on your machine. No external servers are contacted except for fetching book covers and metadata (Open Library/Google Books APIs).
 - **No credentials stored**: The plugin accesses Dropbox through your local filesystem, not through any API.
 
 ## Troubleshooting
 
-### "No .mrpro backup files found"
+### "No annotation files found"
 - Ensure Moon Reader is configured to sync to Dropbox
 - Check that the path points to the folder containing `.Moon+` (usually `Dropbox/Apps/Books`)
-- Force a backup in Moon Reader: Settings → Backup & Restore → Backup to Cloud
-
-### "Could not find mrbooks.db in backup"
-- Your backup may be corrupted. Try creating a fresh backup in Moon Reader.
+- Make sure real-time sync is enabled in Moon Reader settings
+- Add a highlight to a book and sync in Moon Reader
 
 ### Covers not loading
 - Check your internet connection
 - Some books may not have covers available in Open Library/Google Books
 - Covers are only fetched once. Delete the cover file to re-fetch.
+
+### Wrong book matched for cover/description
+- The plugin searches by title and author. Uncommon books may get wrong matches.
+- Delete the cover and the `.moonsync-cache.json` file to re-fetch.
 
 ## License
 
