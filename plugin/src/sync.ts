@@ -91,19 +91,30 @@ export async function syncFromMoonReader(
 	}
 }
 
+interface ExistingBookData {
+	highlightsCount: number;
+	progress: number | null;
+}
+
 /**
- * Get the highlights count from an existing markdown file's frontmatter
+ * Get highlights count and progress from an existing markdown file's frontmatter
  */
-async function getExistingHighlightsCount(app: App, filePath: string): Promise<number | null> {
+async function getExistingBookData(app: App, filePath: string): Promise<ExistingBookData | null> {
 	try {
 		if (!(await app.vault.adapter.exists(filePath))) {
 			return null;
 		}
 
 		const content = await app.vault.adapter.read(filePath);
-		const match = content.match(/^highlights_count:\s*(\d+)/m);
-		if (match) {
-			return parseInt(match[1], 10);
+
+		const countMatch = content.match(/^highlights_count:\s*(\d+)/m);
+		const progressMatch = content.match(/^progress:\s*"?(\d+(?:\.\d+)?)/m);
+
+		if (countMatch) {
+			return {
+				highlightsCount: parseInt(countMatch[1], 10),
+				progress: progressMatch ? parseFloat(progressMatch[1]) : null,
+			};
 		}
 	} catch {
 		// File doesn't exist or can't be read
@@ -127,14 +138,19 @@ async function processBook(
 	const filePath = normalizePath(`${outputPath}/${filename}.md`);
 	let cacheModified = false;
 
-	// Check if book has changed (compare highlights count)
-	const existingCount = await getExistingHighlightsCount(app, filePath);
-	const fileExists = existingCount !== null;
+	// Check if book has changed (compare highlights count and progress)
+	const existingData = await getExistingBookData(app, filePath);
+	const fileExists = existingData !== null;
 
-	if (fileExists && existingCount === bookData.highlights.length) {
-		// Book hasn't changed, skip
-		result.booksSkipped++;
-		return false;
+	if (fileExists) {
+		const highlightsUnchanged = existingData.highlightsCount === bookData.highlights.length;
+		const progressUnchanged = existingData.progress === bookData.progress;
+
+		if (highlightsUnchanged && progressUnchanged) {
+			// Book hasn't changed, skip
+			result.booksSkipped++;
+			return false;
+		}
 	}
 
 	// Fetch book info (cover, description, and rating) from external sources
