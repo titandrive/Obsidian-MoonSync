@@ -1,6 +1,6 @@
 import { App, Notice, normalizePath } from "obsidian";
 import { parseAnnotationFiles } from "./parser/annotations";
-import { generateBookNote, generateFilename } from "./writer/markdown";
+import { generateBookNote, generateFilename, generateIndexNote } from "./writer/markdown";
 import { fetchBookInfo, downloadCover } from "./covers";
 import { MoonSyncSettings, BookData } from "./types";
 import { loadCache, saveCache, getCachedInfo, setCachedInfo, BookInfoCache } from "./cache";
@@ -79,6 +79,11 @@ export async function syncFromMoonReader(
 		// Save cache if modified
 		if (cacheModified) {
 			await saveCache(app, outputPath, cache);
+		}
+
+		// Update index note if any books were created or updated
+		if (result.booksCreated > 0 || result.booksUpdated > 0) {
+			await updateIndexNote(app, outputPath, booksWithHighlights);
 		}
 
 		progressNotice.hide();
@@ -255,6 +260,22 @@ async function processBook(
 	}
 
 	return cacheModified;
+}
+
+const INDEX_FILENAME = "A. Library Index";
+
+/**
+ * Update the index note with summary and links to all books
+ */
+async function updateIndexNote(app: App, outputPath: string, books: BookData[]): Promise<void> {
+	const indexPath = normalizePath(`${outputPath}/${INDEX_FILENAME}.md`);
+	const markdown = generateIndexNote(books);
+
+	if (await app.vault.adapter.exists(indexPath)) {
+		await app.vault.adapter.write(indexPath, markdown);
+	} else {
+		await app.vault.create(indexPath, markdown);
+	}
 }
 
 /**

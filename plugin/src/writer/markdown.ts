@@ -173,3 +173,66 @@ export function generateFilename(title: string): string {
 		.trim()
 		.substring(0, 100); // Limit length
 }
+
+/**
+ * Generate the index note with summary stats and links to all books
+ */
+export function generateIndexNote(books: BookData[]): string {
+	const lines: string[] = [];
+
+	// Calculate stats
+	const totalBooks = books.length;
+	const totalHighlights = books.reduce((sum, b) => sum + b.highlights.length, 0);
+	const totalNotes = books.reduce(
+		(sum, b) => sum + b.highlights.filter((h) => h.note && h.note.trim()).length,
+		0
+	);
+	const booksWithProgress = books.filter((b) => b.progress !== null);
+	const avgProgress =
+		booksWithProgress.length > 0
+			? booksWithProgress.reduce((sum, b) => sum + (b.progress || 0), 0) / booksWithProgress.length
+			: 0;
+
+	// Frontmatter
+	lines.push("---");
+	lines.push(`total_books: ${totalBooks}`);
+	lines.push(`total_highlights: ${totalHighlights}`);
+	lines.push(`total_notes: ${totalNotes}`);
+	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
+	lines.push("---");
+
+	// Header
+	lines.push("# Reading Library");
+	lines.push("");
+
+	// Stats summary
+	lines.push("## Summary");
+	lines.push(`- **Books:** ${totalBooks}`);
+	lines.push(`- **Highlights:** ${totalHighlights}`);
+	lines.push(`- **Notes:** ${totalNotes}`);
+	if (booksWithProgress.length > 0) {
+		lines.push(`- **Average Progress:** ${avgProgress.toFixed(1)}%`);
+	}
+	lines.push("");
+
+	// Book list sorted alphabetically
+	lines.push("## Books");
+	lines.push("");
+
+	const sortedBooks = [...books].sort((a, b) =>
+		a.book.title.toLowerCase().localeCompare(b.book.title.toLowerCase())
+	);
+
+	for (const bookData of sortedBooks) {
+		const filename = generateFilename(bookData.book.title);
+		const author = bookData.book.author ? ` by ${bookData.book.author}` : "";
+		const progress = bookData.progress !== null ? ` (${bookData.progress.toFixed(0)}%)` : "";
+		const highlightCount = bookData.highlights.length;
+
+		lines.push(`- [[${filename}|${bookData.book.title}]]${author}${progress} — ${highlightCount} highlights`);
+	}
+
+	lines.push("");
+
+	return lines.join("\n");
+}

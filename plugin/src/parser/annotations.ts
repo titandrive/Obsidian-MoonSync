@@ -57,19 +57,25 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 					i++;
 				}
 
-				// Collect highlight text (may span multiple lines until we hit trailing 0s)
-				const textLines: string[] = [];
-				while (i < lines.length && lines[i] !== "0") {
-					textLines.push(lines[i]);
+				// Read highlight text (first line after empty lines)
+				let text = "";
+				let note = "";
+
+				if (i < lines.length && lines[i] !== "0") {
+					text = lines[i].replace(/<BR>/g, "\n").trim();
 					i++;
+
+					// Check if next line is a note (not "0" and not empty)
+					if (i < lines.length && lines[i] !== "0" && lines[i] !== "") {
+						note = lines[i].trim();
+						i++;
+					}
 				}
 
 				// Skip the trailing 0, 0, 0
 				while (i < lines.length && (lines[i] === "0" || lines[i] === "")) {
 					i++;
 				}
-
-				const text = textLines.join("\n").replace(/<BR>/g, "\n").trim();
 
 				if (text) {
 					highlights.push({
@@ -82,7 +88,7 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 						highlightColor: color,
 						timestamp,
 						bookmark: "",
-						note: "",
+						note,
 						originalText: text,
 						underline: false,
 						strikethrough: false,
