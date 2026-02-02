@@ -98,7 +98,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Show Ribbon Icon")
-			.setDesc("Show sync button in the left sidebar")
+			.setDesc("Show sync button in ribbon menu")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.showRibbonIcon)

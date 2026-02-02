@@ -35,7 +35,7 @@ Manually trigger a sync. Creates or updates notes for all books with highlights.
 Automatically sync when Obsidian starts. Useful for keeping notes up to date.
 
 ### Show Ribbon Icon
-Show a sync button in the left sidebar for quick access. Click the book icon to trigger a sync.
+Show sync button in ribbon menu. Click the book icon to trigger a sync.
 
 ### Moon Reader Dropbox Path
 Path to your Books folder in Dropbox (e.g., `/Users/you/Dropbox/Apps/Books`). The plugin automatically looks for the hidden `.Moon+/Backup` folder inside.
