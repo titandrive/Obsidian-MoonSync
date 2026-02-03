@@ -230,6 +230,7 @@ function mergeManualNoteWithMoonReader(
 			if (line.startsWith("progress:") ||
 			    line.startsWith("current_chapter:") ||
 			    line.startsWith("highlights_count:") ||
+			    line.startsWith("notes_count:") ||
 			    line.startsWith("last_synced:") ||
 			    line.startsWith("manual_note:") ||
 			    line.startsWith("published_date:") ||
@@ -250,6 +251,8 @@ function mergeManualNoteWithMoonReader(
 	// Add Moon+ Reader metadata
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
 	lines.push(`highlights_count: ${bookData.highlights.length}`);
+	const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
+	lines.push(`notes_count: ${notesCount}`);
 
 	if (settings.showProgress && bookData.progress !== null) {
 		lines.push(`progress: "${bookData.progress.toFixed(1)}%"`);

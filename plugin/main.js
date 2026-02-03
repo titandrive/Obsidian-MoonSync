@@ -651,6 +651,8 @@ function generateBookNote(bookData, settings) {
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
   lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
   lines.push(`highlights_count: ${highlights.length}`);
+  const notesCount = highlights.filter((h) => h.note && h.note.trim()).length;
+  lines.push(`notes_count: ${notesCount}`);
   if (publishedDate) {
     lines.push(`published_date: "${escapeYaml(publishedDate)}"`);
   }
@@ -1282,7 +1284,7 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
     const frontmatter = frontmatterMatch[1];
     const frontmatterLines = frontmatter.split("\n");
     for (const line of frontmatterLines) {
-      if (line.startsWith("progress:") || line.startsWith("current_chapter:") || line.startsWith("highlights_count:") || line.startsWith("last_synced:") || line.startsWith("manual_note:") || line.startsWith("published_date:") || line.startsWith("publisher:") || line.startsWith("page_count:") || line.startsWith("genres:") || line.startsWith("series:") || line.startsWith("language:") || line.startsWith("rating:") || line.startsWith("ratings_count:") || line.trim().startsWith("-")) {
+      if (line.startsWith("progress:") || line.startsWith("current_chapter:") || line.startsWith("highlights_count:") || line.startsWith("notes_count:") || line.startsWith("last_synced:") || line.startsWith("manual_note:") || line.startsWith("published_date:") || line.startsWith("publisher:") || line.startsWith("page_count:") || line.startsWith("genres:") || line.startsWith("series:") || line.startsWith("language:") || line.startsWith("rating:") || line.startsWith("ratings_count:") || line.trim().startsWith("-")) {
         continue;
       }
       lines.push(line);
@@ -1290,6 +1292,8 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
   }
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
   lines.push(`highlights_count: ${bookData.highlights.length}`);
+  const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
+  lines.push(`notes_count: ${notesCount}`);
   if (settings.showProgress && bookData.progress !== null) {
     lines.push(`progress: "${bookData.progress.toFixed(1)}%"`);
     if (bookData.currentChapter) {

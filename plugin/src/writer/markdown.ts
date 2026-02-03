@@ -39,6 +39,8 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
 	lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
 	lines.push(`highlights_count: ${highlights.length}`);
+	const notesCount = highlights.filter((h) => h.note && h.note.trim()).length;
+	lines.push(`notes_count: ${notesCount}`);
 	if (publishedDate) {
 		lines.push(`published_date: "${escapeYaml(publishedDate)}"`);
 	}
