@@ -150,13 +150,25 @@
 	color: var(--text-muted);
 }
 
+.moonsync-search-info {
+	font-size: 0.9em;
+	color: var(--text-muted);
+	margin-bottom: 1em;
+	text-align: center;
+}
+
+.moonsync-cover-results {
+	margin-top: 1em;
+}
+
 .moonsync-cover-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 	gap: 1em;
-	margin: 1.5em 0;
+	margin: 1em 0;
 	max-height: 60vh;
 	overflow-y: auto;
+	padding: 0.5em;
 }
 
 .moonsync-cover-item {
@@ -168,6 +180,8 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
+	box-sizing: border-box;
+	overflow: hidden;
 }
 
 .moonsync-cover-item:hover {
@@ -182,6 +196,7 @@
 	object-fit: contain;
 	border-radius: 4px;
 	margin-bottom: 0.5em;
+	display: block;
 }
 
 .moonsync-cover-info {

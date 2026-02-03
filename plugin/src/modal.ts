@@ -151,6 +151,7 @@ export class SelectCoverModal extends Modal {
 	private title: string;
 	private author: string;
 	private onSelect: (coverUrl: string) => void;
+	private resultsContainer: HTMLElement | null = null;
 
 	constructor(
 		app: App,
@@ -171,13 +172,62 @@ export class SelectCoverModal extends Modal {
 
 		// Title
 		contentEl.createEl("h2", { text: "Select Book Cover" });
-		contentEl.createEl("p", {
-			text: `Searching for "${this.title}"${this.author ? ` by ${this.author}` : ""}...`,
-			cls: "setting-item-description"
-		});
+
+		// Search fields
+		new Setting(contentEl)
+			.setName("Title")
+			.addText((text) => {
+				text
+					.setPlaceholder("Book title")
+					.setValue(this.title)
+					.onChange((value) => {
+						this.title = value;
+					});
+			});
+
+		new Setting(contentEl)
+			.setName("Author")
+			.addText((text) => {
+				text
+					.setPlaceholder("Author name")
+					.setValue(this.author)
+					.onChange((value) => {
+						this.author = value;
+					});
+			});
+
+		// Search button
+		new Setting(contentEl)
+			.addButton((button) => {
+				button
+					.setButtonText("Search")
+					.setCta()
+					.onClick(() => this.performSearch());
+			});
+
+		// Results container
+		this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
+
+		// Perform initial search
+		await this.performSearch();
+	}
+
+	private async performSearch() {
+		if (!this.resultsContainer) return;
+
+		// Clear previous results
+		this.resultsContainer.empty();
+
+		if (!this.title.trim()) {
+			this.resultsContainer.createEl("p", {
+				text: "Please enter a book title.",
+				cls: "setting-item-description"
+			});
+			return;
+		}
 
 		// Loading indicator
-		const loadingEl = contentEl.createDiv({ cls: "moonsync-loading" });
+		const loadingEl = this.resultsContainer.createDiv({ cls: "moonsync-loading" });
 		loadingEl.setText("Searching for covers...");
 
 		// Fetch covers
@@ -187,19 +237,21 @@ export class SelectCoverModal extends Modal {
 		loadingEl.remove();
 
 		if (covers.length === 0) {
-			contentEl.createEl("p", {
+			this.resultsContainer.createEl("p", {
 				text: "No covers found. Try a different search query.",
 				cls: "setting-item-description"
 			});
-
-			const buttonContainer = contentEl.createDiv({ cls: "moonsync-button-container" });
-			const closeButton = buttonContainer.createEl("button", { text: "Close" });
-			closeButton.addEventListener("click", () => this.close());
 			return;
 		}
 
+		// Display search info
+		this.resultsContainer.createEl("p", {
+			text: `Found ${covers.length} result${covers.length === 1 ? "" : "s"} for "${this.title}"${this.author ? ` by ${this.author}` : ""}`,
+			cls: "moonsync-search-info"
+		});
+
 		// Display covers in a grid
-		const gridContainer = contentEl.createDiv({ cls: "moonsync-cover-grid" });
+		const gridContainer = this.resultsContainer.createDiv({ cls: "moonsync-cover-grid" });
 
 		for (const cover of covers) {
 			const coverItem = gridContainer.createDiv({ cls: "moonsync-cover-item" });
@@ -232,11 +284,6 @@ export class SelectCoverModal extends Modal {
 				}
 			});
 		}
-
-		// Cancel button
-		const buttonContainer = contentEl.createDiv({ cls: "moonsync-button-container" });
-		const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
-		cancelButton.addEventListener("click", () => this.close());
 	}
 
 	onClose() {
