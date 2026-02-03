@@ -11,6 +11,20 @@ interface AnnotationFile {
 }
 
 /**
+ * Normalize book title by removing file extensions and known author suffix
+ */
+function normalizeBookTitle(title: string, author?: string): string {
+	let normalized = title.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "");
+
+	// Only strip author if we know what it is and the title ends with it
+	if (author && normalized.endsWith(` - ${author}`)) {
+		normalized = normalized.slice(0, -(` - ${author}`.length));
+	}
+
+	return normalized.trim();
+}
+
+/**
  * Parse a single .an annotation file
  */
 function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | null {
@@ -23,7 +37,7 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 		// Format: "Book Title - Author Name.epub.an"
 		const baseName = filename.replace(/\.epub\.an$/, "").replace(/\.pdf\.an$/, "");
 		const parts = baseName.split(" - ");
-		const bookTitle = parts[0] || baseName;
+		const bookTitle = normalizeBookTitle(parts[0] || baseName);
 		const author = parts.length > 1 ? parts.slice(1).join(" - ") : "";
 
 		const highlights: MoonReaderHighlight[] = [];
@@ -87,7 +101,7 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 				if (text) {
 					highlights.push({
 						id,
-						book: title,
+						book: normalizeBookTitle(title, author),
 						filename: fullPath,
 						chapter,
 						position,
@@ -194,6 +208,14 @@ export async function parseAnnotationFiles(dropboxPath: string): Promise<BookDat
 							fetchedDescription: null,
 							rating: null,
 							ratingsCount: null,
+							publishedDate: null,
+							publisher: null,
+							pageCount: null,
+							genres: null,
+							series: null,
+							isbn10: null,
+							isbn13: null,
+							language: null,
 						});
 					}
 

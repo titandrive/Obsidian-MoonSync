@@ -5,6 +5,12 @@ export interface CachedBookInfo {
 	rating: number | null;
 	ratingsCount: number | null;
 	author: string | null;
+	publishedDate: string | null;
+	publisher: string | null;
+	pageCount: number | null;
+	genres: string[] | null;
+	series: string | null;
+	language: string | null;
 	fetchedAt: number; // timestamp
 }
 

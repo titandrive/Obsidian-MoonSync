@@ -34,6 +34,13 @@ export default class MoonSyncPlugin extends Plugin {
 			callback: () => this.openCreateBookModal(),
 		});
 
+		// Add force refresh metadata command
+		this.addCommand({
+			id: "force-refresh-metadata",
+			name: "Force Refresh All Metadata",
+			callback: () => this.forceRefreshMetadata(),
+		});
+
 		// Sync on startup if enabled
 		if (this.settings.syncOnStartup) {
 			// Wait a bit for Obsidian to fully load
@@ -145,6 +152,12 @@ export default class MoonSyncPlugin extends Plugin {
 			let rating: number | null = null;
 			let ratingsCount: number | null = null;
 			let fetchedAuthor: string | null = null;
+		let publishedDate: string | null = null;
+		let publisher: string | null = null;
+		let pageCount: number | null = null;
+		let genres: string[] | null = null;
+		let series: string | null = null;
+		let language: string | null = null;
 
 			if (this.settings.fetchCovers || this.settings.showDescription || this.settings.showRatings) {
 				try {
@@ -170,6 +183,12 @@ export default class MoonSyncPlugin extends Plugin {
 					rating = bookInfo.rating;
 					ratingsCount = bookInfo.ratingsCount;
 					fetchedAuthor = bookInfo.author;
+			publishedDate = bookInfo.publishedDate;
+			publisher = bookInfo.publisher;
+			pageCount = bookInfo.pageCount;
+			genres = bookInfo.genres;
+			series = bookInfo.series;
+			language = bookInfo.language;
 				} catch (error) {
 					console.log(`MoonSync: Failed to fetch book info for "${title}"`, error);
 				}
@@ -185,7 +204,13 @@ export default class MoonSyncPlugin extends Plugin {
 				coverPath,
 				this.settings.showDescription ? description : null,
 				this.settings.showRatings ? rating : null,
-				this.settings.showRatings ? ratingsCount : null
+				this.settings.showRatings ? ratingsCount : null,
+			publishedDate,
+			publisher,
+			pageCount,
+			genres,
+			series,
+			language
 			);
 
 			// Create the file
@@ -208,6 +233,25 @@ export default class MoonSyncPlugin extends Plugin {
 			progressNotice.hide();
 			console.error("MoonSync: Failed to create book note", error);
 			new Notice(`MoonSync: Failed to create book note - ${error}`);
+		}
+	}
+
+	async forceRefreshMetadata(): Promise<void> {
+		const notice = new Notice("Force refreshing metadata for all books...", 0);
+
+		try {
+			// Delete cache to force refresh
+			const cacheFile = normalizePath(`${this.settings.outputFolder}/.moonsync-cache.json`);
+			if (await this.app.vault.adapter.exists(cacheFile)) {
+				await this.app.vault.adapter.remove(cacheFile);
+			}
+
+			// Run sync
+			await this.runSync();
+			notice.hide();
+		} catch (error) {
+			notice.hide();
+			new Notice(`Failed to refresh metadata: ${error}`);
 		}
 	}
 }

@@ -46,6 +46,14 @@ export interface BookData {
 	fetchedDescription: string | null; // description from Google Books/Open Library
 	rating: number | null; // Google Books average rating (1-5)
 	ratingsCount: number | null; // Google Books number of ratings
+	publishedDate: string | null; // publication date
+	publisher: string | null; // publisher name
+	pageCount: number | null; // number of pages
+	genres: string[] | null; // categories/genres/subjects
+	series: string | null; // series information
+	isbn10: string | null; // ISBN-10
+	isbn13: string | null; // ISBN-13
+	language: string | null; // language code (e.g., "en")
 }
 
 export interface MoonSyncSettings {

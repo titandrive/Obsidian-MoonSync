@@ -2,7 +2,7 @@ import { App, Notice, normalizePath } from "obsidian";
 import { SyncSummaryModal } from "./modal";
 import { parseAnnotationFiles } from "./parser/annotations";
 import { generateBookNote, generateFilename, generateIndexNote, formatHighlight } from "./writer/markdown";
-import { fetchBookInfo, downloadCover } from "./covers";
+import { fetchBookInfo, downloadCover, BookInfoResult } from "./covers";
 import { MoonSyncSettings, BookData } from "./types";
 import { loadCache, saveCache, getCachedInfo, setCachedInfo, BookInfoCache } from "./cache";
 import { scanAllBookNotes, mergeBookLists } from "./scanner";
@@ -93,6 +93,23 @@ export async function syncFromMoonReader(
 			} catch (error) {
 				result.errors.push(
 					`Error processing "${bookData.book.title}": ${error}`
+				);
+			}
+		}
+
+		// Process custom books (books not from Moon Reader database)
+		const scannedBooks = await scanAllBookNotes(app, outputPath);
+		const customBooks = scannedBooks.filter(book => !book.isMoonReader);
+
+		for (const customBook of customBooks) {
+			try {
+				const processed = await processCustomBook(app, outputPath, customBook, settings, result, cache);
+				if (processed) {
+					cacheModified = true;
+				}
+			} catch (error) {
+				result.errors.push(
+					`Error processing custom book "${customBook.title}": ${error}`
 				);
 			}
 		}
@@ -214,7 +231,16 @@ function mergeManualNoteWithMoonReader(
 			    line.startsWith("current_chapter:") ||
 			    line.startsWith("highlights_count:") ||
 			    line.startsWith("last_synced:") ||
-			    line.startsWith("manual_note:")) {
+			    line.startsWith("manual_note:") ||
+			    line.startsWith("published_date:") ||
+			    line.startsWith("publisher:") ||
+			    line.startsWith("page_count:") ||
+			    line.startsWith("genres:") ||
+			    line.startsWith("series:") ||
+			    line.startsWith("language:") ||
+			    line.startsWith("rating:") ||
+			    line.startsWith("ratings_count:") ||
+			    line.trim().startsWith("-")) { // Skip genre array items
 				continue;
 			}
 			lines.push(line);
@@ -229,6 +255,35 @@ function mergeManualNoteWithMoonReader(
 		lines.push(`progress: "${bookData.progress.toFixed(1)}%"`);
 		if (bookData.currentChapter) {
 			lines.push(`current_chapter: ${bookData.currentChapter}`);
+		}
+	}
+
+	// Add fetched metadata if available
+	if (bookData.publishedDate) {
+		lines.push(`published_date: "${bookData.publishedDate.replace(/"/g, '\\"')}"`);
+	}
+	if (bookData.publisher) {
+		lines.push(`publisher: "${bookData.publisher.replace(/"/g, '\\"')}"`);
+	}
+	if (bookData.pageCount !== null) {
+		lines.push(`page_count: ${bookData.pageCount}`);
+	}
+	if (bookData.genres && bookData.genres.length > 0) {
+		lines.push(`genres:`);
+		for (const genre of bookData.genres) {
+			lines.push(`  - "${genre.replace(/"/g, '\\"')}"`);
+		}
+	}
+	if (bookData.series) {
+		lines.push(`series: "${bookData.series.replace(/"/g, '\\"')}"`);
+	}
+	if (bookData.language) {
+		lines.push(`language: "${bookData.language}"`);
+	}
+	if (settings.showRatings && bookData.rating !== null) {
+		lines.push(`rating: ${bookData.rating}`);
+		if (bookData.ratingsCount !== null) {
+			lines.push(`ratings_count: ${bookData.ratingsCount}`);
 		}
 	}
 
@@ -265,6 +320,135 @@ function mergeManualNoteWithMoonReader(
 }
 
 /**
+ * Calculate similarity between two strings (0 = completely different, 1 = identical)
+ * Uses Levenshtein distance for fuzzy matching
+ */
+function calculateSimilarity(str1: string, str2: string): number {
+	const s1 = str1.toLowerCase();
+	const s2 = str2.toLowerCase();
+
+	if (s1 === s2) return 1;
+
+	const len1 = s1.length;
+	const len2 = s2.length;
+
+	if (len1 === 0) return len2 === 0 ? 1 : 0;
+	if (len2 === 0) return 0;
+
+	// Create distance matrix
+	const matrix: number[][] = [];
+	for (let i = 0; i <= len1; i++) {
+		matrix[i] = [i];
+	}
+	for (let j = 0; j <= len2; j++) {
+		matrix[0][j] = j;
+	}
+
+	// Calculate Levenshtein distance
+	for (let i = 1; i <= len1; i++) {
+		for (let j = 1; j <= len2; j++) {
+			const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+			matrix[i][j] = Math.min(
+				matrix[i - 1][j] + 1,     // deletion
+				matrix[i][j - 1] + 1,     // insertion
+				matrix[i - 1][j - 1] + cost // substitution
+			);
+		}
+	}
+
+	const distance = matrix[len1][len2];
+	const maxLen = Math.max(len1, len2);
+	return 1 - (distance / maxLen);
+}
+
+/**
+ * Find existing file with fuzzy matching by comparing frontmatter titles
+ * Returns the actual file path if found, otherwise returns the preferred path
+ * Uses 85% similarity threshold for fuzzy matching
+ */
+/**
+ * Normalize a book title for fuzzy matching by removing file extensions
+ * Note: Author stripping is now handled at source in annotations.ts using known author data
+ */
+function normalizeBookTitle(title: string): string {
+	return title
+		// Remove file extensions
+		.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, '')
+		.trim();
+}
+
+async function findExistingFile(app: App, outputPath: string, preferredFilename: string, bookTitle: string): Promise<string> {
+	const preferredPath = normalizePath(`${outputPath}/${preferredFilename}.md`);
+
+	// Check if preferred path exists (fast path)
+	if (await app.vault.adapter.exists(preferredPath)) {
+		return preferredPath;
+	}
+
+	// Normalize the book title for comparison
+	const normalizedBookTitle = normalizeBookTitle(bookTitle);
+
+	// Fuzzy match against existing files by comparing frontmatter titles
+	try {
+		const listing = await app.vault.adapter.list(normalizePath(outputPath));
+		const SIMILARITY_THRESHOLD = 0.80;
+		let bestMatch: { path: string; similarity: number } | null = null;
+
+		for (const filePath of listing.files) {
+			if (!filePath.endsWith('.md')) continue;
+
+			// Read file to get frontmatter title
+			try {
+				const content = await app.vault.adapter.read(filePath);
+
+				// Extract title from frontmatter - handle both quoted and unquoted
+				// Match: title: "value" or title: value
+				const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+				if (!frontmatterMatch) continue;
+
+				const frontmatter = frontmatterMatch[1];
+				const titleMatch = frontmatter.match(/^title:\s*"?(.+?)"?\s*$/m);
+
+				if (titleMatch) {
+					// Remove escaped quotes from YAML value
+					let existingTitle = titleMatch[1].trim().replace(/\\"/g, '"');
+					const normalizedExistingTitle = normalizeBookTitle(existingTitle);
+					const similarity = calculateSimilarity(normalizedBookTitle, normalizedExistingTitle);
+
+					if (similarity >= SIMILARITY_THRESHOLD) {
+						if (!bestMatch || similarity > bestMatch.similarity) {
+							bestMatch = { path: filePath, similarity };
+						}
+					}
+				}
+			} catch (error) {
+				// Failed to read file, skip it
+				continue;
+			}
+		}
+
+		if (bestMatch) {
+			console.log(`Best match: "${bestMatch.path}" (${(bestMatch.similarity * 100).toFixed(1)}%)`);
+
+			if (bestMatch.path !== preferredPath) {
+				// Found a match with different filename - rename to preferred filename
+				try {
+						await app.vault.adapter.rename(bestMatch.path, preferredPath);
+					return preferredPath;
+				} catch (error) {
+						return bestMatch.path;
+				}
+			}
+			return bestMatch.path;
+		}
+	} catch (error) {
+		// Error listing or renaming, fall through to preferred path
+	}
+
+	return preferredPath;
+}
+
+/**
  * Process a single book - create or update its note
  * Returns true if cache was modified
  */
@@ -276,9 +460,27 @@ async function processBook(
 	result: SyncResult,
 	cache: BookInfoCache
 ): Promise<boolean> {
+	// Store original title for cache key (before Google Books updates it)
+	const originalTitle = bookData.book.title;
+	const originalAuthor = bookData.book.author;
+
 	const filename = generateFilename(bookData.book.title);
-	const filePath = normalizePath(`${outputPath}/${filename}.md`);
+	const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title);
 	let cacheModified = false;
+
+	// Check cache first to determine if we need to fetch metadata
+	const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
+
+	// Check if we've already attempted to fetch metadata
+	// Once we've tried fetching (fields are !== undefined), don't keep trying
+	const hasAttemptedFetch = cachedInfo && (
+		cachedInfo.publishedDate !== undefined &&
+		cachedInfo.publisher !== undefined &&
+		cachedInfo.pageCount !== undefined &&
+		cachedInfo.genres !== undefined &&
+		cachedInfo.series !== undefined &&
+		cachedInfo.language !== undefined
+	);
 
 	// Check if book has changed (compare highlights count and progress)
 	const existingData = await getExistingBookData(app, filePath);
@@ -288,23 +490,27 @@ async function processBook(
 		const highlightsUnchanged = existingData.highlightsCount === bookData.highlights.length;
 		const progressUnchanged = existingData.progress === bookData.progress;
 
-		if (highlightsUnchanged && progressUnchanged) {
-			// Book hasn't changed, skip
+		console.log(`[${bookData.book.title}] Existing: ${existingData.highlightsCount} highlights, ${existingData.progress}% | New: ${bookData.highlights.length} highlights, ${bookData.progress}%`);
+		console.log(`[${bookData.book.title}] Unchanged: highlights=${highlightsUnchanged}, progress=${progressUnchanged}, hasAttemptedFetch=${hasAttemptedFetch}`);
+
+		// Only skip if: nothing changed AND we've already attempted to fetch metadata
+		// Once we've tried fetching once, don't keep retrying if data isn't available
+		if (highlightsUnchanged && progressUnchanged && hasAttemptedFetch) {
+			// Book hasn't changed and we have complete cached data, skip
 			result.booksSkipped++;
 			return false;
 		}
 	}
 
-	// Fetch book info (cover, description, and rating) from external sources
-	if (settings.fetchCovers || settings.showDescription || settings.showRatings) {
+	// Always fetch metadata if incomplete, regardless of settings
+	// Settings only control what gets displayed, not what gets cached
+	const shouldFetchMetadata = true; // Always fetch to keep cache complete
+	if (shouldFetchMetadata) {
 		const coverFilename = `${filename}.jpg`;
 		const coversFolder = normalizePath(`${outputPath}/covers`);
 		const coverPath = normalizePath(`${coversFolder}/${coverFilename}`);
 
 		const coverExists = await app.vault.adapter.exists(coverPath);
-
-		// Check cache first for description and rating
-		const cachedInfo = getCachedInfo(cache, bookData.book.title, bookData.book.author);
 
 		if (cachedInfo) {
 			// Use cached data
@@ -320,12 +526,30 @@ async function processBook(
 			if (!bookData.book.author && cachedInfo.author) {
 				bookData.book.author = cachedInfo.author;
 			}
+			if (cachedInfo.publishedDate) {
+				bookData.publishedDate = cachedInfo.publishedDate;
+			}
+			if (cachedInfo.publisher) {
+				bookData.publisher = cachedInfo.publisher;
+			}
+			if (cachedInfo.pageCount !== null) {
+				bookData.pageCount = cachedInfo.pageCount;
+			}
+			if (cachedInfo.genres) {
+				bookData.genres = cachedInfo.genres;
+			}
+			if (cachedInfo.series) {
+				bookData.series = cachedInfo.series;
+			}
+			if (cachedInfo.language) {
+				bookData.language = cachedInfo.language;
+			}
 		}
 
-		// Fetch from APIs only if we need cover (and don't have it) OR we don't have cached data
-		const needsApiFetch = (settings.fetchCovers && !coverExists) || !cachedInfo;
+	// Fetch from APIs if we need cover, description, ratings, or other metadata
+		const needsApiFetch = !coverExists || !hasAttemptedFetch;
 
-		if (needsApiFetch) {
+			if (needsApiFetch) {
 			try {
 				const bookInfo = await fetchBookInfo(
 					bookData.book.title,
@@ -365,12 +589,43 @@ async function processBook(
 					bookData.book.author = bookInfo.author;
 				}
 
-				// Update cache
-				setCachedInfo(cache, bookData.book.title, bookData.book.author, {
+				// Use fetched title if available (Google Books provides canonical titles)
+				if (bookInfo.title) {
+					bookData.book.title = bookInfo.title;
+				}
+
+				// Use fetched metadata
+				if (bookInfo.publishedDate) {
+					bookData.publishedDate = bookInfo.publishedDate;
+				}
+				if (bookInfo.publisher) {
+					bookData.publisher = bookInfo.publisher;
+				}
+				if (bookInfo.pageCount !== null) {
+					bookData.pageCount = bookInfo.pageCount;
+				}
+				if (bookInfo.genres) {
+					bookData.genres = bookInfo.genres;
+				}
+				if (bookInfo.series) {
+					bookData.series = bookInfo.series;
+				}
+				if (bookInfo.language) {
+					bookData.language = bookInfo.language;
+				}
+
+				// Update cache using original title (before Google Books updated it)
+				setCachedInfo(cache, originalTitle, originalAuthor, {
 					description: bookInfo.description,
 					rating: bookInfo.rating,
 					ratingsCount: bookInfo.ratingsCount,
 					author: bookInfo.author,
+					publishedDate: bookInfo.publishedDate,
+					publisher: bookInfo.publisher,
+					pageCount: bookInfo.pageCount,
+					genres: bookInfo.genres,
+					series: bookInfo.series,
+					language: bookInfo.language,
 				});
 				cacheModified = true;
 			} catch (error) {
@@ -406,6 +661,192 @@ async function processBook(
 	}
 
 	return cacheModified;
+}
+
+/**
+ * Process a custom book (not from Moon Reader database) to fetch and update metadata
+ */
+async function processCustomBook(
+	app: App,
+	outputPath: string,
+	scannedBook: { title: string; author: string | null; filePath: string },
+	settings: MoonSyncSettings,
+	result: SyncResult,
+	cache: BookInfoCache
+): Promise<boolean> {
+	let cacheModified = false;
+
+	// Check if we need to fetch metadata
+	const cachedInfo = getCachedInfo(cache, scannedBook.title, scannedBook.author || "");
+
+	// Skip if we've already attempted to fetch metadata
+	// Once we've tried (fields are !== undefined), don't keep trying
+	if (cachedInfo &&
+	    cachedInfo.publishedDate !== undefined &&
+	    cachedInfo.publisher !== undefined &&
+	    cachedInfo.pageCount !== undefined &&
+	    cachedInfo.genres !== undefined &&
+	    cachedInfo.series !== undefined &&
+	    cachedInfo.language !== undefined) {
+		// Already attempted fetch, skip API calls
+		return false;
+	}
+
+	// Fetch metadata from APIs
+	const author = scannedBook.author || "Unknown";
+	const bookInfo = await fetchBookInfo(scannedBook.title, author);
+
+	// Only update if we got new information
+		if (bookInfo.coverUrl || bookInfo.description || bookInfo.rating !== null ||
+		    bookInfo.publishedDate || bookInfo.publisher || bookInfo.pageCount !== null ||
+		    bookInfo.genres || bookInfo.series || bookInfo.language) {
+
+			// Read existing file
+			const content = await app.vault.adapter.read(scannedBook.filePath);
+
+			// Update frontmatter with new metadata
+			const updatedContent = updateCustomBookFrontmatter(content, bookInfo, settings);
+
+			// Write back to file
+			await app.vault.adapter.write(scannedBook.filePath, updatedContent);
+
+			// Update cache
+			setCachedInfo(cache, scannedBook.title, scannedBook.author, {
+				description: bookInfo.description,
+				rating: bookInfo.rating,
+				ratingsCount: bookInfo.ratingsCount,
+				author: bookInfo.author,
+				publishedDate: bookInfo.publishedDate,
+				publisher: bookInfo.publisher,
+				pageCount: bookInfo.pageCount,
+				genres: bookInfo.genres,
+				series: bookInfo.series,
+				language: bookInfo.language
+			});
+
+			cacheModified = true;
+			result.booksUpdated++;
+
+			// Download cover if available and not already present
+			if (bookInfo.coverUrl) {
+				const coverFilename = `${generateFilename(scannedBook.title)}.jpg`;
+				const coversFolder = normalizePath(`${outputPath}/covers`);
+				const coverPath = normalizePath(`${coversFolder}/${coverFilename}`);
+
+				if (!(await app.vault.adapter.exists(coverPath))) {
+					// Create covers folder if needed
+					if (!(await app.vault.adapter.exists(coversFolder))) {
+						await app.vault.createFolder(coversFolder);
+					}
+
+					// Download and save cover
+					const imageData = await downloadCover(bookInfo.coverUrl);
+					if (imageData) {
+						await app.vault.adapter.writeBinary(coverPath, imageData);
+					}
+				}
+			}
+		}
+
+	return cacheModified;
+}
+
+/**
+ * Update custom book frontmatter with fetched metadata
+ */
+function updateCustomBookFrontmatter(
+	content: string,
+	bookInfo: BookInfoResult,
+	settings: MoonSyncSettings
+): string {
+	// Parse existing frontmatter
+	const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+	if (!frontmatterMatch) {
+		return content; // No frontmatter, can't update
+	}
+
+	const frontmatter = frontmatterMatch[1];
+	const contentAfterFrontmatter = content.slice(frontmatterMatch[0].length);
+
+	const lines: string[] = [];
+	lines.push("---");
+
+	// Process existing frontmatter lines
+	const frontmatterLines = frontmatter.split("\n");
+	let skipNextLine = false;
+
+	for (const line of frontmatterLines) {
+		// Skip genre array items
+		if (skipNextLine && line.trim().startsWith("-")) {
+			continue;
+		}
+		skipNextLine = false;
+
+		// Skip fields we'll update
+		if (line.startsWith("published_date:") ||
+		    line.startsWith("publisher:") ||
+		    line.startsWith("page_count:") ||
+		    line.startsWith("genres:") ||
+		    line.startsWith("series:") ||
+		    line.startsWith("language:") ||
+		    line.startsWith("rating:") ||
+		    line.startsWith("ratings_count:") ||
+		    line.startsWith("cover:")) {
+			if (line.startsWith("genres:")) {
+				skipNextLine = true;
+			}
+			continue;
+		}
+
+		lines.push(line);
+	}
+
+	// Add new metadata
+	if (settings.showRatings && bookInfo.rating !== null) {
+		lines.push(`rating: ${bookInfo.rating}`);
+		if (bookInfo.ratingsCount !== null) {
+			lines.push(`ratings_count: ${bookInfo.ratingsCount}`);
+		}
+	}
+
+	if (bookInfo.publishedDate) {
+		lines.push(`published_date: "${escapeYaml(bookInfo.publishedDate)}"`);
+	}
+	if (bookInfo.publisher) {
+		lines.push(`publisher: "${escapeYaml(bookInfo.publisher)}"`);
+	}
+	if (bookInfo.pageCount !== null) {
+		lines.push(`page_count: ${bookInfo.pageCount}`);
+	}
+	if (bookInfo.genres && bookInfo.genres.length > 0) {
+		lines.push(`genres:`);
+		for (const genre of bookInfo.genres) {
+			lines.push(`  - "${escapeYaml(genre)}"`);
+		}
+	}
+	if (bookInfo.series) {
+		lines.push(`series: "${escapeYaml(bookInfo.series)}"`);
+	}
+	if (bookInfo.language) {
+		lines.push(`language: "${bookInfo.language}"`);
+	}
+
+	// Add cover path if not already present
+	const coverFilename = generateFilename(frontmatterLines.find(l => l.startsWith("title:"))?.split(":")[1]?.trim().replace(/"/g, "") || "");
+	if (coverFilename) {
+		lines.push(`cover: "covers/${coverFilename}.jpg"`);
+	}
+
+	lines.push("---");
+
+	return lines.join("\n") + contentAfterFrontmatter;
+}
+
+/**
+ * Escape special characters for YAML strings
+ */
+function escapeYaml(str: string): string {
+	return str.replace(/"/g, '\\"').replace(/\n/g, " ");
 }
 
 /**
@@ -497,13 +938,14 @@ export function showSyncResults(app: App, result: SyncResult): void {
 			// Show summary modal on first sync
 			new SyncSummaryModal(app, result).open();
 		} else {
-			const parts = [];
-			if (result.booksCreated > 0) parts.push(`${result.booksCreated} new`);
-			if (result.booksUpdated > 0) parts.push(`${result.booksUpdated} updated`);
-			if (result.booksSkipped > 0) parts.push(`${result.booksSkipped} unchanged`);
-			if (result.manualBooksAdded > 0) parts.push(`${result.manualBooksAdded} manual`);
+			const totalProcessed = result.booksCreated + result.booksUpdated;
+			const totalBooks = totalProcessed + result.booksSkipped + result.manualBooksAdded;
 
-			new Notice(`MoonSync: ${parts.join(", ")}`);
+			if (totalProcessed === 0) {
+				new Notice("MoonSync: All books up to date");
+			} else {
+				new Notice(`MoonSync: Updated ${totalProcessed} of ${totalBooks} books`);
+			}
 		}
 	} else {
 		new Notice(`MoonSync: Sync failed - ${result.errors[0]}`);

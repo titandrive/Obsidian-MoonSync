@@ -1,26 +1,46 @@
 import { requestUrl } from "obsidian";
 
 export interface BookInfoResult {
+	title: string | null;
 	coverUrl: string | null;
 	description: string | null;
 	rating: number | null;
 	ratingsCount: number | null;
 	author: string | null;
 	source: "openlibrary" | "googlebooks" | null;
+	publishedDate: string | null;
+	publisher: string | null;
+	pageCount: number | null;
+	genres: string[] | null;
+	series: string | null;
+	language: string | null;
 }
 
 interface OpenLibraryResult {
+	title: string | null;
 	coverUrl: string | null;
 	description: string | null;
 	author: string | null;
+	publishedDate: string | null;
+	publisher: string | null;
+	pageCount: number | null;
+	genres: string[] | null;
+	series: string | null;
+	language: string | null;
 }
 
 interface GoogleBooksResult {
+	title: string | null;
 	coverUrl: string | null;
 	description: string | null;
 	rating: number | null;
 	ratingsCount: number | null;
 	author: string | null;
+	publishedDate: string | null;
+	publisher: string | null;
+	pageCount: number | null;
+	genres: string[] | null;
+	language: string | null;
 }
 
 /**
@@ -49,8 +69,32 @@ export async function fetchBookInfo(
 	const rating = googleBooksResult.rating;
 	const ratingsCount = googleBooksResult.ratingsCount;
 
-	// Prefer Google Books for author (usually more accurate)
+	// Prefer Google Books for author and title (usually more accurate)
+	const fetchedTitle = googleBooksResult.title || openLibraryResult.title;
 	const fetchedAuthor = googleBooksResult.author || openLibraryResult.author;
+
+	// Prefer Google Books for metadata (more complete)
+	const publishedDate = googleBooksResult.publishedDate || openLibraryResult.publishedDate;
+	const publisher = googleBooksResult.publisher || openLibraryResult.publisher;
+	const pageCount = googleBooksResult.pageCount || openLibraryResult.pageCount;
+	const language = googleBooksResult.language || openLibraryResult.language;
+
+	// Merge genres from both sources
+	const genres: string[] = [];
+	if (googleBooksResult.genres) {
+		genres.push(...googleBooksResult.genres);
+	}
+	if (openLibraryResult.genres) {
+		// Add Open Library genres that aren't already included
+		for (const genre of openLibraryResult.genres) {
+			if (!genres.some(g => g.toLowerCase() === genre.toLowerCase())) {
+				genres.push(genre);
+			}
+		}
+	}
+
+	// Series only comes from Open Library
+	const series = openLibraryResult.series;
 
 	// Determine source based on what we're using
 	let source: "openlibrary" | "googlebooks" | null = null;
@@ -58,7 +102,21 @@ export async function fetchBookInfo(
 		source = googleBooksResult.description ? "googlebooks" : "openlibrary";
 	}
 
-	return { coverUrl, description, rating, ratingsCount, author: fetchedAuthor, source };
+	return {
+		title: fetchedTitle,
+		coverUrl,
+		description,
+		rating,
+		ratingsCount,
+		author: fetchedAuthor,
+		source,
+		publishedDate,
+		publisher,
+		pageCount,
+		genres: genres.length > 0 ? genres : null,
+		series,
+		language
+	};
 }
 
 /**
@@ -79,7 +137,18 @@ async function fetchFromOpenLibrary(
 	title: string,
 	author: string
 ): Promise<OpenLibraryResult> {
-	const result: OpenLibraryResult = { coverUrl: null, description: null, author: null };
+	const result: OpenLibraryResult = {
+		title: null,
+		coverUrl: null,
+		description: null,
+		author: null,
+		publishedDate: null,
+		publisher: null,
+		pageCount: null,
+		genres: null,
+		series: null,
+		language: null
+	};
 
 	try {
 		const query = encodeURIComponent(`${title} ${author}`);
@@ -91,6 +160,11 @@ async function fetchFromOpenLibrary(
 		if (data.docs && data.docs.length > 0) {
 			const book = data.docs[0];
 
+			// Get title
+			if (book.title) {
+				result.title = book.title;
+			}
+
 			// Get cover URL
 			if (book.cover_i) {
 				result.coverUrl = `https://covers.openlibrary.org/b/id/${book.cover_i}-L.jpg`;
@@ -101,6 +175,28 @@ async function fetchFromOpenLibrary(
 			// Get author
 			if (book.author_name && book.author_name.length > 0) {
 				result.author = book.author_name[0];
+			}
+
+			// Get metadata from search results
+			if (book.first_publish_year) {
+				result.publishedDate = book.first_publish_year.toString();
+			}
+
+			if (book.publisher && book.publisher.length > 0) {
+				result.publisher = book.publisher[0];
+			}
+
+			if (book.number_of_pages_median) {
+				result.pageCount = book.number_of_pages_median;
+			}
+
+			if (book.subject && book.subject.length > 0) {
+				// Take first 5 subjects as genres
+				result.genres = book.subject.slice(0, 5);
+			}
+
+			if (book.language && book.language.length > 0) {
+				result.language = book.language[0];
 			}
 
 			// Get description - Open Library search doesn't include full description
@@ -117,6 +213,11 @@ async function fetchFromOpenLibrary(
 							typeof workData.description === "string"
 								? workData.description
 								: workData.description.value || null;
+					}
+
+					// Check for series information
+					if (workData.series && workData.series.length > 0) {
+						result.series = workData.series[0];
 					}
 				} catch {
 					// Work fetch failed, continue without description
@@ -137,10 +238,23 @@ async function fetchFromGoogleBooks(
 	title: string,
 	author: string
 ): Promise<GoogleBooksResult> {
-	const result: GoogleBooksResult = { coverUrl: null, description: null, rating: null, ratingsCount: null, author: null };
+	const result: GoogleBooksResult = {
+		title: null,
+		coverUrl: null,
+		description: null,
+		rating: null,
+		ratingsCount: null,
+		author: null,
+		publishedDate: null,
+		publisher: null,
+		pageCount: null,
+		genres: null,
+		language: null
+	};
 
 	try {
-		const query = encodeURIComponent(`${title} ${author}`);
+		// Use field-specific search for better results
+		const query = encodeURIComponent(`intitle:${title} inauthor:${author}`);
 		const searchUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`;
 
 		const response = await requestUrl({ url: searchUrl });
@@ -149,6 +263,11 @@ async function fetchFromGoogleBooks(
 		if (data.items && data.items.length > 0) {
 			const book = data.items[0];
 			const volumeInfo = book.volumeInfo;
+
+			// Get title
+			if (volumeInfo?.title) {
+				result.title = volumeInfo.title;
+			}
 
 			// Get cover URL
 			const imageLinks = volumeInfo?.imageLinks;
@@ -177,6 +296,31 @@ async function fetchFromGoogleBooks(
 			// Get author
 			if (volumeInfo?.authors && volumeInfo.authors.length > 0) {
 				result.author = volumeInfo.authors[0];
+			}
+
+			// Get published date
+			if (volumeInfo?.publishedDate) {
+				result.publishedDate = volumeInfo.publishedDate;
+			}
+
+			// Get publisher
+			if (volumeInfo?.publisher) {
+				result.publisher = volumeInfo.publisher;
+			}
+
+			// Get page count
+			if (volumeInfo?.pageCount) {
+				result.pageCount = volumeInfo.pageCount;
+			}
+
+			// Get categories/genres
+			if (volumeInfo?.categories && volumeInfo.categories.length > 0) {
+				result.genres = volumeInfo.categories;
+			}
+
+			// Get language
+			if (volumeInfo?.language) {
+				result.language = volumeInfo.language;
 			}
 		}
 	} catch (error) {

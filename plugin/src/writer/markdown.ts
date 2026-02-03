@@ -11,7 +11,7 @@ import {
  * Generate a markdown note for a book with its highlights and reading progress
  */
 export function generateBookNote(bookData: BookData, settings: MoonSyncSettings): string {
-	const { book, highlights, statistics, progress, currentChapter, lastReadTimestamp, coverPath, fetchedDescription, rating, ratingsCount } = bookData;
+	const { book, highlights, statistics, progress, currentChapter, lastReadTimestamp, coverPath, fetchedDescription, rating, ratingsCount, publishedDate, publisher, pageCount, genres, series, isbn10, isbn13, language } = bookData;
 
 	const lines: string[] = [];
 
@@ -44,6 +44,34 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 		if (ratingsCount !== null) {
 			lines.push(`ratings_count: ${ratingsCount}`);
 		}
+	}
+	if (publishedDate) {
+		lines.push(`published_date: "${escapeYaml(publishedDate)}"`);
+	}
+	if (publisher) {
+		lines.push(`publisher: "${escapeYaml(publisher)}"`);
+	}
+	if (pageCount !== null) {
+		lines.push(`page_count: ${pageCount}`);
+	}
+	if (genres && genres.length > 0) {
+		// Format as YAML array
+		lines.push(`genres:`);
+		for (const genre of genres) {
+			lines.push(`  - "${escapeYaml(genre)}"`);
+		}
+	}
+	if (series) {
+		lines.push(`series: "${escapeYaml(series)}"`);
+	}
+	if (isbn10) {
+		lines.push(`isbn_10: "${isbn10}"`);
+	}
+	if (isbn13) {
+		lines.push(`isbn_13: "${isbn13}"`);
+	}
+	if (language) {
+		lines.push(`language: "${language}"`);
 	}
 	if (coverPath) {
 		lines.push(`cover: "${coverPath}"`);
@@ -170,7 +198,6 @@ function escapeYaml(str: string): string {
  */
 export function generateFilename(title: string): string {
 	return title
-		.toLowerCase() // Normalize case for matching
 		.replace(/[<>:"/\\|?*]/g, "") // Remove invalid filename characters
 		.replace(/\s+/g, " ") // Normalize whitespace
 		.trim()

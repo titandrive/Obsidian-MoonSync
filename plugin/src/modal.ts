@@ -144,15 +144,22 @@ export function generateBookTemplate(
 	coverPath: string | null,
 	description: string | null,
 	rating: number | null,
-	ratingsCount: number | null
+	ratingsCount: number | null,
+	publishedDate: string | null = null,
+	publisher: string | null = null,
+	pageCount: number | null = null,
+	genres: string[] | null = null,
+	series: string | null = null,
+	language: string | null = null
 ): string {
 	const lines: string[] = [];
+	const escapeYaml = (str: string) => str.replace(/"/g, '\\"').replace(/\n/g, " ");
 
 	// Frontmatter
 	lines.push("---");
-	lines.push(`title: "${title.replace(/"/g, '\\"')}"`);
+	lines.push(`title: "${escapeYaml(title)}"`);
 	if (author) {
-		lines.push(`author: "${author.replace(/"/g, '\\"')}"`);
+		lines.push(`author: "${escapeYaml(author)}"`);
 	}
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
 	lines.push("highlights_count: 0");
@@ -162,6 +169,27 @@ export function generateBookTemplate(
 		if (ratingsCount !== null) {
 			lines.push(`ratings_count: ${ratingsCount}`);
 		}
+	}
+	if (publishedDate) {
+		lines.push(`published_date: "${escapeYaml(publishedDate)}"`);
+	}
+	if (publisher) {
+		lines.push(`publisher: "${escapeYaml(publisher)}"`);
+	}
+	if (pageCount !== null) {
+		lines.push(`page_count: ${pageCount}`);
+	}
+	if (genres && genres.length > 0) {
+		lines.push(`genres:`);
+		for (const genre of genres) {
+			lines.push(`  - "${escapeYaml(genre)}"`);
+		}
+	}
+	if (series) {
+		lines.push(`series: "${escapeYaml(series)}"`);
+	}
+	if (language) {
+		lines.push(`language: "${language}"`);
 	}
 	if (coverPath) {
 		lines.push(`cover: "${coverPath}"`);
