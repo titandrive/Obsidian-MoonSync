@@ -4,8 +4,6 @@ export interface BookInfoResult {
 	title: string | null;
 	coverUrl: string | null;
 	description: string | null;
-	rating: number | null;
-	ratingsCount: number | null;
 	author: string | null;
 	source: "openlibrary" | "googlebooks" | null;
 	publishedDate: string | null;
@@ -33,8 +31,6 @@ interface GoogleBooksResult {
 	title: string | null;
 	coverUrl: string | null;
 	description: string | null;
-	rating: number | null;
-	ratingsCount: number | null;
 	author: string | null;
 	publishedDate: string | null;
 	publisher: string | null;
@@ -64,10 +60,6 @@ export async function fetchBookInfo(
 
 	// Prefer Google Books for descriptions (usually better quality)
 	const description = googleBooksResult.description || openLibraryResult.description;
-
-	// Ratings only come from Google Books
-	const rating = googleBooksResult.rating;
-	const ratingsCount = googleBooksResult.ratingsCount;
 
 	// Prefer Google Books for author and title (usually more accurate)
 	const fetchedTitle = googleBooksResult.title || openLibraryResult.title;
@@ -106,8 +98,6 @@ export async function fetchBookInfo(
 		title: fetchedTitle,
 		coverUrl,
 		description,
-		rating,
-		ratingsCount,
 		author: fetchedAuthor,
 		source,
 		publishedDate,
@@ -242,8 +232,6 @@ async function fetchFromGoogleBooks(
 		title: null,
 		coverUrl: null,
 		description: null,
-		rating: null,
-		ratingsCount: null,
 		author: null,
 		publishedDate: null,
 		publisher: null,
@@ -283,14 +271,6 @@ async function fetchFromGoogleBooks(
 			// Get description
 			if (volumeInfo?.description) {
 				result.description = volumeInfo.description;
-			}
-
-			// Get rating
-			if (volumeInfo?.averageRating) {
-				result.rating = volumeInfo.averageRating;
-			}
-			if (volumeInfo?.ratingsCount) {
-				result.ratingsCount = volumeInfo.ratingsCount;
 			}
 
 			// Get author

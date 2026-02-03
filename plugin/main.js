@@ -39,7 +39,7 @@ var DEFAULT_SETTINGS = {
   showReadingProgress: true,
   showHighlightColors: true,
   fetchCovers: true,
-  showRatings: true,
+  showRatings: false,
   showNotes: true,
   showIndex: true,
   indexNoteTitle: "1. Library Index",
@@ -626,7 +626,7 @@ async function parseAnnotationFiles(dropboxPath) {
 
 // src/writer/markdown.ts
 function generateBookNote(bookData, settings) {
-  const { book, highlights, statistics, progress, currentChapter, lastReadTimestamp, coverPath, fetchedDescription, rating, ratingsCount, publishedDate, publisher, pageCount, genres, series, isbn10, isbn13, language } = bookData;
+  const { book, highlights, statistics, progress, currentChapter, lastReadTimestamp, coverPath, fetchedDescription, publishedDate, publisher, pageCount, genres, series, isbn10, isbn13, language } = bookData;
   const lines = [];
   lines.push("---");
   lines.push(`title: "${escapeYaml(book.title)}"`);
@@ -651,12 +651,6 @@ function generateBookNote(bookData, settings) {
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
   lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
   lines.push(`highlights_count: ${highlights.length}`);
-  if (settings.showRatings && rating !== null) {
-    lines.push(`rating: ${rating}`);
-    if (ratingsCount !== null) {
-      lines.push(`ratings_count: ${ratingsCount}`);
-    }
-  }
   if (publishedDate) {
     lines.push(`published_date: "${escapeYaml(publishedDate)}"`);
   }
@@ -691,10 +685,6 @@ function generateBookNote(bookData, settings) {
   lines.push(`# ${book.title}`);
   if (book.author) {
     lines.push(`**Author:** ${book.author}`);
-  }
-  if (settings.showRatings && rating !== null) {
-    const ratingText = ratingsCount !== null ? `**Rating:** \u2B50 ${rating}/5 (${ratingsCount.toLocaleString()} ratings)` : `**Rating:** \u2B50 ${rating}/5`;
-    lines.push(ratingText);
   }
   lines.push("");
   if (coverPath) {
@@ -835,8 +825,6 @@ async function fetchBookInfo(title, author) {
   ]);
   const coverUrl = openLibraryResult.coverUrl || googleBooksResult.coverUrl;
   const description = googleBooksResult.description || openLibraryResult.description;
-  const rating = googleBooksResult.rating;
-  const ratingsCount = googleBooksResult.ratingsCount;
   const fetchedTitle = googleBooksResult.title || openLibraryResult.title;
   const fetchedAuthor = googleBooksResult.author || openLibraryResult.author;
   const publishedDate = googleBooksResult.publishedDate || openLibraryResult.publishedDate;
@@ -863,8 +851,6 @@ async function fetchBookInfo(title, author) {
     title: fetchedTitle,
     coverUrl,
     description,
-    rating,
-    ratingsCount,
     author: fetchedAuthor,
     source,
     publishedDate,
@@ -947,8 +933,6 @@ async function fetchFromGoogleBooks(title, author) {
     title: null,
     coverUrl: null,
     description: null,
-    rating: null,
-    ratingsCount: null,
     author: null,
     publishedDate: null,
     publisher: null,
@@ -973,12 +957,6 @@ async function fetchFromGoogleBooks(title, author) {
       }
       if (volumeInfo == null ? void 0 : volumeInfo.description) {
         result.description = volumeInfo.description;
-      }
-      if (volumeInfo == null ? void 0 : volumeInfo.averageRating) {
-        result.rating = volumeInfo.averageRating;
-      }
-      if (volumeInfo == null ? void 0 : volumeInfo.ratingsCount) {
-        result.ratingsCount = volumeInfo.ratingsCount;
       }
       if ((volumeInfo == null ? void 0 : volumeInfo.authors) && volumeInfo.authors.length > 0) {
         result.author = volumeInfo.authors[0];
@@ -1339,12 +1317,6 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
   if (bookData.language) {
     lines.push(`language: "${bookData.language}"`);
   }
-  if (settings.showRatings && bookData.rating !== null) {
-    lines.push(`rating: ${bookData.rating}`);
-    if (bookData.ratingsCount !== null) {
-      lines.push(`ratings_count: ${bookData.ratingsCount}`);
-    }
-  }
   lines.push("---");
   lines.push("");
   lines.push(contentAfterFrontmatter);
@@ -1485,12 +1457,6 @@ async function processBook(app, outputPath, bookData, settings, result, cache) {
       if (cachedInfo.description) {
         bookData.fetchedDescription = cachedInfo.description;
       }
-      if (cachedInfo.rating !== null) {
-        bookData.rating = cachedInfo.rating;
-      }
-      if (cachedInfo.ratingsCount !== null) {
-        bookData.ratingsCount = cachedInfo.ratingsCount;
-      }
       if (!bookData.book.author && cachedInfo.author) {
         bookData.book.author = cachedInfo.author;
       }
@@ -1533,12 +1499,6 @@ async function processBook(app, outputPath, bookData, settings, result, cache) {
         if (bookInfo.description) {
           bookData.fetchedDescription = bookInfo.description;
         }
-        if (bookInfo.rating !== null) {
-          bookData.rating = bookInfo.rating;
-        }
-        if (bookInfo.ratingsCount !== null) {
-          bookData.ratingsCount = bookInfo.ratingsCount;
-        }
         if (!bookData.book.author && bookInfo.author) {
           bookData.book.author = bookInfo.author;
         }
@@ -1565,8 +1525,6 @@ async function processBook(app, outputPath, bookData, settings, result, cache) {
         }
         setCachedInfo(cache, originalTitle, originalAuthor, {
           description: bookInfo.description,
-          rating: bookInfo.rating,
-          ratingsCount: bookInfo.ratingsCount,
           author: bookInfo.author,
           publishedDate: bookInfo.publishedDate,
           publisher: bookInfo.publisher,
@@ -1607,14 +1565,12 @@ async function processCustomBook(app, outputPath, scannedBook, settings, result,
   }
   const author = scannedBook.author || "Unknown";
   const bookInfo = await fetchBookInfo(scannedBook.title, author);
-  if (bookInfo.coverUrl || bookInfo.description || bookInfo.rating !== null || bookInfo.publishedDate || bookInfo.publisher || bookInfo.pageCount !== null || bookInfo.genres || bookInfo.series || bookInfo.language) {
+  if (bookInfo.coverUrl || bookInfo.description || bookInfo.publishedDate || bookInfo.publisher || bookInfo.pageCount !== null || bookInfo.genres || bookInfo.series || bookInfo.language) {
     const content = await app.vault.adapter.read(scannedBook.filePath);
     const updatedContent = updateCustomBookFrontmatter(content, bookInfo, settings);
     await app.vault.adapter.write(scannedBook.filePath, updatedContent);
     setCachedInfo(cache, scannedBook.title, scannedBook.author, {
       description: bookInfo.description,
-      rating: bookInfo.rating,
-      ratingsCount: bookInfo.ratingsCount,
       author: bookInfo.author,
       publishedDate: bookInfo.publishedDate,
       publisher: bookInfo.publisher,
@@ -1666,12 +1622,6 @@ function updateCustomBookFrontmatter(content, bookInfo, settings) {
       continue;
     }
     lines.push(line);
-  }
-  if (settings.showRatings && bookInfo.rating !== null) {
-    lines.push(`rating: ${bookInfo.rating}`);
-    if (bookInfo.ratingsCount !== null) {
-      lines.push(`ratings_count: ${bookInfo.ratingsCount}`);
-    }
   }
   if (bookInfo.publishedDate) {
     lines.push(`published_date: "${escapeYaml2(bookInfo.publishedDate)}"`);

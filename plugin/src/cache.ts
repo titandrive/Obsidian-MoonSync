@@ -2,8 +2,6 @@ import { App, normalizePath } from "obsidian";
 
 export interface CachedBookInfo {
 	description: string | null;
-	rating: number | null;
-	ratingsCount: number | null;
 	author: string | null;
 	publishedDate: string | null;
 	publisher: string | null;

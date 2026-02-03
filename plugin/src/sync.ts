@@ -280,12 +280,6 @@ function mergeManualNoteWithMoonReader(
 	if (bookData.language) {
 		lines.push(`language: "${bookData.language}"`);
 	}
-	if (settings.showRatings && bookData.rating !== null) {
-		lines.push(`rating: ${bookData.rating}`);
-		if (bookData.ratingsCount !== null) {
-			lines.push(`ratings_count: ${bookData.ratingsCount}`);
-		}
-	}
 
 	lines.push("---");
 	lines.push("");
@@ -517,12 +511,6 @@ async function processBook(
 			if (cachedInfo.description) {
 				bookData.fetchedDescription = cachedInfo.description;
 			}
-			if (cachedInfo.rating !== null) {
-				bookData.rating = cachedInfo.rating;
-			}
-			if (cachedInfo.ratingsCount !== null) {
-				bookData.ratingsCount = cachedInfo.ratingsCount;
-			}
 			if (!bookData.book.author && cachedInfo.author) {
 				bookData.book.author = cachedInfo.author;
 			}
@@ -576,14 +564,6 @@ async function processBook(
 					bookData.fetchedDescription = bookInfo.description;
 				}
 
-				// Use fetched rating if available
-				if (bookInfo.rating !== null) {
-					bookData.rating = bookInfo.rating;
-				}
-				if (bookInfo.ratingsCount !== null) {
-					bookData.ratingsCount = bookInfo.ratingsCount;
-				}
-
 				// Use fetched author if book has no author from filename
 				if (!bookData.book.author && bookInfo.author) {
 					bookData.book.author = bookInfo.author;
@@ -617,8 +597,6 @@ async function processBook(
 				// Update cache using original title (before Google Books updated it)
 				setCachedInfo(cache, originalTitle, originalAuthor, {
 					description: bookInfo.description,
-					rating: bookInfo.rating,
-					ratingsCount: bookInfo.ratingsCount,
 					author: bookInfo.author,
 					publishedDate: bookInfo.publishedDate,
 					publisher: bookInfo.publisher,
@@ -697,7 +675,7 @@ async function processCustomBook(
 	const bookInfo = await fetchBookInfo(scannedBook.title, author);
 
 	// Only update if we got new information
-		if (bookInfo.coverUrl || bookInfo.description || bookInfo.rating !== null ||
+		if (bookInfo.coverUrl || bookInfo.description ||
 		    bookInfo.publishedDate || bookInfo.publisher || bookInfo.pageCount !== null ||
 		    bookInfo.genres || bookInfo.series || bookInfo.language) {
 
@@ -713,8 +691,6 @@ async function processCustomBook(
 			// Update cache
 			setCachedInfo(cache, scannedBook.title, scannedBook.author, {
 				description: bookInfo.description,
-				rating: bookInfo.rating,
-				ratingsCount: bookInfo.ratingsCount,
 				author: bookInfo.author,
 				publishedDate: bookInfo.publishedDate,
 				publisher: bookInfo.publisher,
@@ -802,13 +778,6 @@ function updateCustomBookFrontmatter(
 	}
 
 	// Add new metadata
-	if (settings.showRatings && bookInfo.rating !== null) {
-		lines.push(`rating: ${bookInfo.rating}`);
-		if (bookInfo.ratingsCount !== null) {
-			lines.push(`ratings_count: ${bookInfo.ratingsCount}`);
-		}
-	}
-
 	if (bookInfo.publishedDate) {
 		lines.push(`published_date: "${escapeYaml(bookInfo.publishedDate)}"`);
 	}

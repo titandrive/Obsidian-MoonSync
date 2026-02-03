@@ -11,7 +11,7 @@ import {
  * Generate a markdown note for a book with its highlights and reading progress
  */
 export function generateBookNote(bookData: BookData, settings: MoonSyncSettings): string {
-	const { book, highlights, statistics, progress, currentChapter, lastReadTimestamp, coverPath, fetchedDescription, rating, ratingsCount, publishedDate, publisher, pageCount, genres, series, isbn10, isbn13, language } = bookData;
+	const { book, highlights, statistics, progress, currentChapter, lastReadTimestamp, coverPath, fetchedDescription, publishedDate, publisher, pageCount, genres, series, isbn10, isbn13, language } = bookData;
 
 	const lines: string[] = [];
 
@@ -39,12 +39,6 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
 	lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
 	lines.push(`highlights_count: ${highlights.length}`);
-	if (settings.showRatings && rating !== null) {
-		lines.push(`rating: ${rating}`);
-		if (ratingsCount !== null) {
-			lines.push(`ratings_count: ${ratingsCount}`);
-		}
-	}
 	if (publishedDate) {
 		lines.push(`published_date: "${escapeYaml(publishedDate)}"`);
 	}
@@ -82,12 +76,6 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	lines.push(`# ${book.title}`);
 	if (book.author) {
 		lines.push(`**Author:** ${book.author}`);
-	}
-	if (settings.showRatings && rating !== null) {
-		const ratingText = ratingsCount !== null
-			? `**Rating:** ⭐ ${rating}/5 (${ratingsCount.toLocaleString()} ratings)`
-			: `**Rating:** ⭐ ${rating}/5`;
-		lines.push(ratingText);
 	}
 	lines.push("");
 

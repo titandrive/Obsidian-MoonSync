@@ -44,8 +44,6 @@ export interface BookData {
 	lastReadTimestamp: number | null; // when the book was last read
 	coverPath: string | null; // path to cover image in vault
 	fetchedDescription: string | null; // description from Google Books/Open Library
-	rating: number | null; // Google Books average rating (1-5)
-	ratingsCount: number | null; // Google Books number of ratings
 	publishedDate: string | null; // publication date
 	publisher: string | null; // publisher name
 	pageCount: number | null; // number of pages
@@ -83,7 +81,7 @@ export const DEFAULT_SETTINGS: MoonSyncSettings = {
 	showReadingProgress: true,
 	showHighlightColors: true,
 	fetchCovers: true,
-	showRatings: true,
+	showRatings: false,
 	showNotes: true,
 	showIndex: true,
 	indexNoteTitle: "1. Library Index",
