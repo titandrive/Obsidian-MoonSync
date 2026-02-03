@@ -1,0 +1,58 @@
+.moonsync-summary-modal {
+	text-align: center;
+	padding: 1em;
+}
+
+.moonsync-summary-modal h2 {
+	margin-bottom: 1.5em;
+}
+
+.moonsync-stats {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 1em;
+	margin-bottom: 2em;
+}
+
+.moonsync-stat-item {
+	padding: 1em;
+	background: var(--background-secondary);
+	border-radius: 8px;
+}
+
+.moonsync-stat-value {
+	font-size: 2em;
+	font-weight: bold;
+	color: var(--text-accent);
+	margin-bottom: 0.25em;
+}
+
+.moonsync-stat-label {
+	font-size: 0.9em;
+	color: var(--text-muted);
+}
+
+.moonsync-settings-link {
+	margin-top: 1.5em;
+	margin-bottom: 0.5em;
+}
+
+.moonsync-settings-link a {
+	color: var(--text-muted);
+	font-size: 0.85em;
+	cursor: pointer;
+	text-decoration: underline;
+}
+
+.moonsync-settings-link a:hover {
+	color: var(--text-accent);
+}
+
+.moonsync-button-container {
+	margin-top: 1em;
+}
+
+.moonsync-button-container button {
+	padding: 0.5em 2em;
+}
+

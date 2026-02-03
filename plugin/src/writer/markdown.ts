@@ -211,9 +211,12 @@ export function generateIndexNote(books: BookData[], settings: MoonSyncSettings)
 				? sortedCovers.slice(0, settings.coverCollageLimit)
 				: sortedCovers;
 
-			// Display covers inline (Obsidian will wrap them naturally)
-			const coverImages = coversToShow.map((b) => `![[${b.coverPath}|80]]`).join(" ");
-			lines.push(coverImages);
+			// Display covers with height constraint using HTML img tags, linked to book notes
+			const coverImgs = coversToShow.map(book => {
+				const noteFilename = generateFilename(book.book.title);
+				return `<a class="internal-link" href="${noteFilename}"><img src="${book.coverPath}" height="120"></a>`;
+			}).join(" ");
+			lines.push(coverImgs);
 			lines.push("");
 		}
 	}

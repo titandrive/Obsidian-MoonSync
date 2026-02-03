@@ -43,7 +43,9 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 				})
 			);
 
-		containerEl.createEl("h3", { text: "Configuration" });
+		const configHeader = containerEl.createEl("h2", { text: "Configuration" });
+		configHeader.createSpan({ text: "\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0" });
+		configHeader.createSpan({ text: "Set up MoonSync.", cls: "setting-item-description" });
 
 		let textComponent: TextComponent;
 
@@ -86,7 +88,9 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Sync" });
+		const syncHeader = containerEl.createEl("h2", { text: "Sync" });
+		syncHeader.createSpan({ text: "\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0" });
+		syncHeader.createSpan({ text: "Control how MoonSync works.", cls: "setting-item-description" });
 
 		new Setting(containerEl)
 			.setName("Sync Now")
@@ -122,7 +126,9 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Note Content" });
+		const noteHeader = containerEl.createEl("h2", { text: "Note Content" });
+		noteHeader.createSpan({ text: "\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0" });
+		noteHeader.createSpan({ text: "Control what data is included in book notes.", cls: "setting-item-description" });
 
 		new Setting(containerEl)
 			.setName("Show Description")
@@ -196,6 +202,10 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
+		const indexHeader = containerEl.createEl("h2", { text: "Index" });
+		indexHeader.createSpan({ text: "\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0" });
+		indexHeader.createSpan({ text: "Control what is shown on the book index page.", cls: "setting-item-description" });
+
 		new Setting(containerEl)
 			.setName("Generate Library Index")
 			.setDesc("Create an index note with summary stats and links to all books")
@@ -264,7 +274,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Support" });
+		containerEl.createEl("h2", { text: "Support" });
 
 		new Setting(containerEl)
 			.setName("Buy me a coffee")

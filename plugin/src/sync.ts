@@ -1,4 +1,5 @@
 import { App, Notice, normalizePath } from "obsidian";
+import { SyncSummaryModal } from "./modal";
 import { parseAnnotationFiles } from "./parser/annotations";
 import { generateBookNote, generateFilename, generateIndexNote } from "./writer/markdown";
 import { fetchBookInfo, downloadCover } from "./covers";
@@ -11,6 +12,9 @@ export interface SyncResult {
 	booksCreated: number;
 	booksUpdated: number;
 	booksSkipped: number;
+	totalHighlights: number;
+	totalNotes: number;
+	isFirstSync: boolean;
 	errors: string[];
 }
 
@@ -28,6 +32,9 @@ export async function syncFromMoonReader(
 		booksCreated: 0,
 		booksUpdated: 0,
 		booksSkipped: 0,
+		totalHighlights: 0,
+		totalNotes: 0,
+		isFirstSync: false,
 		errors: [],
 	};
 
@@ -51,11 +58,22 @@ export async function syncFromMoonReader(
 			return result;
 		}
 
-		// Ensure output folder exists
+		// Check if output folder exists (for first sync detection)
 		const outputPath = normalizePath(settings.outputFolder);
-		if (!(await app.vault.adapter.exists(outputPath))) {
+		const outputFolderExisted = await app.vault.adapter.exists(outputPath);
+		result.isFirstSync = !outputFolderExisted;
+
+		// Ensure output folder exists
+		if (!outputFolderExisted) {
 			await app.vault.createFolder(outputPath);
 		}
+
+		// Calculate total highlights and notes
+		result.totalHighlights = booksWithHighlights.reduce((sum, b) => sum + b.highlights.length, 0);
+		result.totalNotes = booksWithHighlights.reduce(
+			(sum, b) => sum + b.highlights.filter((h) => h.note && h.note.trim()).length,
+			0
+		);
 
 		// Load book info cache
 		const cache = await loadCache(app, outputPath);
@@ -329,10 +347,13 @@ export async function refreshIndexNote(app: App, settings: MoonSyncSettings): Pr
 /**
  * Display sync results to the user
  */
-export function showSyncResults(result: SyncResult): void {
+export function showSyncResults(app: App, result: SyncResult): void {
 	if (result.success) {
 		if (result.booksProcessed === 0) {
 			new Notice("MoonSync: No books with highlights to sync");
+		} else if (result.isFirstSync) {
+			// Show summary modal on first sync
+			new SyncSummaryModal(app, result).open();
 		} else {
 			const parts = [];
 			if (result.booksCreated > 0) parts.push(`${result.booksCreated} new`);

@@ -1,12 +1,12 @@
 # MoonSync
 
-Sync your reading highlights and progress from Moon Reader+ to Obsidian.
+Sync your reading highlights and progress from Moon+ Reader to Obsidian.
 
 ## How It Works
 
-MoonSync is a **read-only** sync plugin. It reads your Moon Reader data from Dropbox and creates markdown notes in your Obsidian vault. It never modifies your Moon Reader data.
+MoonSync is a **read-only** sync plugin. It reads your Moon+ Reader data from Dropbox and creates markdown notes in your Obsidian vault. It never modifies your Moon+ Reader data.
 
-**Data flow:** Moon Reader → Dropbox → MoonSync → Obsidian
+**Data flow:** Moon+ Reader → Dropbox → MoonSync → Obsidian
 
 ### What Gets Synced
 
@@ -19,8 +19,8 @@ MoonSync is a **read-only** sync plugin. It reads your Moon Reader data from Dro
 
 ### Requirements
 
-- Moon Reader+ with Dropbox sync enabled
-- Real-time sync enabled in Moon Reader (syncs to `Dropbox/Apps/Books/.Moon+/Cache/`)
+- Moon+ Reader with Dropbox sync enabled
+- Real-time sync enabled in Moon+ Reader (syncs to `Dropbox/Apps/Books/.Moon+/Cache/`)
 
 ## Installation
 
@@ -48,7 +48,7 @@ MoonSync is a **read-only** sync plugin. It reads your Moon Reader data from Dro
 
 ### Configuration
 
-**Moon Reader Dropbox Path**
+**Moon+ Reader Dropbox Path**
 Path to your Books folder in Dropbox (e.g., `/Users/you/Dropbox/Apps/Books`). The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
 
 **Tip:** On macOS, press `Cmd+Shift+.` in the folder picker to show hidden folders.
@@ -63,6 +63,8 @@ Vault folder where book notes are created. Defaults to `Books`.
 **Sync on Startup** - Automatically sync when Obsidian starts.
 
 **Show Ribbon Icon** - Show sync button in ribbon menu.
+
+On your first sync, a summary modal shows your import stats (books, notes, highlights) with a link to MoonSync settings.
 
 ### Note Content
 
@@ -82,9 +84,17 @@ Vault folder where book notes are created. Defaults to `Books`.
 
 **Show Notes** - Include your personal notes/annotations below highlights.
 
+### Index
+
 **Generate Library Index** - Create an index note with summary stats, cover collage, and links to all books.
 
 **Index Note Title** - Customize the name of the library index note. Defaults to `1. Library Index`.
+
+**Show Cover Collage** - Display clickable book covers at the top of the index. Click any cover to open that book's note.
+
+**Cover Collage Limit** - Maximum number of covers to show (0 = show all).
+
+**Cover Collage Sort** - Sort covers alphabetically or by most recently read.
 
 ## Output Format
 
@@ -133,12 +143,12 @@ Book description from Google Books...
 
 ### Library Index
 
-When enabled, creates `1. Library Index.md` with a cover collage and summary:
+When enabled, creates `1. Library Index.md` with a clickable cover collage (uniform height, click to open book) and summary:
 
 ```markdown
 # 1. Library Index
 
-![[covers/Book Title.jpg|80]] ![[covers/Another Book.jpg|80]]
+<a class="internal-link" href="Book Title"><img src="covers/Book Title.jpg" height="120"></a> <a class="internal-link" href="Another Book"><img src="covers/Another Book.jpg" height="120"></a>
 
 ## Summary
 - **Books:** 5
@@ -153,17 +163,17 @@ When enabled, creates `1. Library Index.md` with a cover collage and summary:
 
 ## Privacy & Security
 
-- **Read-only access**: MoonSync only reads from your Dropbox folder. It never writes to or modifies your Moon Reader data.
+- **Read-only access**: MoonSync only reads from your Dropbox folder. It never writes to or modifies your Moon+ Reader data.
 - **Local processing**: All data stays on your machine. No external servers are contacted except for fetching book covers and metadata (Open Library/Google Books APIs).
 - **No credentials stored**: The plugin accesses Dropbox through your local filesystem, not through any API.
 
 ## Troubleshooting
 
 ### "No annotation files found"
-- Ensure Moon Reader is configured to sync to Dropbox
+- Ensure Moon+ Reader is configured to sync to Dropbox
 - Check that the path points to the folder containing `.Moon+` (usually `Dropbox/Apps/Books`)
-- Make sure real-time sync is enabled in Moon Reader settings
-- Add a highlight to a book and sync in Moon Reader
+- Make sure real-time sync is enabled in Moon+ Reader settings
+- Add a highlight to a book and sync in Moon+ Reader
 
 ### Covers not loading
 - Check your internet connection

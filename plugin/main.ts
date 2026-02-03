@@ -65,7 +65,7 @@ export default class MoonSyncPlugin extends Plugin {
 				this.settings,
 				wasmPath
 			);
-			showSyncResults(result);
+			showSyncResults(this.app, result);
 		} catch (error) {
 			console.error("MoonSync sync error:", error);
 			new Notice(`MoonSync: Sync failed - ${error}`);
