@@ -17,7 +17,7 @@ Thumbs.db
 npm-debug.log*
 
 # Test vault and example data
-Moonsync/
+MoonSync Vault/
 example-data/
 vault/
 
