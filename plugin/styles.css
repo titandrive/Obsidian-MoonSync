@@ -214,15 +214,6 @@
 	border-bottom-color: var(--interactive-accent);
 }
 
-/* Tab content visibility */
-.moonsync-tab-content {
-	display: none;
-}
-
-.moonsync-tab-content.active {
-	display: block;
-}
-
 .moonsync-url-description {
 	font-size: 0.9em;
 	color: var(--text-muted);
