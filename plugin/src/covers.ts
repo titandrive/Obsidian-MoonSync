@@ -242,7 +242,8 @@ async function fetchFromGoogleBooks(
 
 	try {
 		// Use field-specific search for better results
-		const query = encodeURIComponent(`intitle:${title} inauthor:${author}`);
+		// Don't encode the field operators (intitle:, inauthor:), only the values
+		const query = `intitle:${encodeURIComponent(title)} inauthor:${encodeURIComponent(author)}`;
 		const searchUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`;
 
 		const response = await requestUrl({ url: searchUrl });
@@ -323,7 +324,8 @@ export async function fetchMultipleBookCovers(
 
 	try {
 		// Fetch from Google Books (supports multiple results)
-		const googleQuery = encodeURIComponent(`intitle:${title} inauthor:${author}`);
+		// Don't encode the field operators (intitle:, inauthor:), only the values
+		const googleQuery = `intitle:${encodeURIComponent(title)} inauthor:${encodeURIComponent(author)}`;
 		const googleUrl = `https://www.googleapis.com/books/v1/volumes?q=${googleQuery}&maxResults=${maxResults}`;
 
 		const googleResponse = await requestUrl({ url: googleUrl });

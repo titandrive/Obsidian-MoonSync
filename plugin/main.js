@@ -330,8 +330,260 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
 var import_obsidian6 = require("obsidian");
 
 // src/modal.ts
+var import_obsidian3 = require("obsidian");
+
+// src/covers.ts
 var import_obsidian2 = require("obsidian");
-var SyncSummaryModal = class extends import_obsidian2.Modal {
+async function fetchBookInfo(title, author) {
+  const [openLibraryResult, googleBooksResult] = await Promise.all([
+    fetchFromOpenLibrary(title, author),
+    fetchFromGoogleBooks(title, author)
+  ]);
+  const coverUrl = openLibraryResult.coverUrl || googleBooksResult.coverUrl;
+  const description = googleBooksResult.description || openLibraryResult.description;
+  const fetchedTitle = googleBooksResult.title || openLibraryResult.title;
+  const fetchedAuthor = googleBooksResult.author || openLibraryResult.author;
+  const publishedDate = googleBooksResult.publishedDate || openLibraryResult.publishedDate;
+  const publisher = googleBooksResult.publisher || openLibraryResult.publisher;
+  const pageCount = googleBooksResult.pageCount || openLibraryResult.pageCount;
+  const language = googleBooksResult.language || openLibraryResult.language;
+  const genres = [];
+  if (googleBooksResult.genres) {
+    genres.push(...googleBooksResult.genres);
+  }
+  if (openLibraryResult.genres) {
+    for (const genre of openLibraryResult.genres) {
+      if (!genres.some((g) => g.toLowerCase() === genre.toLowerCase())) {
+        genres.push(genre);
+      }
+    }
+  }
+  const series = openLibraryResult.series;
+  let source = null;
+  if (coverUrl || description) {
+    source = googleBooksResult.description ? "googlebooks" : "openlibrary";
+  }
+  return {
+    title: fetchedTitle,
+    coverUrl,
+    description,
+    author: fetchedAuthor,
+    source,
+    publishedDate,
+    publisher,
+    pageCount,
+    genres: genres.length > 0 ? genres : null,
+    series,
+    language
+  };
+}
+async function fetchFromOpenLibrary(title, author) {
+  const result = {
+    title: null,
+    coverUrl: null,
+    description: null,
+    author: null,
+    publishedDate: null,
+    publisher: null,
+    pageCount: null,
+    genres: null,
+    series: null,
+    language: null
+  };
+  try {
+    const query = encodeURIComponent(`${title} ${author}`);
+    const searchUrl = `https://openlibrary.org/search.json?q=${query}&limit=1`;
+    const response = await (0, import_obsidian2.requestUrl)({ url: searchUrl });
+    const data = response.json;
+    if (data.docs && data.docs.length > 0) {
+      const book = data.docs[0];
+      if (book.title) {
+        result.title = book.title;
+      }
+      if (book.cover_i) {
+        result.coverUrl = `https://covers.openlibrary.org/b/id/${book.cover_i}-L.jpg`;
+      } else if (book.isbn && book.isbn.length > 0) {
+        result.coverUrl = `https://covers.openlibrary.org/b/isbn/${book.isbn[0]}-L.jpg`;
+      }
+      if (book.author_name && book.author_name.length > 0) {
+        result.author = book.author_name[0];
+      }
+      if (book.first_publish_year) {
+        result.publishedDate = book.first_publish_year.toString();
+      }
+      if (book.publisher && book.publisher.length > 0) {
+        result.publisher = book.publisher[0];
+      }
+      if (book.number_of_pages_median) {
+        result.pageCount = book.number_of_pages_median;
+      }
+      if (book.subject && book.subject.length > 0) {
+        result.genres = book.subject.slice(0, 5);
+      }
+      if (book.language && book.language.length > 0) {
+        result.language = book.language[0];
+      }
+      if (book.key) {
+        try {
+          const workUrl = `https://openlibrary.org${book.key}.json`;
+          const workResponse = await (0, import_obsidian2.requestUrl)({ url: workUrl });
+          const workData = workResponse.json;
+          if (workData.description) {
+            result.description = typeof workData.description === "string" ? workData.description : workData.description.value || null;
+          }
+          if (workData.series && workData.series.length > 0) {
+            result.series = workData.series[0];
+          }
+        } catch (e) {
+        }
+      }
+    }
+  } catch (error) {
+    console.log("MoonSync: Open Library search failed", error);
+  }
+  return result;
+}
+async function fetchFromGoogleBooks(title, author) {
+  var _a;
+  const result = {
+    title: null,
+    coverUrl: null,
+    description: null,
+    author: null,
+    publishedDate: null,
+    publisher: null,
+    pageCount: null,
+    genres: null,
+    language: null
+  };
+  try {
+    const query = `intitle:${encodeURIComponent(title)} inauthor:${encodeURIComponent(author)}`;
+    const searchUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`;
+    const response = await (0, import_obsidian2.requestUrl)({ url: searchUrl });
+    const data = response.json;
+    if (data.items && data.items.length > 0) {
+      const book = data.items[0];
+      const volumeInfo = book.volumeInfo;
+      if (volumeInfo == null ? void 0 : volumeInfo.title) {
+        result.title = volumeInfo.title;
+      }
+      const imageLinks = volumeInfo == null ? void 0 : volumeInfo.imageLinks;
+      if (imageLinks) {
+        result.coverUrl = (_a = imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail) == null ? void 0 : _a.replace("http://", "https://");
+      }
+      if (volumeInfo == null ? void 0 : volumeInfo.description) {
+        result.description = volumeInfo.description;
+      }
+      if ((volumeInfo == null ? void 0 : volumeInfo.authors) && volumeInfo.authors.length > 0) {
+        result.author = volumeInfo.authors[0];
+      }
+      if (volumeInfo == null ? void 0 : volumeInfo.publishedDate) {
+        result.publishedDate = volumeInfo.publishedDate;
+      }
+      if (volumeInfo == null ? void 0 : volumeInfo.publisher) {
+        result.publisher = volumeInfo.publisher;
+      }
+      if (volumeInfo == null ? void 0 : volumeInfo.pageCount) {
+        result.pageCount = volumeInfo.pageCount;
+      }
+      if ((volumeInfo == null ? void 0 : volumeInfo.categories) && volumeInfo.categories.length > 0) {
+        result.genres = volumeInfo.categories;
+      }
+      if (volumeInfo == null ? void 0 : volumeInfo.language) {
+        result.language = volumeInfo.language;
+      }
+    }
+  } catch (error) {
+    console.log("MoonSync: Google Books search failed", error);
+  }
+  return result;
+}
+async function fetchMultipleBookCovers(title, author, maxResults = 5) {
+  var _a, _b, _c, _d, _e, _f, _g;
+  const results = [];
+  try {
+    const googleQuery = `intitle:${encodeURIComponent(title)} inauthor:${encodeURIComponent(author)}`;
+    const googleUrl = `https://www.googleapis.com/books/v1/volumes?q=${googleQuery}&maxResults=${maxResults}`;
+    const googleResponse = await (0, import_obsidian2.requestUrl)({ url: googleUrl });
+    const googleData = googleResponse.json;
+    if (googleData.items && googleData.items.length > 0) {
+      for (const book of googleData.items) {
+        const volumeInfo = book.volumeInfo;
+        const imageLinks = volumeInfo == null ? void 0 : volumeInfo.imageLinks;
+        if (imageLinks) {
+          const coverUrl = (_a = imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail) == null ? void 0 : _a.replace("http://", "https://");
+          if (coverUrl) {
+            results.push({
+              title: (volumeInfo == null ? void 0 : volumeInfo.title) || null,
+              author: ((_b = volumeInfo == null ? void 0 : volumeInfo.authors) == null ? void 0 : _b[0]) || null,
+              coverUrl,
+              description: (volumeInfo == null ? void 0 : volumeInfo.description) || null,
+              source: "googlebooks",
+              publishedDate: (volumeInfo == null ? void 0 : volumeInfo.publishedDate) || null,
+              publisher: (volumeInfo == null ? void 0 : volumeInfo.publisher) || null,
+              pageCount: (volumeInfo == null ? void 0 : volumeInfo.pageCount) || null,
+              genres: (volumeInfo == null ? void 0 : volumeInfo.categories) || null,
+              series: null,
+              language: (volumeInfo == null ? void 0 : volumeInfo.language) || null
+            });
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.log("MoonSync: Google Books search failed", error);
+  }
+  try {
+    const olQuery = encodeURIComponent(`${title} ${author}`);
+    const olUrl = `https://openlibrary.org/search.json?q=${olQuery}&limit=${maxResults}`;
+    const olResponse = await (0, import_obsidian2.requestUrl)({ url: olUrl });
+    const olData = olResponse.json;
+    if (olData.docs && olData.docs.length > 0) {
+      for (const book of olData.docs) {
+        let coverUrl = null;
+        if (book.cover_i) {
+          coverUrl = `https://covers.openlibrary.org/b/id/${book.cover_i}-L.jpg`;
+        } else if (book.isbn && book.isbn.length > 0) {
+          coverUrl = `https://covers.openlibrary.org/b/isbn/${book.isbn[0]}-L.jpg`;
+        }
+        if (coverUrl) {
+          results.push({
+            title: book.title || null,
+            author: ((_c = book.author_name) == null ? void 0 : _c[0]) || null,
+            coverUrl,
+            description: null,
+            // Would need extra API call per book
+            source: "openlibrary",
+            publishedDate: ((_d = book.first_publish_year) == null ? void 0 : _d.toString()) || null,
+            publisher: ((_e = book.publisher) == null ? void 0 : _e[0]) || null,
+            pageCount: book.number_of_pages_median || null,
+            genres: ((_f = book.subject) == null ? void 0 : _f.slice(0, 5)) || null,
+            series: null,
+            language: ((_g = book.language) == null ? void 0 : _g[0]) || null
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.log("MoonSync: Open Library search failed", error);
+  }
+  const uniqueResults = results.filter(
+    (result, index, self) => index === self.findIndex((r) => r.coverUrl === result.coverUrl)
+  );
+  return uniqueResults;
+}
+async function downloadCover(url) {
+  try {
+    const response = await (0, import_obsidian2.requestUrl)({ url });
+    return response.arrayBuffer;
+  } catch (error) {
+    console.log("MoonSync: Failed to download cover", error);
+    return null;
+  }
+}
+
+// src/modal.ts
+var SyncSummaryModal = class extends import_obsidian3.Modal {
   constructor(app, result) {
     super(app);
     this.result = result;
@@ -368,7 +620,94 @@ var SyncSummaryModal = class extends import_obsidian2.Modal {
     contentEl.empty();
   }
 };
-var CreateBookModal = class extends import_obsidian2.Modal {
+var SelectCoverModal = class extends import_obsidian3.Modal {
+  constructor(app, title, author, onSelect) {
+    super(app);
+    this.resultsContainer = null;
+    this.title = title;
+    this.author = author;
+    this.onSelect = onSelect;
+  }
+  async onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("moonsync-select-cover-modal");
+    contentEl.createEl("h2", { text: "Select Book Cover" });
+    new import_obsidian3.Setting(contentEl).setName("Title").addText((text) => {
+      text.setPlaceholder("Book title").setValue(this.title).onChange((value) => {
+        this.title = value;
+      });
+    });
+    new import_obsidian3.Setting(contentEl).setName("Author").addText((text) => {
+      text.setPlaceholder("Author name").setValue(this.author).onChange((value) => {
+        this.author = value;
+      });
+    });
+    new import_obsidian3.Setting(contentEl).addButton((button) => {
+      button.setButtonText("Search").setCta().onClick(() => this.performSearch());
+    });
+    this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
+    await this.performSearch();
+  }
+  async performSearch() {
+    if (!this.resultsContainer)
+      return;
+    this.resultsContainer.empty();
+    if (!this.title.trim()) {
+      this.resultsContainer.createEl("p", {
+        text: "Please enter a book title.",
+        cls: "setting-item-description"
+      });
+      return;
+    }
+    const loadingEl = this.resultsContainer.createDiv({ cls: "moonsync-loading" });
+    loadingEl.setText("Searching for covers...");
+    const covers = await fetchMultipleBookCovers(this.title, this.author, 10);
+    loadingEl.remove();
+    if (covers.length === 0) {
+      this.resultsContainer.createEl("p", {
+        text: "No covers found. Try a different search query.",
+        cls: "setting-item-description"
+      });
+      return;
+    }
+    this.resultsContainer.createEl("p", {
+      text: `Found ${covers.length} result${covers.length === 1 ? "" : "s"} for "${this.title}"${this.author ? ` by ${this.author}` : ""}`,
+      cls: "moonsync-search-info"
+    });
+    const gridContainer = this.resultsContainer.createDiv({ cls: "moonsync-cover-grid" });
+    for (const cover of covers) {
+      const coverItem = gridContainer.createDiv({ cls: "moonsync-cover-item" });
+      const img = coverItem.createEl("img", {
+        attr: {
+          src: cover.coverUrl || "",
+          alt: cover.title || "Book cover"
+        }
+      });
+      const info = coverItem.createDiv({ cls: "moonsync-cover-info" });
+      if (cover.title) {
+        info.createDiv({ cls: "moonsync-cover-title", text: cover.title });
+      }
+      if (cover.author) {
+        info.createDiv({ cls: "moonsync-cover-author", text: cover.author });
+      }
+      if (cover.publishedDate) {
+        info.createDiv({ cls: "moonsync-cover-year", text: cover.publishedDate });
+      }
+      coverItem.addEventListener("click", () => {
+        if (cover.coverUrl) {
+          this.onSelect(cover.coverUrl);
+          this.close();
+        }
+      });
+    }
+  }
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+};
+var CreateBookModal = class extends import_obsidian3.Modal {
   constructor(app, settings, onSubmit) {
     super(app);
     this.title = "";
@@ -381,12 +720,12 @@ var CreateBookModal = class extends import_obsidian2.Modal {
     contentEl.empty();
     contentEl.addClass("moonsync-create-book-modal");
     contentEl.createEl("h2", { text: "Create Book Note" });
-    new import_obsidian2.Setting(contentEl).setName("Title").setDesc("Book title (required)").addText(
+    new import_obsidian3.Setting(contentEl).setName("Title").setDesc("Book title (required)").addText(
       (text) => text.setPlaceholder("Enter book title").onChange((value) => {
         this.title = value;
       })
     );
-    new import_obsidian2.Setting(contentEl).setName("Author").setDesc("Author name (optional)").addText(
+    new import_obsidian3.Setting(contentEl).setName("Author").setDesc("Author name (optional)").addText(
       (text) => text.setPlaceholder("Enter author name").onChange((value) => {
         this.author = value;
       })
@@ -400,7 +739,7 @@ var CreateBookModal = class extends import_obsidian2.Modal {
     });
     createButton.addEventListener("click", () => {
       if (!this.title.trim()) {
-        new import_obsidian2.Notice("Please enter a book title");
+        new import_obsidian3.Notice("Please enter a book title");
         return;
       }
       this.onSubmit(this.title.trim(), this.author.trim());
@@ -858,7 +1197,7 @@ function generateIndexNote(books, settings) {
     (a, b) => a.book.title.toLowerCase().localeCompare(b.book.title.toLowerCase())
   );
   for (const bookData of sortedBooks) {
-    const filename = generateFilename(bookData.book.title);
+    const filename = bookData.book.filename || generateFilename(bookData.book.title);
     const author = bookData.book.author ? ` by ${bookData.book.author}` : "";
     const progress = bookData.progress !== null ? ` (${bookData.progress.toFixed(0)}%)` : "";
     const highlightCount = bookData.highlights.length;
@@ -951,182 +1290,6 @@ function generateBaseFile(settings) {
   lines.push("      - note.author");
   lines.push("      - note.published_date");
   return lines.join("\n");
-}
-
-// src/covers.ts
-var import_obsidian3 = require("obsidian");
-async function fetchBookInfo(title, author) {
-  const [openLibraryResult, googleBooksResult] = await Promise.all([
-    fetchFromOpenLibrary(title, author),
-    fetchFromGoogleBooks(title, author)
-  ]);
-  const coverUrl = openLibraryResult.coverUrl || googleBooksResult.coverUrl;
-  const description = googleBooksResult.description || openLibraryResult.description;
-  const fetchedTitle = googleBooksResult.title || openLibraryResult.title;
-  const fetchedAuthor = googleBooksResult.author || openLibraryResult.author;
-  const publishedDate = googleBooksResult.publishedDate || openLibraryResult.publishedDate;
-  const publisher = googleBooksResult.publisher || openLibraryResult.publisher;
-  const pageCount = googleBooksResult.pageCount || openLibraryResult.pageCount;
-  const language = googleBooksResult.language || openLibraryResult.language;
-  const genres = [];
-  if (googleBooksResult.genres) {
-    genres.push(...googleBooksResult.genres);
-  }
-  if (openLibraryResult.genres) {
-    for (const genre of openLibraryResult.genres) {
-      if (!genres.some((g) => g.toLowerCase() === genre.toLowerCase())) {
-        genres.push(genre);
-      }
-    }
-  }
-  const series = openLibraryResult.series;
-  let source = null;
-  if (coverUrl || description) {
-    source = googleBooksResult.description ? "googlebooks" : "openlibrary";
-  }
-  return {
-    title: fetchedTitle,
-    coverUrl,
-    description,
-    author: fetchedAuthor,
-    source,
-    publishedDate,
-    publisher,
-    pageCount,
-    genres: genres.length > 0 ? genres : null,
-    series,
-    language
-  };
-}
-async function fetchFromOpenLibrary(title, author) {
-  const result = {
-    title: null,
-    coverUrl: null,
-    description: null,
-    author: null,
-    publishedDate: null,
-    publisher: null,
-    pageCount: null,
-    genres: null,
-    series: null,
-    language: null
-  };
-  try {
-    const query = encodeURIComponent(`${title} ${author}`);
-    const searchUrl = `https://openlibrary.org/search.json?q=${query}&limit=1`;
-    const response = await (0, import_obsidian3.requestUrl)({ url: searchUrl });
-    const data = response.json;
-    if (data.docs && data.docs.length > 0) {
-      const book = data.docs[0];
-      if (book.title) {
-        result.title = book.title;
-      }
-      if (book.cover_i) {
-        result.coverUrl = `https://covers.openlibrary.org/b/id/${book.cover_i}-L.jpg`;
-      } else if (book.isbn && book.isbn.length > 0) {
-        result.coverUrl = `https://covers.openlibrary.org/b/isbn/${book.isbn[0]}-L.jpg`;
-      }
-      if (book.author_name && book.author_name.length > 0) {
-        result.author = book.author_name[0];
-      }
-      if (book.first_publish_year) {
-        result.publishedDate = book.first_publish_year.toString();
-      }
-      if (book.publisher && book.publisher.length > 0) {
-        result.publisher = book.publisher[0];
-      }
-      if (book.number_of_pages_median) {
-        result.pageCount = book.number_of_pages_median;
-      }
-      if (book.subject && book.subject.length > 0) {
-        result.genres = book.subject.slice(0, 5);
-      }
-      if (book.language && book.language.length > 0) {
-        result.language = book.language[0];
-      }
-      if (book.key) {
-        try {
-          const workUrl = `https://openlibrary.org${book.key}.json`;
-          const workResponse = await (0, import_obsidian3.requestUrl)({ url: workUrl });
-          const workData = workResponse.json;
-          if (workData.description) {
-            result.description = typeof workData.description === "string" ? workData.description : workData.description.value || null;
-          }
-          if (workData.series && workData.series.length > 0) {
-            result.series = workData.series[0];
-          }
-        } catch (e) {
-        }
-      }
-    }
-  } catch (error) {
-    console.log("MoonSync: Open Library search failed", error);
-  }
-  return result;
-}
-async function fetchFromGoogleBooks(title, author) {
-  var _a;
-  const result = {
-    title: null,
-    coverUrl: null,
-    description: null,
-    author: null,
-    publishedDate: null,
-    publisher: null,
-    pageCount: null,
-    genres: null,
-    language: null
-  };
-  try {
-    const query = encodeURIComponent(`intitle:${title} inauthor:${author}`);
-    const searchUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`;
-    const response = await (0, import_obsidian3.requestUrl)({ url: searchUrl });
-    const data = response.json;
-    if (data.items && data.items.length > 0) {
-      const book = data.items[0];
-      const volumeInfo = book.volumeInfo;
-      if (volumeInfo == null ? void 0 : volumeInfo.title) {
-        result.title = volumeInfo.title;
-      }
-      const imageLinks = volumeInfo == null ? void 0 : volumeInfo.imageLinks;
-      if (imageLinks) {
-        result.coverUrl = (_a = imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail) == null ? void 0 : _a.replace("http://", "https://");
-      }
-      if (volumeInfo == null ? void 0 : volumeInfo.description) {
-        result.description = volumeInfo.description;
-      }
-      if ((volumeInfo == null ? void 0 : volumeInfo.authors) && volumeInfo.authors.length > 0) {
-        result.author = volumeInfo.authors[0];
-      }
-      if (volumeInfo == null ? void 0 : volumeInfo.publishedDate) {
-        result.publishedDate = volumeInfo.publishedDate;
-      }
-      if (volumeInfo == null ? void 0 : volumeInfo.publisher) {
-        result.publisher = volumeInfo.publisher;
-      }
-      if (volumeInfo == null ? void 0 : volumeInfo.pageCount) {
-        result.pageCount = volumeInfo.pageCount;
-      }
-      if ((volumeInfo == null ? void 0 : volumeInfo.categories) && volumeInfo.categories.length > 0) {
-        result.genres = volumeInfo.categories;
-      }
-      if (volumeInfo == null ? void 0 : volumeInfo.language) {
-        result.language = volumeInfo.language;
-      }
-    }
-  } catch (error) {
-    console.log("MoonSync: Google Books search failed", error);
-  }
-  return result;
-}
-async function downloadCover(url) {
-  try {
-    const response = await (0, import_obsidian3.requestUrl)({ url });
-    return response.arrayBuffer;
-  } catch (error) {
-    console.log("MoonSync: Failed to download cover", error);
-    return null;
-  }
 }
 
 // src/cache.ts
@@ -1229,10 +1392,13 @@ function parseFrontmatter(content, filePath) {
   };
 }
 function scannedBookToBookData(scanned) {
+  const filenameWithExt = scanned.filePath.split("/").pop() || "";
+  const actualFilename = filenameWithExt.replace(/\.md$/, "");
   const book = {
     id: 0,
     title: scanned.title,
-    filename: "",
+    filename: actualFilename,
+    // Store actual filename for index links
     author: scanned.author || "",
     description: "",
     category: "",
@@ -1275,9 +1441,17 @@ function scannedBookToBookData(scanned) {
 }
 function mergeBookLists(moonReaderBooks, scannedBooks) {
   const result = [...moonReaderBooks];
-  const moonReaderTitles = new Set(moonReaderBooks.map((b) => b.book.title.toLowerCase()));
+  const moonReaderMap = /* @__PURE__ */ new Map();
+  for (const book of result) {
+    moonReaderMap.set(book.book.title.toLowerCase(), book);
+  }
   for (const scanned of scannedBooks) {
-    if (!moonReaderTitles.has(scanned.title.toLowerCase())) {
+    const moonReaderBook = moonReaderMap.get(scanned.title.toLowerCase());
+    if (moonReaderBook) {
+      const filenameWithExt = scanned.filePath.split("/").pop() || "";
+      const actualFilename = filenameWithExt.replace(/\.md$/, "");
+      moonReaderBook.book.filename = actualFilename;
+    } else {
       result.push(scannedBookToBookData(scanned));
     }
   }
@@ -1990,6 +2164,11 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       name: "Force Refresh All Metadata",
       callback: () => this.forceRefreshMetadata()
     });
+    this.addCommand({
+      id: "refetch-cover",
+      name: "Re-fetch Book Cover",
+      callback: () => this.refetchBookCover()
+    });
     if (this.settings.syncOnStartup) {
       this.app.workspace.onLayoutReady(() => {
         setTimeout(() => this.runSync(), 2e3);
@@ -2273,5 +2452,96 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       console.error("MoonSync: Failed to import note", error);
       new import_obsidian7.Notice(`MoonSync: Failed to import note - ${error}`);
     }
+  }
+  /**
+   * Re-fetch book cover for the current note
+   */
+  async refetchBookCover() {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      new import_obsidian7.Notice("MoonSync: No active file");
+      return;
+    }
+    try {
+      const content = await this.app.vault.read(activeFile);
+      const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+      if (!frontmatterMatch) {
+        new import_obsidian7.Notice("MoonSync: This file doesn't have frontmatter");
+        return;
+      }
+      const frontmatter = frontmatterMatch[1];
+      const titleMatch = frontmatter.match(/^title:\s*"?([^"\n]+)"?/m);
+      const authorMatch = frontmatter.match(/^author:\s*"?([^"\n]+)"?/m);
+      if (!titleMatch) {
+        new import_obsidian7.Notice("MoonSync: No title found in frontmatter");
+        return;
+      }
+      const title = titleMatch[1].trim().replace(/\\"/g, '"');
+      const author = authorMatch ? authorMatch[1].trim().replace(/\\"/g, '"') : "";
+      new SelectCoverModal(
+        this.app,
+        title,
+        author,
+        async (coverUrl) => {
+          const progressNotice = new import_obsidian7.Notice("MoonSync: Downloading cover...", 0);
+          try {
+            const outputPath = (0, import_obsidian7.normalizePath)(this.settings.outputFolder);
+            const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/covers`);
+            if (!await this.app.vault.adapter.exists(coversFolder)) {
+              await this.app.vault.createFolder(coversFolder);
+            }
+            const filename = generateFilename(title);
+            const coverFilename = `${filename}.jpg`;
+            const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
+            const imageData = await downloadCover(coverUrl);
+            if (!imageData) {
+              progressNotice.hide();
+              new import_obsidian7.Notice("MoonSync: Failed to download cover image");
+              return;
+            }
+            await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
+            const coverPath = `covers/${coverFilename}`;
+            const updatedContent = this.updateFrontmatterCover(content, coverPath);
+            await this.app.vault.modify(activeFile, updatedContent);
+            progressNotice.hide();
+            new import_obsidian7.Notice("MoonSync: Cover updated successfully");
+          } catch (error) {
+            progressNotice.hide();
+            console.error("MoonSync: Failed to download cover", error);
+            new import_obsidian7.Notice(`MoonSync: Failed to download cover - ${error}`);
+          }
+        }
+      ).open();
+    } catch (error) {
+      console.error("MoonSync: Failed to re-fetch cover", error);
+      new import_obsidian7.Notice(`MoonSync: Failed to re-fetch cover - ${error}`);
+    }
+  }
+  /**
+   * Update the cover field in frontmatter
+   */
+  updateFrontmatterCover(content, coverPath) {
+    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!frontmatterMatch) {
+      return content;
+    }
+    const frontmatter = frontmatterMatch[1];
+    const contentAfterFrontmatter = content.slice(frontmatterMatch[0].length);
+    const lines = [];
+    lines.push("---");
+    let coverUpdated = false;
+    for (const line of frontmatter.split("\n")) {
+      if (line.startsWith("cover:")) {
+        lines.push(`cover: "${coverPath}"`);
+        coverUpdated = true;
+      } else {
+        lines.push(line);
+      }
+    }
+    if (!coverUpdated) {
+      lines.push(`cover: "${coverPath}"`);
+    }
+    lines.push("---");
+    return lines.join("\n") + contentAfterFrontmatter;
   }
 };
