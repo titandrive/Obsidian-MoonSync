@@ -42,13 +42,6 @@ export default class MoonSyncPlugin extends Plugin {
 			callback: () => this.importManualExport(),
 		});
 
-		// Add force refresh metadata command
-		this.addCommand({
-			id: "force-refresh-metadata",
-			name: "Force Refresh All Metadata",
-			callback: () => this.forceRefreshMetadata(),
-		});
-
 		// Add fetch cover command
 		this.addCommand({
 			id: "refetch-cover",
@@ -257,25 +250,6 @@ export default class MoonSyncPlugin extends Plugin {
 
 	async refreshBase(): Promise<void> {
 		await refreshBaseFile(this.app, this.settings);
-	}
-
-	async forceRefreshMetadata(): Promise<void> {
-		const notice = new Notice("Force refreshing metadata for all books...", 0);
-
-		try {
-			// Delete cache to force refresh
-			const cacheFile = normalizePath(`${this.settings.outputFolder}/.moonsync-cache.json`);
-			if (await this.app.vault.adapter.exists(cacheFile)) {
-				await this.app.vault.adapter.remove(cacheFile);
-			}
-
-			// Run sync
-			await this.runSync();
-			notice.hide();
-		} catch (error) {
-			notice.hide();
-			new Notice(`Failed to refresh metadata: ${error}`);
-		}
 	}
 
 	/**

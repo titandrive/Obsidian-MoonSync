@@ -2266,11 +2266,6 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       callback: () => this.importManualExport()
     });
     this.addCommand({
-      id: "force-refresh-metadata",
-      name: "Force Refresh All Metadata",
-      callback: () => this.forceRefreshMetadata()
-    });
-    this.addCommand({
       id: "refetch-cover",
       name: "Fetch Book Cover",
       callback: () => this.refetchBookCover()
@@ -2435,20 +2430,6 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
   }
   async refreshBase() {
     await refreshBaseFile(this.app, this.settings);
-  }
-  async forceRefreshMetadata() {
-    const notice = new import_obsidian7.Notice("Force refreshing metadata for all books...", 0);
-    try {
-      const cacheFile = (0, import_obsidian7.normalizePath)(`${this.settings.outputFolder}/.moonsync-cache.json`);
-      if (await this.app.vault.adapter.exists(cacheFile)) {
-        await this.app.vault.adapter.remove(cacheFile);
-      }
-      await this.runSync();
-      notice.hide();
-    } catch (error) {
-      notice.hide();
-      new import_obsidian7.Notice(`Failed to refresh metadata: ${error}`);
-    }
   }
   /**
    * Import a Moon Reader manual export note
