@@ -498,7 +498,7 @@ async function fetchFromGoogleBooks(title, author) {
   }
   return result;
 }
-async function fetchMultipleBookCovers(title, author, maxResults = 5) {
+async function fetchMultipleBookCovers(title, author, maxResults = 10) {
   var _a, _b, _c, _d, _e, _f, _g;
   const results = [];
   try {
@@ -674,7 +674,7 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
     contentEl.createEl("h2", { text: "Fetch Book Cover" });
     const tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
     const searchTab = tabNav.createEl("button", { text: "Search", cls: "moonsync-tab active" });
-    const urlTab = tabNav.createEl("button", { text: "Custom URL", cls: "moonsync-tab" });
+    const urlTab = tabNav.createEl("button", { text: "Import", cls: "moonsync-tab" });
     const searchContent = contentEl.createDiv({ cls: "moonsync-tab-content active" });
     const urlContent = contentEl.createDiv({ cls: "moonsync-tab-content" });
     searchTab.addEventListener("click", () => {

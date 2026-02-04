@@ -178,7 +178,7 @@ export class SelectCoverModal extends Modal {
 		// Tab navigation
 		const tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
 		const searchTab = tabNav.createEl("button", { text: "Search", cls: "moonsync-tab active" });
-		const urlTab = tabNav.createEl("button", { text: "Custom URL", cls: "moonsync-tab" });
+		const urlTab = tabNav.createEl("button", { text: "Import", cls: "moonsync-tab" });
 
 		// Tab content containers
 		const searchContent = contentEl.createDiv({ cls: "moonsync-tab-content active" });

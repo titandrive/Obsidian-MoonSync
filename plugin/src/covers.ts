@@ -318,7 +318,7 @@ async function fetchFromGoogleBooks(
 export async function fetchMultipleBookCovers(
 	title: string,
 	author: string,
-	maxResults: number = 5
+	maxResults: number = 10
 ): Promise<BookInfoResult[]> {
 	const results: BookInfoResult[] = [];
 
