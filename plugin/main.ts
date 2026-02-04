@@ -49,10 +49,10 @@ export default class MoonSyncPlugin extends Plugin {
 			callback: () => this.forceRefreshMetadata(),
 		});
 
-		// Add re-fetch cover command
+		// Add fetch cover command
 		this.addCommand({
 			id: "refetch-cover",
-			name: "Re-fetch Book Cover",
+			name: "Fetch Book Cover",
 			callback: () => this.refetchBookCover(),
 		});
 

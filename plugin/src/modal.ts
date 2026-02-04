@@ -173,33 +173,58 @@ export class SelectCoverModal extends Modal {
 		modalEl.addClass("mod-moonsync-cover");
 
 		// Title
-		contentEl.createEl("h2", { text: "Select Book Cover" });
+		contentEl.createEl("h2", { text: "Fetch Book Cover" });
 
-		// Search fields
-		new Setting(contentEl)
+		// Tab navigation
+		const tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
+		const searchTab = tabNav.createEl("button", { text: "Search", cls: "moonsync-tab active" });
+		const urlTab = tabNav.createEl("button", { text: "Custom URL", cls: "moonsync-tab" });
+
+		// Tab content containers
+		const searchContent = contentEl.createDiv({ cls: "moonsync-tab-content active" });
+		const urlContent = contentEl.createDiv({ cls: "moonsync-tab-content" });
+
+		// Tab switching logic
+		searchTab.addEventListener("click", () => {
+			searchTab.addClass("active");
+			urlTab.removeClass("active");
+			searchContent.addClass("active");
+			urlContent.removeClass("active");
+		});
+
+		urlTab.addEventListener("click", () => {
+			urlTab.addClass("active");
+			searchTab.removeClass("active");
+			urlContent.addClass("active");
+			searchContent.removeClass("active");
+		});
+
+		// === Search Tab Content ===
+		const titleSetting = new Setting(searchContent)
 			.setName("Title")
 			.addText((text) => {
 				text
-					.setPlaceholder("Book title")
+					.setPlaceholder("Enter book title")
 					.setValue(this.title)
 					.onChange((value) => {
 						this.title = value;
 					});
 			});
+		titleSetting.settingEl.addClass("moonsync-labeled-field");
 
-		new Setting(contentEl)
+		const authorSetting = new Setting(searchContent)
 			.setName("Author")
 			.addText((text) => {
 				text
-					.setPlaceholder("Author name")
+					.setPlaceholder("Enter author name")
 					.setValue(this.author)
 					.onChange((value) => {
 						this.author = value;
 					});
 			});
+		authorSetting.settingEl.addClass("moonsync-labeled-field");
 
-		// Search button
-		new Setting(contentEl)
+		new Setting(searchContent)
 			.addButton((button) => {
 				button
 					.setButtonText("Search")
@@ -207,11 +232,17 @@ export class SelectCoverModal extends Modal {
 					.onClick(() => this.performSearch());
 			});
 
-		// Custom URL section
-		contentEl.createEl("h3", { text: "Or use custom URL", cls: "moonsync-custom-url-header" });
+		// Results container (inside search tab)
+		this.resultsContainer = searchContent.createDiv({ cls: "moonsync-cover-results" });
 
-		new Setting(contentEl)
-			.setName("Image URL")
+		// === Custom URL Tab Content ===
+		urlContent.createEl("p", {
+			text: "If search can't find the cover, or you have one you prefer, you can import it here.",
+			cls: "moonsync-url-description"
+		});
+
+		const urlSetting = new Setting(urlContent)
+			.setName("URL")
 			.addText((text) => {
 				text
 					.setPlaceholder("https://example.com/cover.jpg")
@@ -219,11 +250,13 @@ export class SelectCoverModal extends Modal {
 						this.customUrl = value;
 					});
 			});
+		urlSetting.settingEl.addClass("moonsync-labeled-field");
 
-		new Setting(contentEl)
+		new Setting(urlContent)
 			.addButton((button) => {
 				button
-					.setButtonText("Use URL")
+					.setButtonText("Import")
+					.setCta()
 					.onClick(() => {
 						if (this.customUrl.trim()) {
 							this.onSelect(this.customUrl.trim());
@@ -231,9 +264,6 @@ export class SelectCoverModal extends Modal {
 						}
 					});
 			});
-
-		// Results container
-		this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
 
 		// Perform initial search
 		await this.performSearch();

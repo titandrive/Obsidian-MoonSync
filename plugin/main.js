@@ -673,35 +673,58 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
     contentEl.empty();
     contentEl.addClass("moonsync-select-cover-modal");
     modalEl.addClass("mod-moonsync-cover");
-    contentEl.createEl("h2", { text: "Select Book Cover" });
-    new import_obsidian3.Setting(contentEl).setName("Title").addText((text) => {
-      text.setPlaceholder("Book title").setValue(this.title).onChange((value) => {
+    contentEl.createEl("h2", { text: "Fetch Book Cover" });
+    const tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
+    const searchTab = tabNav.createEl("button", { text: "Search", cls: "moonsync-tab active" });
+    const urlTab = tabNav.createEl("button", { text: "Custom URL", cls: "moonsync-tab" });
+    const searchContent = contentEl.createDiv({ cls: "moonsync-tab-content active" });
+    const urlContent = contentEl.createDiv({ cls: "moonsync-tab-content" });
+    searchTab.addEventListener("click", () => {
+      searchTab.addClass("active");
+      urlTab.removeClass("active");
+      searchContent.addClass("active");
+      urlContent.removeClass("active");
+    });
+    urlTab.addEventListener("click", () => {
+      urlTab.addClass("active");
+      searchTab.removeClass("active");
+      urlContent.addClass("active");
+      searchContent.removeClass("active");
+    });
+    const titleSetting = new import_obsidian3.Setting(searchContent).setName("Title").addText((text) => {
+      text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
         this.title = value;
       });
     });
-    new import_obsidian3.Setting(contentEl).setName("Author").addText((text) => {
-      text.setPlaceholder("Author name").setValue(this.author).onChange((value) => {
+    titleSetting.settingEl.addClass("moonsync-labeled-field");
+    const authorSetting = new import_obsidian3.Setting(searchContent).setName("Author").addText((text) => {
+      text.setPlaceholder("Enter author name").setValue(this.author).onChange((value) => {
         this.author = value;
       });
     });
-    new import_obsidian3.Setting(contentEl).addButton((button) => {
+    authorSetting.settingEl.addClass("moonsync-labeled-field");
+    new import_obsidian3.Setting(searchContent).addButton((button) => {
       button.setButtonText("Search").setCta().onClick(() => this.performSearch());
     });
-    contentEl.createEl("h3", { text: "Or use custom URL", cls: "moonsync-custom-url-header" });
-    new import_obsidian3.Setting(contentEl).setName("Image URL").addText((text) => {
+    this.resultsContainer = searchContent.createDiv({ cls: "moonsync-cover-results" });
+    urlContent.createEl("p", {
+      text: "If search can't find the cover, or you have one you prefer, you can import it here.",
+      cls: "moonsync-url-description"
+    });
+    const urlSetting = new import_obsidian3.Setting(urlContent).setName("URL").addText((text) => {
       text.setPlaceholder("https://example.com/cover.jpg").onChange((value) => {
         this.customUrl = value;
       });
     });
-    new import_obsidian3.Setting(contentEl).addButton((button) => {
-      button.setButtonText("Use URL").onClick(() => {
+    urlSetting.settingEl.addClass("moonsync-labeled-field");
+    new import_obsidian3.Setting(urlContent).addButton((button) => {
+      button.setButtonText("Import").setCta().onClick(() => {
         if (this.customUrl.trim()) {
           this.onSelect(this.customUrl.trim());
           this.close();
         }
       });
     });
-    this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
     await this.performSearch();
   }
   async performSearch() {
@@ -2249,7 +2272,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     });
     this.addCommand({
       id: "refetch-cover",
-      name: "Re-fetch Book Cover",
+      name: "Fetch Book Cover",
       callback: () => this.refetchBookCover()
     });
     if (this.settings.syncOnStartup) {
