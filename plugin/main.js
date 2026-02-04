@@ -804,44 +804,232 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
     contentEl.empty();
   }
 };
+var SelectBookMetadataModal = class extends import_obsidian3.Modal {
+  constructor(app, title, author, onSelect) {
+    super(app);
+    this.resultsContainer = null;
+    this.title = title;
+    this.author = author;
+    this.onSelect = onSelect;
+  }
+  async onOpen() {
+    const { contentEl, modalEl } = this;
+    contentEl.empty();
+    contentEl.addClass("moonsync-select-cover-modal");
+    modalEl.addClass("mod-moonsync-cover");
+    contentEl.createEl("h2", { text: "Fetch Book Metadata" });
+    contentEl.createEl("p", {
+      text: "Select a book to replace all metadata including cover, description, and details.",
+      cls: "moonsync-url-description"
+    });
+    const titleSetting = new import_obsidian3.Setting(contentEl).setName("Title").addText((text) => {
+      text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
+        this.title = value;
+      });
+      text.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          this.performSearch();
+        }
+      });
+    });
+    titleSetting.settingEl.addClass("moonsync-labeled-field");
+    const authorSetting = new import_obsidian3.Setting(contentEl).setName("Author").addText((text) => {
+      text.setPlaceholder("Enter author name").setValue(this.author).onChange((value) => {
+        this.author = value;
+      });
+      text.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          this.performSearch();
+        }
+      });
+    });
+    authorSetting.settingEl.addClass("moonsync-labeled-field");
+    new import_obsidian3.Setting(contentEl).addButton((button) => {
+      button.setButtonText("Search").setCta().onClick(() => this.performSearch());
+    });
+    this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
+    setTimeout(() => this.performSearch(), 150);
+  }
+  async performSearch() {
+    if (!this.resultsContainer)
+      return;
+    this.resultsContainer.empty();
+    if (!this.title.trim()) {
+      this.resultsContainer.createEl("p", {
+        text: "Please enter a book title.",
+        cls: "setting-item-description"
+      });
+      return;
+    }
+    const loadingEl = this.resultsContainer.createDiv({ cls: "moonsync-loading" });
+    loadingEl.setText("Searching for books...");
+    const books = await fetchMultipleBookCovers(this.title, this.author, 10);
+    loadingEl.remove();
+    if (books.length === 0) {
+      this.resultsContainer.createEl("p", {
+        text: "No books found. Try a different search query.",
+        cls: "setting-item-description"
+      });
+      return;
+    }
+    this.resultsContainer.createEl("p", {
+      text: `Found ${books.length} result${books.length === 1 ? "" : "s"} for "${this.title}"${this.author ? ` by ${this.author}` : ""}`,
+      cls: "moonsync-search-info"
+    });
+    const gridContainer = this.resultsContainer.createDiv({ cls: "moonsync-cover-grid" });
+    for (const book of books) {
+      const bookItem = gridContainer.createDiv({ cls: "moonsync-cover-item" });
+      if (book.coverUrl) {
+        bookItem.createEl("img", {
+          attr: {
+            src: book.coverUrl,
+            alt: book.title || "Book cover"
+          }
+        });
+      }
+      const info = bookItem.createDiv({ cls: "moonsync-cover-info" });
+      if (book.title) {
+        info.createDiv({ cls: "moonsync-cover-title", text: book.title });
+      }
+      if (book.author) {
+        info.createDiv({ cls: "moonsync-cover-author", text: book.author });
+      }
+      const details = [];
+      if (book.publishedDate) {
+        details.push(book.publishedDate);
+      }
+      if (book.publisher) {
+        details.push(book.publisher);
+      }
+      if (book.pageCount) {
+        details.push(`${book.pageCount} pages`);
+      }
+      if (details.length > 0) {
+        info.createDiv({ cls: "moonsync-cover-year", text: details.join(" \xB7 ") });
+      }
+      bookItem.addEventListener("click", () => {
+        this.onSelect(book);
+        this.close();
+      });
+    }
+  }
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+};
 var CreateBookModal = class extends import_obsidian3.Modal {
   constructor(app, settings, onSubmit) {
     super(app);
     this.title = "";
     this.author = "";
+    this.resultsContainer = null;
     this.settings = settings;
     this.onSubmit = onSubmit;
   }
-  onOpen() {
-    const { contentEl } = this;
+  async onOpen() {
+    const { contentEl, modalEl } = this;
     contentEl.empty();
-    contentEl.addClass("moonsync-create-book-modal");
+    contentEl.addClass("moonsync-select-cover-modal");
+    modalEl.addClass("mod-moonsync-cover");
     contentEl.createEl("h2", { text: "Create Book Note" });
-    new import_obsidian3.Setting(contentEl).setName("Title").setDesc("Book title (required)").addText(
-      (text) => text.setPlaceholder("Enter book title").onChange((value) => {
+    contentEl.createEl("p", {
+      text: "Search for a book and select it to create a note.",
+      cls: "moonsync-url-description"
+    });
+    const titleSetting = new import_obsidian3.Setting(contentEl).setName("Title").addText((text) => {
+      text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
         this.title = value;
-      })
-    );
-    new import_obsidian3.Setting(contentEl).setName("Author").setDesc("Author name (optional)").addText(
-      (text) => text.setPlaceholder("Enter author name").onChange((value) => {
+      });
+      text.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          this.performSearch();
+        }
+      });
+    });
+    titleSetting.settingEl.addClass("moonsync-labeled-field");
+    const authorSetting = new import_obsidian3.Setting(contentEl).setName("Author").addText((text) => {
+      text.setPlaceholder("Enter author name (optional)").setValue(this.author).onChange((value) => {
         this.author = value;
-      })
-    );
-    const buttonContainer = contentEl.createDiv({ cls: "moonsync-button-container" });
-    const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
-    cancelButton.addEventListener("click", () => this.close());
-    const createButton = buttonContainer.createEl("button", {
-      text: "Create",
-      cls: "mod-cta"
+      });
+      text.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          this.performSearch();
+        }
+      });
     });
-    createButton.addEventListener("click", () => {
-      if (!this.title.trim()) {
-        new import_obsidian3.Notice("Please enter a book title");
-        return;
+    authorSetting.settingEl.addClass("moonsync-labeled-field");
+    new import_obsidian3.Setting(contentEl).addButton((button) => {
+      button.setButtonText("Search").setCta().onClick(() => this.performSearch());
+    });
+    this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
+  }
+  async performSearch() {
+    if (!this.resultsContainer)
+      return;
+    this.resultsContainer.empty();
+    if (!this.title.trim()) {
+      this.resultsContainer.createEl("p", {
+        text: "Please enter a book title.",
+        cls: "setting-item-description"
+      });
+      return;
+    }
+    const loadingEl = this.resultsContainer.createDiv({ cls: "moonsync-loading" });
+    loadingEl.setText("Searching for books...");
+    const books = await fetchMultipleBookCovers(this.title, this.author, 10);
+    loadingEl.remove();
+    if (books.length === 0) {
+      this.resultsContainer.createEl("p", {
+        text: "No books found. Try a different search query.",
+        cls: "setting-item-description"
+      });
+      return;
+    }
+    this.resultsContainer.createEl("p", {
+      text: `Found ${books.length} result${books.length === 1 ? "" : "s"} for "${this.title}"${this.author ? ` by ${this.author}` : ""}`,
+      cls: "moonsync-search-info"
+    });
+    const gridContainer = this.resultsContainer.createDiv({ cls: "moonsync-cover-grid" });
+    for (const book of books) {
+      const bookItem = gridContainer.createDiv({ cls: "moonsync-cover-item" });
+      if (book.coverUrl) {
+        bookItem.createEl("img", {
+          attr: {
+            src: book.coverUrl,
+            alt: book.title || "Book cover"
+          }
+        });
       }
-      this.onSubmit(this.title.trim(), this.author.trim());
-      this.close();
-    });
+      const info = bookItem.createDiv({ cls: "moonsync-cover-info" });
+      if (book.title) {
+        info.createDiv({ cls: "moonsync-cover-title", text: book.title });
+      }
+      if (book.author) {
+        info.createDiv({ cls: "moonsync-cover-author", text: book.author });
+      }
+      const details = [];
+      if (book.publishedDate) {
+        details.push(book.publishedDate);
+      }
+      if (book.publisher) {
+        details.push(book.publisher);
+      }
+      if (book.pageCount) {
+        details.push(`${book.pageCount} pages`);
+      }
+      if (details.length > 0) {
+        info.createDiv({ cls: "moonsync-cover-year", text: details.join(" \xB7 ") });
+      }
+      bookItem.addEventListener("click", () => {
+        this.onSubmit(book);
+        this.close();
+      });
+    }
   }
   onClose() {
     const { contentEl } = this;
@@ -1693,11 +1881,13 @@ async function getExistingBookData(app, filePath) {
     const countMatch = content.match(/^highlights_count:\s*(\d+)/m);
     const progressMatch = content.match(/^progress:\s*"?(\d+(?:\.\d+)?)/m);
     const manualNoteMatch = content.match(/^manual_note:\s*true/m);
+    const customMetadataMatch = content.match(/^custom_metadata:\s*true/m);
     if (countMatch) {
       return {
         highlightsCount: parseInt(countMatch[1], 10),
         progress: progressMatch ? parseFloat(progressMatch[1]) : null,
         isManualNote: !!manualNoteMatch,
+        hasCustomMetadata: !!customMetadataMatch,
         fullContent: content
       };
     }
@@ -1770,6 +1960,83 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
   for (const highlight of bookData.highlights) {
     lines.push(formatHighlight(highlight, settings.showHighlightColors, settings.showNotes));
     lines.push("");
+  }
+  return lines.join("\n");
+}
+function mergeCustomMetadataWithHighlights(existingContent, bookData, settings) {
+  const lines = [];
+  const frontmatterMatch = existingContent.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatterMatch) {
+    return generateBookNote(bookData, settings);
+  }
+  const frontmatter = frontmatterMatch[1];
+  let contentAfterFrontmatter = existingContent.slice(frontmatterMatch[0].length);
+  lines.push("---");
+  const frontmatterLines = frontmatter.split("\n");
+  let skipNextLines = false;
+  for (const line of frontmatterLines) {
+    if (line.trim().startsWith("-") && skipNextLines) {
+      continue;
+    }
+    skipNextLines = false;
+    if (line.startsWith("progress:") || line.startsWith("current_chapter:") || line.startsWith("highlights_count:") || line.startsWith("notes_count:") || line.startsWith("last_synced:")) {
+      continue;
+    }
+    lines.push(line);
+  }
+  lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
+  lines.push(`highlights_count: ${bookData.highlights.length}`);
+  const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
+  lines.push(`notes_count: ${notesCount}`);
+  if (settings.showProgress && bookData.progress !== null) {
+    lines.push(`progress: "${bookData.progress.toFixed(1)}%"`);
+    if (bookData.currentChapter) {
+      lines.push(`current_chapter: ${bookData.currentChapter}`);
+    }
+  }
+  lines.push("---");
+  const highlightsHeaderPattern = /\n## Highlights\n/;
+  const nextSectionPattern = /\n## [^H]/;
+  const highlightsMatch = contentAfterFrontmatter.match(highlightsHeaderPattern);
+  if (highlightsMatch && highlightsMatch.index !== void 0) {
+    const beforeHighlights = contentAfterFrontmatter.slice(0, highlightsMatch.index);
+    lines.push(beforeHighlights);
+    const afterHighlightsStart = highlightsMatch.index + highlightsMatch[0].length;
+    const remainingContent = contentAfterFrontmatter.slice(afterHighlightsStart);
+    const nextSectionMatch = remainingContent.match(nextSectionPattern);
+    let afterHighlights = "";
+    if (nextSectionMatch && nextSectionMatch.index !== void 0) {
+      afterHighlights = remainingContent.slice(nextSectionMatch.index);
+    }
+    lines.push("");
+    lines.push("## Highlights");
+    lines.push("");
+    if (settings.showReadingProgress && (bookData.progress !== null || bookData.currentChapter !== null)) {
+      lines.push("**Reading Progress:**");
+      if (bookData.progress !== null) {
+        lines.push(`- Progress: ${bookData.progress.toFixed(1)}%`);
+      }
+      if (bookData.currentChapter !== null) {
+        lines.push(`- Chapter: ${bookData.currentChapter}`);
+      }
+      lines.push("");
+    }
+    for (const highlight of bookData.highlights) {
+      lines.push(formatHighlight(highlight, settings.showHighlightColors, settings.showNotes));
+      lines.push("");
+    }
+    if (afterHighlights) {
+      lines.push(afterHighlights);
+    }
+  } else {
+    lines.push(contentAfterFrontmatter);
+    lines.push("");
+    lines.push("## Highlights");
+    lines.push("");
+    for (const highlight of bookData.highlights) {
+      lines.push(formatHighlight(highlight, settings.showHighlightColors, settings.showNotes));
+      lines.push("");
+    }
   }
   return lines.join("\n");
 }
@@ -1977,6 +2244,8 @@ async function processBook(app, outputPath, bookData, settings, result, cache) {
   let markdown;
   if (fileExists && existingData.isManualNote) {
     markdown = mergeManualNoteWithMoonReader(existingData.fullContent, bookData, settings);
+  } else if (fileExists && existingData.hasCustomMetadata) {
+    markdown = mergeCustomMetadataWithHighlights(existingData.fullContent, bookData, settings);
   } else {
     markdown = generateBookNote(bookData, settings);
   }
@@ -1991,6 +2260,13 @@ async function processBook(app, outputPath, bookData, settings, result, cache) {
 }
 async function processCustomBook(app, outputPath, scannedBook, settings, result, cache) {
   let cacheModified = false;
+  try {
+    const content = await app.vault.adapter.read(scannedBook.filePath);
+    if (/^custom_metadata:\s*true/m.test(content)) {
+      return false;
+    }
+  } catch (e) {
+  }
   const cachedInfo = getCachedInfo(cache, scannedBook.title, scannedBook.author || "");
   if (cachedInfo && cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0 && cachedInfo.genres !== void 0 && cachedInfo.series !== void 0 && cachedInfo.language !== void 0) {
     return false;
@@ -2279,6 +2555,11 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       name: "Fetch Book Cover",
       callback: () => this.refetchBookCover()
     });
+    this.addCommand({
+      id: "fetch-metadata",
+      name: "Fetch Book Metadata",
+      callback: () => this.fetchBookMetadata()
+    });
     if (this.settings.syncOnStartup) {
       this.app.workspace.onLayoutReady(() => {
         setTimeout(() => this.runSync(), 2e3);
@@ -2340,15 +2621,17 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     new CreateBookModal(
       this.app,
       this.settings,
-      async (title, author) => {
-        await this.createBookNote(title, author);
+      async (bookInfo) => {
+        await this.createBookNote(bookInfo);
       }
     ).open();
   }
   /**
-   * Create a new book note with the given title and author
+   * Create a new book note from selected book info
    */
-  async createBookNote(title, author) {
+  async createBookNote(bookInfo) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+    const title = bookInfo.title || "Untitled";
     const progressNotice = new import_obsidian7.Notice("MoonSync: Creating book note...", 0);
     try {
       const outputPath = (0, import_obsidian7.normalizePath)(this.settings.outputFolder);
@@ -2363,60 +2646,36 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
         await this.app.vault.createFolder(outputPath);
       }
       let coverPath = null;
-      let description = null;
-      let rating = null;
-      let ratingsCount = null;
-      let fetchedAuthor = null;
-      let publishedDate = null;
-      let publisher = null;
-      let pageCount = null;
-      let genres = null;
-      let series = null;
-      let language = null;
-      if (this.settings.fetchCovers || this.settings.showDescription || this.settings.showRatings) {
+      if (this.settings.fetchCovers && bookInfo.coverUrl) {
         try {
-          const bookInfo = await fetchBookInfo(title, author);
-          if (this.settings.fetchCovers && bookInfo.coverUrl) {
-            const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/covers`);
-            if (!await this.app.vault.adapter.exists(coversFolder)) {
-              await this.app.vault.createFolder(coversFolder);
-            }
-            const coverFilename = `${filename}.jpg`;
-            const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
-            const imageData = await downloadCover(bookInfo.coverUrl);
-            if (imageData) {
-              await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
-              coverPath = `covers/${coverFilename}`;
-            }
+          const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/covers`);
+          if (!await this.app.vault.adapter.exists(coversFolder)) {
+            await this.app.vault.createFolder(coversFolder);
           }
-          description = bookInfo.description;
-          rating = bookInfo.rating;
-          ratingsCount = bookInfo.ratingsCount;
-          fetchedAuthor = bookInfo.author;
-          publishedDate = bookInfo.publishedDate;
-          publisher = bookInfo.publisher;
-          pageCount = bookInfo.pageCount;
-          genres = bookInfo.genres;
-          series = bookInfo.series;
-          language = bookInfo.language;
+          const coverFilename = `${filename}.jpg`;
+          const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
+          const imageData = await downloadAndResizeCover(bookInfo.coverUrl);
+          if (imageData) {
+            await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
+            coverPath = `covers/${coverFilename}`;
+          }
         } catch (error) {
-          console.log(`MoonSync: Failed to fetch book info for "${title}"`, error);
+          console.log(`MoonSync: Failed to download cover for "${title}"`, error);
         }
       }
-      const finalAuthor = author || fetchedAuthor || "";
       const content = generateBookTemplate(
         title,
-        finalAuthor,
+        bookInfo.author || "",
         coverPath,
-        this.settings.showDescription ? description : null,
-        this.settings.showRatings ? rating : null,
-        this.settings.showRatings ? ratingsCount : null,
-        publishedDate,
-        publisher,
-        pageCount,
-        genres,
-        series,
-        language
+        this.settings.showDescription ? (_a = bookInfo.description) != null ? _a : null : null,
+        this.settings.showRatings ? (_b = bookInfo.rating) != null ? _b : null : null,
+        this.settings.showRatings ? (_c = bookInfo.ratingsCount) != null ? _c : null : null,
+        (_d = bookInfo.publishedDate) != null ? _d : null,
+        (_e = bookInfo.publisher) != null ? _e : null,
+        (_f = bookInfo.pageCount) != null ? _f : null,
+        (_g = bookInfo.genres) != null ? _g : null,
+        (_h = bookInfo.series) != null ? _h : null,
+        (_i = bookInfo.language) != null ? _i : null
       );
       await this.app.vault.create(filePath, content);
       progressNotice.hide();
@@ -2667,6 +2926,198 @@ ${coverEmbed}
 ${coverEmbed}
 `
         );
+      }
+    }
+    return lines.join("\n") + contentAfterFrontmatter;
+  }
+  /**
+   * Fetch and replace all book metadata for the current note
+   */
+  async fetchBookMetadata() {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      new import_obsidian7.Notice("MoonSync: No active file");
+      return;
+    }
+    try {
+      const content = await this.app.vault.read(activeFile);
+      const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+      if (!frontmatterMatch) {
+        new import_obsidian7.Notice("MoonSync: This file doesn't have frontmatter");
+        return;
+      }
+      const frontmatter = frontmatterMatch[1];
+      const titleMatch = frontmatter.match(/^title:\s*"?([^"\n]+)"?/m);
+      const authorMatch = frontmatter.match(/^author:\s*"?([^"\n]+)"?/m);
+      if (!titleMatch) {
+        new import_obsidian7.Notice("MoonSync: No title found in frontmatter");
+        return;
+      }
+      const title = titleMatch[1].trim().replace(/\\"/g, '"');
+      const author = authorMatch ? authorMatch[1].trim().replace(/\\"/g, '"') : "";
+      new SelectBookMetadataModal(
+        this.app,
+        title,
+        author,
+        async (bookInfo) => {
+          var _a;
+          const progressNotice = new import_obsidian7.Notice("MoonSync: Updating metadata...", 0);
+          try {
+            const fileDir = ((_a = activeFile.parent) == null ? void 0 : _a.path) || "";
+            const coversFolder = (0, import_obsidian7.normalizePath)(`${fileDir}/covers`);
+            let coverPath = null;
+            const newTitle = bookInfo.title || title;
+            const newFilename = generateFilename(newTitle);
+            const newFilePath = (0, import_obsidian7.normalizePath)(`${fileDir}/${newFilename}.md`);
+            if (bookInfo.coverUrl) {
+              if (!await this.app.vault.adapter.exists(coversFolder)) {
+                await this.app.vault.createFolder(coversFolder);
+              }
+              const coverFilename = `${newFilename}.jpg`;
+              const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
+              const imageData = await downloadAndResizeCover(bookInfo.coverUrl);
+              if (imageData) {
+                const existingCover = this.app.vault.getAbstractFileByPath(coverFilePath);
+                if (existingCover instanceof import_obsidian7.TFile) {
+                  await this.app.vault.delete(existingCover);
+                }
+                await this.app.vault.createBinary(coverFilePath, imageData);
+                coverPath = `covers/${coverFilename}`;
+              }
+            }
+            const updatedContent = this.updateNoteMetadata(content, bookInfo, coverPath);
+            const contentWithoutEmbed = updatedContent.replace(/!\[\[covers\/[^\]]+\]\]\n?/, "");
+            await this.app.vault.modify(activeFile, contentWithoutEmbed);
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            await this.app.vault.modify(activeFile, updatedContent);
+            if (activeFile.basename !== newFilename) {
+              await this.app.fileManager.renameFile(activeFile, newFilePath);
+            }
+            await refreshIndexNote(this.app, this.settings);
+            progressNotice.hide();
+            new import_obsidian7.Notice("MoonSync: Metadata updated successfully");
+          } catch (error) {
+            progressNotice.hide();
+            console.error("MoonSync: Failed to update metadata", error);
+            new import_obsidian7.Notice(`MoonSync: Failed to update metadata - ${error}`);
+          }
+        }
+      ).open();
+    } catch (error) {
+      console.error("MoonSync: Failed to fetch metadata", error);
+      new import_obsidian7.Notice(`MoonSync: Failed to fetch metadata - ${error}`);
+    }
+  }
+  /**
+   * Update all metadata fields in frontmatter and note body
+   */
+  updateNoteMetadata(content, bookInfo, coverPath) {
+    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!frontmatterMatch) {
+      return content;
+    }
+    const frontmatter = frontmatterMatch[1];
+    let contentAfterFrontmatter = content.slice(frontmatterMatch[0].length);
+    const escapeYaml3 = (str) => str.replace(/"/g, '\\"').replace(/\n/g, " ");
+    const fieldsToReplace = /* @__PURE__ */ new Set(["title", "author", "published_date", "publisher", "page_count", "genres", "series", "language", "cover", "rating", "ratings_count", "custom_metadata"]);
+    const frontmatterLines = [];
+    let skipNextLines = false;
+    for (const line of frontmatter.split("\n")) {
+      if (line.startsWith("  -")) {
+        if (skipNextLines)
+          continue;
+        frontmatterLines.push(line);
+        continue;
+      }
+      skipNextLines = false;
+      const fieldMatch = line.match(/^(\w+):/);
+      if (fieldMatch) {
+        const field = fieldMatch[1];
+        if (fieldsToReplace.has(field)) {
+          if (field === "genres") {
+            skipNextLines = true;
+          }
+          continue;
+        }
+      }
+      frontmatterLines.push(line);
+    }
+    const lines = [];
+    lines.push("---");
+    for (const line of frontmatterLines) {
+      if (line.trim()) {
+        lines.push(line);
+      }
+    }
+    if (bookInfo.title) {
+      lines.push(`title: "${escapeYaml3(bookInfo.title)}"`);
+    }
+    if (bookInfo.author) {
+      lines.push(`author: "${escapeYaml3(bookInfo.author)}"`);
+    }
+    if (bookInfo.publishedDate) {
+      lines.push(`published_date: "${escapeYaml3(bookInfo.publishedDate)}"`);
+    }
+    if (bookInfo.publisher) {
+      lines.push(`publisher: "${escapeYaml3(bookInfo.publisher)}"`);
+    }
+    if (bookInfo.pageCount !== null) {
+      lines.push(`page_count: ${bookInfo.pageCount}`);
+    }
+    if (bookInfo.genres && bookInfo.genres.length > 0) {
+      lines.push(`genres:`);
+      for (const genre of bookInfo.genres) {
+        lines.push(`  - "${escapeYaml3(genre)}"`);
+      }
+    }
+    if (bookInfo.series) {
+      lines.push(`series: "${escapeYaml3(bookInfo.series)}"`);
+    }
+    if (bookInfo.language) {
+      lines.push(`language: "${bookInfo.language}"`);
+    }
+    if (coverPath) {
+      lines.push(`cover: "${coverPath}"`);
+    }
+    lines.push(`custom_metadata: true`);
+    lines.push("---");
+    if (bookInfo.title) {
+      contentAfterFrontmatter = contentAfterFrontmatter.replace(
+        /^(# ).+$/m,
+        `$1${bookInfo.title}`
+      );
+    }
+    if (bookInfo.author) {
+      if (/\*\*Author:\*\*/.test(contentAfterFrontmatter)) {
+        contentAfterFrontmatter = contentAfterFrontmatter.replace(
+          /\*\*Author:\*\*[^\n]*/,
+          `**Author:** ${bookInfo.author}`
+        );
+      }
+    }
+    if (coverPath) {
+      const coverEmbed = `![[${coverPath}|200]]`;
+      const coverEmbedPattern = /!\[\[covers\/[^\]]+\|\d+\]\]/;
+      if (coverEmbedPattern.test(contentAfterFrontmatter)) {
+        contentAfterFrontmatter = contentAfterFrontmatter.replace(coverEmbedPattern, coverEmbed);
+      } else {
+        const authorPattern = /(\*\*Author:\*\*[^\n]*\n)/;
+        const titlePattern = /(# [^\n]+\n)/;
+        if (authorPattern.test(contentAfterFrontmatter)) {
+          contentAfterFrontmatter = contentAfterFrontmatter.replace(
+            authorPattern,
+            `$1
+${coverEmbed}
+`
+          );
+        } else if (titlePattern.test(contentAfterFrontmatter)) {
+          contentAfterFrontmatter = contentAfterFrontmatter.replace(
+            titlePattern,
+            `$1
+${coverEmbed}
+`
+          );
+        }
       }
     }
     return lines.join("\n") + contentAfterFrontmatter;

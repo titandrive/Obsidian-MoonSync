@@ -549,72 +549,160 @@ export class SelectBookMetadataModal extends Modal {
 }
 
 /**
- * Modal for creating a new book note
+ * Modal for creating a new book note with search and selection
  */
 export class CreateBookModal extends Modal {
 	private settings: MoonSyncSettings;
-	private onSubmit: (title: string, author: string) => void;
-
+	private onSubmit: (bookInfo: BookInfoResult) => void;
 	private title = "";
 	private author = "";
+	private resultsContainer: HTMLElement | null = null;
 
 	constructor(
 		app: App,
 		settings: MoonSyncSettings,
-		onSubmit: (title: string, author: string) => void
+		onSubmit: (bookInfo: BookInfoResult) => void
 	) {
 		super(app);
 		this.settings = settings;
 		this.onSubmit = onSubmit;
 	}
 
-	onOpen() {
-		const { contentEl } = this;
+	async onOpen() {
+		const { contentEl, modalEl } = this;
 		contentEl.empty();
-		contentEl.addClass("moonsync-create-book-modal");
+		contentEl.addClass("moonsync-select-cover-modal");
+		modalEl.addClass("mod-moonsync-cover");
 
 		contentEl.createEl("h2", { text: "Create Book Note" });
+		contentEl.createEl("p", {
+			text: "Search for a book and select it to create a note.",
+			cls: "moonsync-url-description"
+		});
 
-		new Setting(contentEl)
+		// Search fields
+		const titleSetting = new Setting(contentEl)
 			.setName("Title")
-			.setDesc("Book title (required)")
-			.addText((text) =>
+			.addText((text) => {
 				text
 					.setPlaceholder("Enter book title")
+					.setValue(this.title)
 					.onChange((value) => {
 						this.title = value;
-					})
-			);
+					});
+				text.inputEl.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						this.performSearch();
+					}
+				});
+			});
+		titleSetting.settingEl.addClass("moonsync-labeled-field");
 
-		new Setting(contentEl)
+		const authorSetting = new Setting(contentEl)
 			.setName("Author")
-			.setDesc("Author name (optional)")
-			.addText((text) =>
+			.addText((text) => {
 				text
-					.setPlaceholder("Enter author name")
+					.setPlaceholder("Enter author name (optional)")
+					.setValue(this.author)
 					.onChange((value) => {
 						this.author = value;
-					})
-			);
+					});
+				text.inputEl.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						this.performSearch();
+					}
+				});
+			});
+		authorSetting.settingEl.addClass("moonsync-labeled-field");
 
-		// Buttons
-		const buttonContainer = contentEl.createDiv({ cls: "moonsync-button-container" });
+		new Setting(contentEl)
+			.addButton((button) => {
+				button
+					.setButtonText("Search")
+					.setCta()
+					.onClick(() => this.performSearch());
+			});
 
-		const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
-		cancelButton.addEventListener("click", () => this.close());
+		// Results container
+		this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
+	}
 
-		const createButton = buttonContainer.createEl("button", {
-			text: "Create",
-			cls: "mod-cta",
+	private async performSearch() {
+		if (!this.resultsContainer) return;
+
+		this.resultsContainer.empty();
+
+		if (!this.title.trim()) {
+			this.resultsContainer.createEl("p", {
+				text: "Please enter a book title.",
+				cls: "setting-item-description"
+			});
+			return;
+		}
+
+		const loadingEl = this.resultsContainer.createDiv({ cls: "moonsync-loading" });
+		loadingEl.setText("Searching for books...");
+
+		const books = await fetchMultipleBookCovers(this.title, this.author, 10);
+
+		loadingEl.remove();
+
+		if (books.length === 0) {
+			this.resultsContainer.createEl("p", {
+				text: "No books found. Try a different search query.",
+				cls: "setting-item-description"
+			});
+			return;
+		}
+
+		this.resultsContainer.createEl("p", {
+			text: `Found ${books.length} result${books.length === 1 ? "" : "s"} for "${this.title}"${this.author ? ` by ${this.author}` : ""}`,
+			cls: "moonsync-search-info"
 		});
-		createButton.addEventListener("click", () => {
-			if (!this.title.trim()) {
-				new Notice("Please enter a book title");
-				return;
+
+		const gridContainer = this.resultsContainer.createDiv({ cls: "moonsync-cover-grid" });
+
+		for (const book of books) {
+			const bookItem = gridContainer.createDiv({ cls: "moonsync-cover-item" });
+
+			if (book.coverUrl) {
+				bookItem.createEl("img", {
+					attr: {
+						src: book.coverUrl,
+						alt: book.title || "Book cover"
+					}
+				});
 			}
-			this.onSubmit(this.title.trim(), this.author.trim());
-			this.close();
-		});
+
+			const info = bookItem.createDiv({ cls: "moonsync-cover-info" });
+			if (book.title) {
+				info.createDiv({ cls: "moonsync-cover-title", text: book.title });
+			}
+			if (book.author) {
+				info.createDiv({ cls: "moonsync-cover-author", text: book.author });
+			}
+
+			const details: string[] = [];
+			if (book.publishedDate) {
+				details.push(book.publishedDate);
+			}
+			if (book.publisher) {
+				details.push(book.publisher);
+			}
+			if (book.pageCount) {
+				details.push(`${book.pageCount} pages`);
+			}
+			if (details.length > 0) {
+				info.createDiv({ cls: "moonsync-cover-year", text: details.join(" · ") });
+			}
+
+			bookItem.addEventListener("click", () => {
+				this.onSubmit(book);
+				this.close();
+			});
+		}
 	}
 
 	onClose() {

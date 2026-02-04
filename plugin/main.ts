@@ -132,16 +132,17 @@ export default class MoonSyncPlugin extends Plugin {
 		new CreateBookModal(
 			this.app,
 			this.settings,
-			async (title: string, author: string) => {
-				await this.createBookNote(title, author);
+			async (bookInfo: BookInfoResult) => {
+				await this.createBookNote(bookInfo);
 			}
 		).open();
 	}
 
 	/**
-	 * Create a new book note with the given title and author
+	 * Create a new book note from selected book info
 	 */
-	async createBookNote(title: string, author: string): Promise<void> {
+	async createBookNote(bookInfo: BookInfoResult): Promise<void> {
+		const title = bookInfo.title || "Untitled";
 		const progressNotice = new Notice("MoonSync: Creating book note...", 0);
 
 		try {
@@ -161,71 +162,41 @@ export default class MoonSyncPlugin extends Plugin {
 				await this.app.vault.createFolder(outputPath);
 			}
 
-			// Fetch book info (cover, description, rating)
+			// Download cover if available
 			let coverPath: string | null = null;
-			let description: string | null = null;
-			let rating: number | null = null;
-			let ratingsCount: number | null = null;
-			let fetchedAuthor: string | null = null;
-		let publishedDate: string | null = null;
-		let publisher: string | null = null;
-		let pageCount: number | null = null;
-		let genres: string[] | null = null;
-		let series: string | null = null;
-		let language: string | null = null;
-
-			if (this.settings.fetchCovers || this.settings.showDescription || this.settings.showRatings) {
+			if (this.settings.fetchCovers && bookInfo.coverUrl) {
 				try {
-					const bookInfo = await fetchBookInfo(title, author);
-
-					// Save cover if enabled
-					if (this.settings.fetchCovers && bookInfo.coverUrl) {
-						const coversFolder = normalizePath(`${outputPath}/covers`);
-						if (!(await this.app.vault.adapter.exists(coversFolder))) {
-							await this.app.vault.createFolder(coversFolder);
-						}
-
-						const coverFilename = `${filename}.jpg`;
-						const coverFilePath = normalizePath(`${coversFolder}/${coverFilename}`);
-						const imageData = await downloadCover(bookInfo.coverUrl);
-						if (imageData) {
-							await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
-							coverPath = `covers/${coverFilename}`;
-						}
+					const coversFolder = normalizePath(`${outputPath}/covers`);
+					if (!(await this.app.vault.adapter.exists(coversFolder))) {
+						await this.app.vault.createFolder(coversFolder);
 					}
 
-					description = bookInfo.description;
-					rating = bookInfo.rating;
-					ratingsCount = bookInfo.ratingsCount;
-					fetchedAuthor = bookInfo.author;
-			publishedDate = bookInfo.publishedDate;
-			publisher = bookInfo.publisher;
-			pageCount = bookInfo.pageCount;
-			genres = bookInfo.genres;
-			series = bookInfo.series;
-			language = bookInfo.language;
+					const coverFilename = `${filename}.jpg`;
+					const coverFilePath = normalizePath(`${coversFolder}/${coverFilename}`);
+					const imageData = await downloadAndResizeCover(bookInfo.coverUrl);
+					if (imageData) {
+						await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
+						coverPath = `covers/${coverFilename}`;
+					}
 				} catch (error) {
-					console.log(`MoonSync: Failed to fetch book info for "${title}"`, error);
+					console.log(`MoonSync: Failed to download cover for "${title}"`, error);
 				}
 			}
-
-			// Use fetched author if none provided
-			const finalAuthor = author || fetchedAuthor || "";
 
 			// Generate the note content
 			const content = generateBookTemplate(
 				title,
-				finalAuthor,
+				bookInfo.author || "",
 				coverPath,
-				this.settings.showDescription ? description : null,
-				this.settings.showRatings ? rating : null,
-				this.settings.showRatings ? ratingsCount : null,
-			publishedDate,
-			publisher,
-			pageCount,
-			genres,
-			series,
-			language
+				this.settings.showDescription ? (bookInfo.description ?? null) : null,
+				this.settings.showRatings ? (bookInfo.rating ?? null) : null,
+				this.settings.showRatings ? (bookInfo.ratingsCount ?? null) : null,
+				bookInfo.publishedDate ?? null,
+				bookInfo.publisher ?? null,
+				bookInfo.pageCount ?? null,
+				bookInfo.genres ?? null,
+				bookInfo.series ?? null,
+				bookInfo.language ?? null
 			);
 
 			// Create the file
