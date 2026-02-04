@@ -53,7 +53,7 @@ export async function syncFromMoonReader(
 		}
 
 		// Parse annotation files from Cache folder (real-time sync)
-		const booksWithHighlights = await parseAnnotationFiles(settings.dropboxPath);
+		const booksWithHighlights = await parseAnnotationFiles(settings.dropboxPath, settings.trackBooksWithoutHighlights);
 
 		if (booksWithHighlights.length === 0) {
 			result.errors.push("No annotation files found in .Moon+/Cache folder");
@@ -1023,7 +1023,7 @@ export async function refreshIndexNote(app: App, settings: MoonSyncSettings): Pr
 		let moonReaderBooks: BookData[] = [];
 		if (settings.dropboxPath) {
 			try {
-				moonReaderBooks = await parseAnnotationFiles(settings.dropboxPath);
+				moonReaderBooks = await parseAnnotationFiles(settings.dropboxPath, settings.trackBooksWithoutHighlights);
 			} catch {
 				// Dropbox path might not be accessible, that's ok for manual-only use
 			}

@@ -154,6 +154,18 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 						this.plugin.updateRibbonIcon();
 					})
 			);
+
+		new Setting(container)
+			.setName("Track Books Without Highlights")
+			.setDesc("Track books you have started reading but have no existing highlights or notes")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.trackBooksWithoutHighlights)
+					.onChange(async (value) => {
+						this.plugin.settings.trackBooksWithoutHighlights = value;
+						await this.plugin.saveSettings();
+					})
+			);
 	}
 
 	private displayContentTab(container: HTMLElement): void {

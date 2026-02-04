@@ -72,6 +72,7 @@ export interface MoonSyncSettings {
 	showCoverCollage: boolean;
 	coverCollageLimit: number; // 0 = all
 	coverCollageSort: "alpha" | "recent";
+	trackBooksWithoutHighlights: boolean;
 }
 
 export const DEFAULT_SETTINGS: MoonSyncSettings = {
@@ -92,6 +93,7 @@ export const DEFAULT_SETTINGS: MoonSyncSettings = {
 	showCoverCollage: true,
 	coverCollageLimit: 0, // 0 = show all
 	coverCollageSort: "alpha",
+	trackBooksWithoutHighlights: false,
 };
 
 // Moon Reader highlight colors (ARGB format)

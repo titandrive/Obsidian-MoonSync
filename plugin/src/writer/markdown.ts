@@ -33,6 +33,9 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	if (currentChapter !== null) {
 		lines.push(`current_chapter: ${currentChapter}`);
 	}
+	if (lastReadTimestamp !== null) {
+		lines.push(`last_read: ${new Date(lastReadTimestamp).toISOString().split("T")[0]}`);
+	}
 	if (statistics?.usedTime) {
 		lines.push(`reading_time: "${formatDuration(statistics.usedTime)}"`);
 	}
@@ -88,13 +91,16 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	}
 
 	// Reading Progress section
-	if (settings.showReadingProgress && (progress !== null || currentChapter !== null)) {
+	if (settings.showReadingProgress && (progress !== null || currentChapter !== null || lastReadTimestamp !== null)) {
 		lines.push("## Reading Progress");
 		if (progress !== null) {
 			lines.push(`- **Progress:** ${progress.toFixed(1)}%`);
 		}
 		if (currentChapter !== null) {
 			lines.push(`- **Chapter:** ${currentChapter}`);
+		}
+		if (lastReadTimestamp !== null) {
+			lines.push(`- **Last Read:** ${formatDate(lastReadTimestamp)}`);
 		}
 		lines.push("");
 	}
@@ -328,6 +334,8 @@ export function generateBaseFile(settings: MoonSyncSettings): string {
 	lines.push("    displayName: Notes");
 	lines.push("  last_synced:");
 	lines.push("    displayName: Last Synced");
+	lines.push("  last_read:");
+	lines.push("    displayName: Last Read");
 	lines.push("  publisher:");
 	lines.push("    displayName: Publisher");
 	lines.push("  series:");
@@ -352,6 +360,7 @@ export function generateBaseFile(settings: MoonSyncSettings): string {
 	lines.push("      - progress");
 	lines.push("      - notes_count");
 	lines.push("      - manual_note");
+	lines.push("      - last_read");
 	lines.push("      - last_synced");
 	lines.push("      - genres");
 	lines.push("      - page_count");
@@ -372,6 +381,7 @@ export function generateBaseFile(settings: MoonSyncSettings): string {
 	lines.push("      - note.page_count");
 	lines.push("      - note.series");
 	lines.push("      - note.language");
+	lines.push("      - note.last_read");
 	lines.push("      - note.last_synced");
 
 	// Gallery/Cards view

@@ -48,7 +48,8 @@ var DEFAULT_SETTINGS = {
   showCoverCollage: true,
   coverCollageLimit: 0,
   // 0 = show all
-  coverCollageSort: "alpha"
+  coverCollageSort: "alpha",
+  trackBooksWithoutHighlights: false
 };
 function getCalloutType(colorInt) {
   const r = colorInt >> 16 & 255;
@@ -173,6 +174,12 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
         this.plugin.settings.showRibbonIcon = value;
         await this.plugin.saveSettings();
         this.plugin.updateRibbonIcon();
+      })
+    );
+    new import_obsidian.Setting(container).setName("Track Books Without Highlights").setDesc("Track books you have started reading but have no existing highlights or notes").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.trackBooksWithoutHighlights).onChange(async (value) => {
+        this.plugin.settings.trackBooksWithoutHighlights = value;
+        await this.plugin.saveSettings();
       })
     );
   }
@@ -1209,7 +1216,7 @@ function parseProgressFile(data) {
   }
   return null;
 }
-async function parseAnnotationFiles(dropboxPath) {
+async function parseAnnotationFiles(dropboxPath, trackBooksWithoutHighlights = false) {
   var _a, _b;
   const cacheDir = (0, import_path.join)(dropboxPath, ".Moon+", "Cache");
   const bookDataMap = /* @__PURE__ */ new Map();
@@ -1271,20 +1278,54 @@ async function parseAnnotationFiles(dropboxPath) {
         const baseName = poFile.replace(/\.epub\.po$/, "").replace(/\.pdf\.po$/, "");
         const parts = baseName.split(" - ");
         let bookTitle = parts[0] || baseName;
+        const author = parts.length > 1 ? parts.slice(1).join(" - ") : "";
         if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
           bookTitle = bookTitle.replace(/_/g, " ");
         }
         const key = bookTitle.toLowerCase();
+        const filePath = (0, import_path.join)(cacheDir, poFile);
+        const data = await (0, import_promises.readFile)(filePath);
+        const progressData = parseProgressFile(data);
         if (bookDataMap.has(key)) {
-          const filePath = (0, import_path.join)(cacheDir, poFile);
-          const data = await (0, import_promises.readFile)(filePath);
-          const progressData = parseProgressFile(data);
           if (progressData !== null) {
             const bookData = bookDataMap.get(key);
             bookData.progress = progressData.progress;
             bookData.currentChapter = progressData.chapter;
             bookData.lastReadTimestamp = progressData.timestamp;
           }
+        } else if (trackBooksWithoutHighlights && progressData !== null) {
+          const book = {
+            id: 0,
+            title: bookTitle,
+            filename: baseName,
+            author,
+            description: "",
+            category: "",
+            thumbFile: "",
+            coverFile: "",
+            addTime: "",
+            favorite: ""
+          };
+          bookDataMap.set(key, {
+            book,
+            highlights: [],
+            statistics: null,
+            progress: progressData.progress,
+            currentChapter: progressData.chapter,
+            lastReadTimestamp: progressData.timestamp,
+            coverPath: null,
+            fetchedDescription: null,
+            rating: null,
+            ratingsCount: null,
+            publishedDate: null,
+            publisher: null,
+            pageCount: null,
+            genres: null,
+            series: null,
+            isbn10: null,
+            isbn13: null,
+            language: null
+          });
         }
       } catch (error) {
         console.log(`MoonSync: Error reading ${poFile}`, error);
@@ -1320,6 +1361,9 @@ function generateBookNote(bookData, settings) {
   }
   if (currentChapter !== null) {
     lines.push(`current_chapter: ${currentChapter}`);
+  }
+  if (lastReadTimestamp !== null) {
+    lines.push(`last_read: ${new Date(lastReadTimestamp).toISOString().split("T")[0]}`);
   }
   if (statistics == null ? void 0 : statistics.usedTime) {
     lines.push(`reading_time: "${formatDuration(statistics.usedTime)}"`);
@@ -1369,13 +1413,16 @@ function generateBookNote(bookData, settings) {
     lines.push(`![[${coverPath}|200]]`);
     lines.push("");
   }
-  if (settings.showReadingProgress && (progress !== null || currentChapter !== null)) {
+  if (settings.showReadingProgress && (progress !== null || currentChapter !== null || lastReadTimestamp !== null)) {
     lines.push("## Reading Progress");
     if (progress !== null) {
       lines.push(`- **Progress:** ${progress.toFixed(1)}%`);
     }
     if (currentChapter !== null) {
       lines.push(`- **Chapter:** ${currentChapter}`);
+    }
+    if (lastReadTimestamp !== null) {
+      lines.push(`- **Last Read:** ${formatDate(lastReadTimestamp)}`);
     }
     lines.push("");
   }
@@ -1522,6 +1569,8 @@ function generateBaseFile(settings) {
   lines.push("    displayName: Notes");
   lines.push("  last_synced:");
   lines.push("    displayName: Last Synced");
+  lines.push("  last_read:");
+  lines.push("    displayName: Last Read");
   lines.push("  publisher:");
   lines.push("    displayName: Publisher");
   lines.push("  series:");
@@ -1542,6 +1591,7 @@ function generateBaseFile(settings) {
   lines.push("      - progress");
   lines.push("      - notes_count");
   lines.push("      - manual_note");
+  lines.push("      - last_read");
   lines.push("      - last_synced");
   lines.push("      - genres");
   lines.push("      - page_count");
@@ -1562,6 +1612,7 @@ function generateBaseFile(settings) {
   lines.push("      - note.page_count");
   lines.push("      - note.series");
   lines.push("      - note.language");
+  lines.push("      - note.last_read");
   lines.push("      - note.last_synced");
   lines.push("  - type: cards");
   lines.push("    name: Gallery");
@@ -1781,7 +1832,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       progressNotice.hide();
       return result;
     }
-    const booksWithHighlights = await parseAnnotationFiles(settings.dropboxPath);
+    const booksWithHighlights = await parseAnnotationFiles(settings.dropboxPath, settings.trackBooksWithoutHighlights);
     if (booksWithHighlights.length === 0) {
       result.errors.push("No annotation files found in .Moon+/Cache folder");
       progressNotice.hide();
@@ -2393,7 +2444,7 @@ async function refreshIndexNote(app, settings) {
     let moonReaderBooks = [];
     if (settings.dropboxPath) {
       try {
-        moonReaderBooks = await parseAnnotationFiles(settings.dropboxPath);
+        moonReaderBooks = await parseAnnotationFiles(settings.dropboxPath, settings.trackBooksWithoutHighlights);
       } catch (e) {
       }
     }

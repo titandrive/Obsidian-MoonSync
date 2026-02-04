@@ -164,7 +164,7 @@ function parseProgressFile(data: Buffer): ProgressData | null {
 /**
  * Read all annotation files from the Cache folder
  */
-export async function parseAnnotationFiles(dropboxPath: string): Promise<BookData[]> {
+export async function parseAnnotationFiles(dropboxPath: string, trackBooksWithoutHighlights: boolean = false): Promise<BookData[]> {
 	const cacheDir = join(dropboxPath, ".Moon+", "Cache");
 	const bookDataMap = new Map<string, BookData>();
 
@@ -236,23 +236,60 @@ export async function parseAnnotationFiles(dropboxPath: string): Promise<BookDat
 				const baseName = poFile.replace(/\.epub\.po$/, "").replace(/\.pdf\.po$/, "");
 				const parts = baseName.split(" - ");
 				let bookTitle = parts[0] || baseName;
+				const author = parts.length > 1 ? parts.slice(1).join(" - ") : "";
 				// Convert underscores to spaces to match the title from inside .an files
 				if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
 					bookTitle = bookTitle.replace(/_/g, " ");
 				}
 				const key = bookTitle.toLowerCase();
 
-				// Only add progress if we have highlights for this book
+				const filePath = join(cacheDir, poFile);
+				const data = await readFile(filePath);
+				const progressData = parseProgressFile(data);
+
 				if (bookDataMap.has(key)) {
-					const filePath = join(cacheDir, poFile);
-					const data = await readFile(filePath);
-					const progressData = parseProgressFile(data);
+					// Add progress to existing book with highlights
 					if (progressData !== null) {
 						const bookData = bookDataMap.get(key)!;
 						bookData.progress = progressData.progress;
 						bookData.currentChapter = progressData.chapter;
 						bookData.lastReadTimestamp = progressData.timestamp;
 					}
+				} else if (trackBooksWithoutHighlights && progressData !== null) {
+					// Create new book entry from .po file only (no highlights)
+					const book: MoonReaderBook = {
+						id: 0,
+						title: bookTitle,
+						filename: baseName,
+						author: author,
+						description: "",
+						category: "",
+						thumbFile: "",
+						coverFile: "",
+						addTime: "",
+						favorite: "",
+					};
+
+					bookDataMap.set(key, {
+						book,
+						highlights: [],
+						statistics: null,
+						progress: progressData.progress,
+						currentChapter: progressData.chapter,
+						lastReadTimestamp: progressData.timestamp,
+						coverPath: null,
+						fetchedDescription: null,
+						rating: null,
+						ratingsCount: null,
+						publishedDate: null,
+						publisher: null,
+						pageCount: null,
+						genres: null,
+						series: null,
+						isbn10: null,
+						isbn13: null,
+						language: null,
+					});
 				}
 			} catch (error) {
 				console.log(`MoonSync: Error reading ${poFile}`, error);
