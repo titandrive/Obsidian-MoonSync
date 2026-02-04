@@ -693,11 +693,23 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
       text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
         this.title = value;
       });
+      text.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          this.performSearch();
+        }
+      });
     });
     titleSetting.settingEl.addClass("moonsync-labeled-field");
     const authorSetting = new import_obsidian3.Setting(searchContent).setName("Author").addText((text) => {
       text.setPlaceholder("Enter author name").setValue(this.author).onChange((value) => {
         this.author = value;
+      });
+      text.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          this.performSearch();
+        }
       });
     });
     authorSetting.settingEl.addClass("moonsync-labeled-field");
@@ -712,6 +724,15 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
     const urlSetting = new import_obsidian3.Setting(urlContent).setName("URL").addText((text) => {
       text.setPlaceholder("https://example.com/cover.jpg").onChange((value) => {
         this.customUrl = value;
+      });
+      text.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (this.customUrl.trim()) {
+            this.onSelect(this.customUrl.trim());
+            this.close();
+          }
+        }
       });
     });
     urlSetting.settingEl.addClass("moonsync-labeled-field");

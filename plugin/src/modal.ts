@@ -209,6 +209,12 @@ export class SelectCoverModal extends Modal {
 					.onChange((value) => {
 						this.title = value;
 					});
+				text.inputEl.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						this.performSearch();
+					}
+				});
 			});
 		titleSetting.settingEl.addClass("moonsync-labeled-field");
 
@@ -221,6 +227,12 @@ export class SelectCoverModal extends Modal {
 					.onChange((value) => {
 						this.author = value;
 					});
+				text.inputEl.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						this.performSearch();
+					}
+				});
 			});
 		authorSetting.settingEl.addClass("moonsync-labeled-field");
 
@@ -249,6 +261,15 @@ export class SelectCoverModal extends Modal {
 					.onChange((value) => {
 						this.customUrl = value;
 					});
+				text.inputEl.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						if (this.customUrl.trim()) {
+							this.onSelect(this.customUrl.trim());
+							this.close();
+						}
+					}
+				});
 			});
 		urlSetting.settingEl.addClass("moonsync-labeled-field");
 
