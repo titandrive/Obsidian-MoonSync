@@ -11,6 +11,7 @@ import { join } from "path";
 export default class MoonSyncPlugin extends Plugin {
 	settings: MoonSyncSettings = DEFAULT_SETTINGS;
 	ribbonIconEl: HTMLElement | null = null;
+	styleEl: HTMLStyleElement | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -20,6 +21,9 @@ export default class MoonSyncPlugin extends Plugin {
 
 		// Add ribbon icon if enabled
 		this.updateRibbonIcon();
+
+		// Initialize cover visibility CSS
+		this.updateCoverVisibility();
 
 		// Add sync command
 		this.addCommand({
@@ -65,6 +69,14 @@ export default class MoonSyncPlugin extends Plugin {
 		}
 	}
 
+	onunload() {
+		// Clean up injected style element
+		if (this.styleEl) {
+			this.styleEl.remove();
+			this.styleEl = null;
+		}
+	}
+
 	updateRibbonIcon() {
 		// Remove existing icon if present
 		if (this.ribbonIconEl) {
@@ -80,6 +92,25 @@ export default class MoonSyncPlugin extends Plugin {
 				() => this.runSync()
 			);
 		}
+	}
+
+	updateCoverVisibility() {
+		// Remove existing style element if present
+		if (this.styleEl) {
+			this.styleEl.remove();
+			this.styleEl = null;
+		}
+
+		// Create new style element
+		this.styleEl = document.createElement("style");
+		this.styleEl.id = "moonsync-cover-visibility";
+
+		// If covers should be hidden, add CSS to hide them
+		if (!this.settings.showCovers) {
+			this.styleEl.textContent = `.internal-embed[src*="covers/"] { display: none !important; }`;
+		}
+
+		document.head.appendChild(this.styleEl);
 	}
 
 	async runSync(): Promise<void> {
@@ -164,7 +195,7 @@ export default class MoonSyncPlugin extends Plugin {
 
 			// Download cover if available
 			let coverPath: string | null = null;
-			if (this.settings.fetchCovers && bookInfo.coverUrl) {
+			if (bookInfo.coverUrl) {
 				try {
 					const coversFolder = normalizePath(`${outputPath}/covers`);
 					if (!(await this.app.vault.adapter.exists(coversFolder))) {
@@ -280,36 +311,34 @@ export default class MoonSyncPlugin extends Plugin {
 			let series: string | null = null;
 			let language: string | null = null;
 
-			if (this.settings.fetchCovers || this.settings.showDescription) {
-				try {
-					const bookInfo = await fetchBookInfo(exportData.title, exportData.author);
+			try {
+				const bookInfo = await fetchBookInfo(exportData.title, exportData.author);
 
-					// Save cover if enabled
-					if (this.settings.fetchCovers && bookInfo.coverUrl) {
-						const coversFolder = normalizePath(`${outputPath}/covers`);
-						if (!(await this.app.vault.adapter.exists(coversFolder))) {
-							await this.app.vault.createFolder(coversFolder);
-						}
-
-						const coverFilename = `${filename}.jpg`;
-						const coverFilePath = normalizePath(`${coversFolder}/${coverFilename}`);
-						const imageData = await downloadCover(bookInfo.coverUrl);
-						if (imageData) {
-							await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
-							coverPath = `covers/${coverFilename}`;
-						}
+				// Save cover if available
+				if (bookInfo.coverUrl) {
+					const coversFolder = normalizePath(`${outputPath}/covers`);
+					if (!(await this.app.vault.adapter.exists(coversFolder))) {
+						await this.app.vault.createFolder(coversFolder);
 					}
 
-					description = bookInfo.description;
-					publishedDate = bookInfo.publishedDate;
-					publisher = bookInfo.publisher;
-					pageCount = bookInfo.pageCount;
-					genres = bookInfo.genres;
-					series = bookInfo.series;
-					language = bookInfo.language;
-				} catch (error) {
-					console.log(`MoonSync: Failed to fetch book info for "${exportData.title}"`, error);
+					const coverFilename = `${filename}.jpg`;
+					const coverFilePath = normalizePath(`${coversFolder}/${coverFilename}`);
+					const imageData = await downloadCover(bookInfo.coverUrl);
+					if (imageData) {
+						await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
+						coverPath = `covers/${coverFilename}`;
+					}
 				}
+
+				description = bookInfo.description;
+				publishedDate = bookInfo.publishedDate;
+				publisher = bookInfo.publisher;
+				pageCount = bookInfo.pageCount;
+				genres = bookInfo.genres;
+				series = bookInfo.series;
+				language = bookInfo.language;
+			} catch (error) {
+				console.log(`MoonSync: Failed to fetch book info for "${exportData.title}"`, error);
 			}
 
 			// Create BookData structure

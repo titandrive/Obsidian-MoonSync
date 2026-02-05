@@ -38,7 +38,7 @@ var DEFAULT_SETTINGS = {
   showDescription: true,
   showReadingProgress: true,
   showHighlightColors: true,
-  fetchCovers: true,
+  showCovers: true,
   showRatings: false,
   showNotes: true,
   showIndex: true,
@@ -210,10 +210,11 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(container).setName("Fetch Book Covers").setDesc("Download book covers from Open Library/Google Books. Covers are saved in a 'covers' subfolder.").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.fetchCovers).onChange(async (value) => {
-        this.plugin.settings.fetchCovers = value;
+    new import_obsidian.Setting(container).setName("Show Book Covers").setDesc("Display book covers in notes. Covers are always downloaded to the 'covers' subfolder.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.showCovers).onChange(async (value) => {
+        this.plugin.settings.showCovers = value;
         await this.plugin.saveSettings();
+        this.plugin.updateCoverVisibility();
       })
     );
     new import_obsidian.Setting(container).setName("Show Notes").setDesc("Include your personal notes/annotations below highlights").addToggle(
@@ -2238,7 +2239,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache) {
           bookData.book.title,
           bookData.book.author
         );
-        if (settings.fetchCovers && bookInfo.coverUrl && !coverExists) {
+        if (bookInfo.coverUrl && !coverExists) {
           if (!await app.vault.adapter.exists(coversFolder)) {
             await app.vault.createFolder(coversFolder);
           }
@@ -2288,7 +2289,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache) {
         console.log(`MoonSync: Failed to fetch book info for "${bookData.book.title}"`, error);
       }
     }
-    if (settings.fetchCovers && coverExists) {
+    if (coverExists) {
       bookData.coverPath = `covers/${coverFilename}`;
     }
   }
@@ -2581,11 +2582,13 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
     this.ribbonIconEl = null;
+    this.styleEl = null;
   }
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new MoonSyncSettingTab(this.app, this));
     this.updateRibbonIcon();
+    this.updateCoverVisibility();
     this.addCommand({
       id: "sync-now",
       name: "Sync Now",
@@ -2617,6 +2620,12 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       });
     }
   }
+  onunload() {
+    if (this.styleEl) {
+      this.styleEl.remove();
+      this.styleEl = null;
+    }
+  }
   updateRibbonIcon() {
     if (this.ribbonIconEl) {
       this.ribbonIconEl.remove();
@@ -2629,6 +2638,18 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
         () => this.runSync()
       );
     }
+  }
+  updateCoverVisibility() {
+    if (this.styleEl) {
+      this.styleEl.remove();
+      this.styleEl = null;
+    }
+    this.styleEl = document.createElement("style");
+    this.styleEl.id = "moonsync-cover-visibility";
+    if (!this.settings.showCovers) {
+      this.styleEl.textContent = `.internal-embed[src*="covers/"] { display: none !important; }`;
+    }
+    document.head.appendChild(this.styleEl);
   }
   async runSync() {
     if (!this.settings.dropboxPath) {
@@ -2697,7 +2718,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
         await this.app.vault.createFolder(outputPath);
       }
       let coverPath = null;
-      if (this.settings.fetchCovers && bookInfo.coverUrl) {
+      if (bookInfo.coverUrl) {
         try {
           const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/covers`);
           if (!await this.app.vault.adapter.exists(coversFolder)) {
@@ -2787,32 +2808,30 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       let genres = null;
       let series = null;
       let language = null;
-      if (this.settings.fetchCovers || this.settings.showDescription) {
-        try {
-          const bookInfo = await fetchBookInfo(exportData.title, exportData.author);
-          if (this.settings.fetchCovers && bookInfo.coverUrl) {
-            const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/covers`);
-            if (!await this.app.vault.adapter.exists(coversFolder)) {
-              await this.app.vault.createFolder(coversFolder);
-            }
-            const coverFilename = `${filename}.jpg`;
-            const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
-            const imageData = await downloadCover(bookInfo.coverUrl);
-            if (imageData) {
-              await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
-              coverPath = `covers/${coverFilename}`;
-            }
+      try {
+        const bookInfo = await fetchBookInfo(exportData.title, exportData.author);
+        if (bookInfo.coverUrl) {
+          const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/covers`);
+          if (!await this.app.vault.adapter.exists(coversFolder)) {
+            await this.app.vault.createFolder(coversFolder);
           }
-          description = bookInfo.description;
-          publishedDate = bookInfo.publishedDate;
-          publisher = bookInfo.publisher;
-          pageCount = bookInfo.pageCount;
-          genres = bookInfo.genres;
-          series = bookInfo.series;
-          language = bookInfo.language;
-        } catch (error) {
-          console.log(`MoonSync: Failed to fetch book info for "${exportData.title}"`, error);
+          const coverFilename = `${filename}.jpg`;
+          const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
+          const imageData = await downloadCover(bookInfo.coverUrl);
+          if (imageData) {
+            await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
+            coverPath = `covers/${coverFilename}`;
+          }
         }
+        description = bookInfo.description;
+        publishedDate = bookInfo.publishedDate;
+        publisher = bookInfo.publisher;
+        pageCount = bookInfo.pageCount;
+        genres = bookInfo.genres;
+        series = bookInfo.series;
+        language = bookInfo.language;
+      } catch (error) {
+        console.log(`MoonSync: Failed to fetch book info for "${exportData.title}"`, error);
       }
       const bookData = {
         book: {

@@ -221,14 +221,15 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(container)
-			.setName("Fetch Book Covers")
-			.setDesc("Download book covers from Open Library/Google Books. Covers are saved in a 'covers' subfolder.")
+			.setName("Show Book Covers")
+			.setDesc("Display book covers in notes. Covers are always downloaded to the 'covers' subfolder.")
 			.addToggle((toggle) =>
 				toggle
-					.setValue(this.plugin.settings.fetchCovers)
+					.setValue(this.plugin.settings.showCovers)
 					.onChange(async (value) => {
-						this.plugin.settings.fetchCovers = value;
+						this.plugin.settings.showCovers = value;
 						await this.plugin.saveSettings();
+						this.plugin.updateCoverVisibility();
 					})
 			);
 

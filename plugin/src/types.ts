@@ -62,7 +62,7 @@ export interface MoonSyncSettings {
 	showDescription: boolean;
 	showReadingProgress: boolean;
 	showHighlightColors: boolean;
-	fetchCovers: boolean;
+	showCovers: boolean;
 	showRatings: boolean;
 	showNotes: boolean;
 	showIndex: boolean;
@@ -83,7 +83,7 @@ export const DEFAULT_SETTINGS: MoonSyncSettings = {
 	showDescription: true,
 	showReadingProgress: true,
 	showHighlightColors: true,
-	fetchCovers: true,
+	showCovers: true,
 	showRatings: false,
 	showNotes: true,
 	showIndex: true,

@@ -684,8 +684,8 @@ async function processBook(
 					bookData.book.author
 				);
 
-				// Save cover if fetched and enabled
-				if (settings.fetchCovers && bookInfo.coverUrl && !coverExists) {
+				// Save cover if fetched (covers are always downloaded)
+				if (bookInfo.coverUrl && !coverExists) {
 					// Ensure covers folder exists
 					if (!(await app.vault.adapter.exists(coversFolder))) {
 						await app.vault.createFolder(coversFolder);
@@ -751,7 +751,7 @@ async function processBook(
 		}
 
 		// Set cover path if cover already exists
-		if (settings.fetchCovers && coverExists) {
+		if (coverExists) {
 			bookData.coverPath = `covers/${coverFilename}`;
 		}
 	}
