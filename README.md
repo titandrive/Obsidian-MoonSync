@@ -2,6 +2,7 @@
 
 Sync your reading highlights, notes, and progress from Moon+ Reader to Obsidian. MoonSync supports both automatic synchronization using Dropbox or via manual exports. 
 
+![Book note example](BookScreenshot.png)
 ## How It Works
 Whenever you sync a book to the cloud in Moon Reader, it saves this data to two cache files in Dropbox. These files cotnain all of your book's meta data including highlights, notes, reading progress and book information. MoonSync reads this data and syncs it to your Obsidian vault. 
 
@@ -120,118 +121,62 @@ These settings configure how MoonSync works.
 
 ### Content Tab
 These settings configure what information is shown on your book notes. 
+
 #### Note Content 
 - **Show Description** - Include book description (from Google Books/Open Library)
-
 - **Show Reading Progress** - Include progress percentage, current chapter, and date last read
 - **Show Highlight Colors** - Use different callout styles based on highlight color
-- **Show Notes** - Include your annotations below highlights
 - **Show Book Covers** - Include book covers 
 
 ### Index & Base Tab
-MoonSycn automatically generates an Index and Base note that shows all of your books. These settings control control the Index and Base notes. 
+MoonSync automatically generates an index and base note to give you different way to visualize your data. These settings allow you to customize your index and base. 
+
+![Library index example](IndexScreenshot.png)
 
 #### Library Index
 
-- **Generate Library Index** - Generate a visual index page with cover thumbnails and statistics
+- **Generate Library Index** - Control whether MoonSync will generate an index. MoonSync, by default, will generate an index upon first sync. Disabling this will delete the base file.  
+- **Index Note Title** - By default, the index note is titled `1. Index Note` so that it stays at the top of the list. You can change the name here. 
+- **Show Cover Collage** - Show or hide the cover collage 
+- **Cover Collage Limit** - Control how many covers show in the collage. Setting it to `0` will show covers for all books in the index. 
+- **Cover Collage Sort** - Controls whether the cover collage is sorted alphabetcally or chronologically. 
 
-### Highlight Colors
+#### Obsidian Bases
+- **Generate Base File** - Control whether MoonSync will generate a Base file. MoonSync, by default, will generate a base upon first sync. Disabling this will delete the base file. 
+- **Base File Name** - By default, the base note is titled `2. Base` so that it stays at the top of the list. You can change the name here. 
 
-When "Show Highlight Colors" is enabled:
-- Yellow → `[!quote]`
-- Blue → `[!info]`
-- Red → `[!warning]`
-- Green → `[!tip]`
 
-## Library Index
+### About the Index and Base Notes
 
-When enabled, MoonSync generates a `1. Library Index.md` file with:
+#### Library Index
 
-- Visual grid of book covers (clickable links to each book)
+When enabled, MoonSync generates an index file, titles `1. Library Index.md`, that shows the following: 
+
+- Visual grid of book covers. Clicking on a cover will take you to the associated note. 
 - Summary statistics (total books, highlights, notes, average progress)
 - List of all books with author, progress, and highlight counts
 
 The index updates automatically after each sync.
 
-## Output Format
+#### Base Note
+The base note provides a database-like view of your book data. 
 
-Each book creates a markdown file with:
+The base note provides a Gallery view that shows each cover in your library. Clicking on a cover will take you to the associated link. 
 
-```markdown
----
-title: "Book Title"
-author: "Author Name"
-published_date: "2024"
-publisher: "Publisher Name"
-page_count: 320
-genres:
-  - "Fiction"
-  - "Science Fiction"
-progress: "41.1%"
-current_chapter: 25
-last_synced: 2026-02-02
-highlights_count: 12
-notes_count: 3
-rating: 4.2
-ratings_count: 1234
-cover: "covers/Book Title.jpg"
----
-
-# Book Title
-**Author:** Author Name
-
-![[covers/Book Title.jpg|200]]
-
-**Rating:** ⭐ 4.2/5 (1,234 ratings)
-
-## Description
-Book description from Google Books...
-
-## Highlights
-
-**Reading Progress:**
-- Progress: 41.1%
-- Chapter: 25
-
-> [!quote] Chapter 3 • Jan 15, 2026
-> "Highlighted text from the book..."
-
-> [!info] Chapter 4 • Jan 16, 2026
-> "Blue highlighted text..."
->
-> **Note:** Your annotation appears here
-```
-
-## Custom Metadata Protection
-
-MoonSync respects two special frontmatter flags:
-
-### `custom_metadata: true`
-Set automatically when you use "Fetch Book Metadata" command. When present:
-- Sync preserves all your custom metadata (title, author, cover, etc.)
-- Only highlights and reading progress are updated from Moon Reader
-
-### `manual_note: true`
-For notes created via "Create Book Note" command. When present:
-- If the book later appears in Moon Reader, highlights are merged in
-- Your custom content is preserved
-
-## How Real-Time Sync Works
-
-Moon Reader stores highlights and reading position in cache files that sync to Dropbox:
-
-- **`.an` files** - Compressed annotation/highlight data for each book
-- **`.po` files** - Reading position (progress percentage, current chapter)
-
-When you sync Moon Reader to the cloud, these files update in your Dropbox. MoonSync reads them directly, so you don't need to create manual backups.
-
-### Sync Efficiency
-
-MoonSync only updates notes when something changes:
-- New highlights added
-- Reading progress changed
-
-Unchanged books are skipped to keep syncs fast.
+It also provides a Library that shows a breakdown of the following statistics per book:
+- Title (file name)
+- Author
+- Highlights count
+- Progress percentage
+- Notes count
+- Manual note indicator
+- Last read date
+- Last synced date
+- Genres
+- Page count
+- Publisher
+- Published date
+- Language
 
 ## Privacy & Security
 
@@ -242,8 +187,9 @@ Unchanged books are skipped to keep syncs fast.
 ## Troubleshooting
 
 ### "No annotation files found"
-- Ensure Moon Reader has cloud sync enabled (not just backup)
+- Ensure Moon Reader has cloud sync enabled
 - Check that highlights exist and have synced to Dropbox
+- Depending on your device, and settings, you may have to trigger a manual sync in Moon Reader (Sync to Cloud)
 - Verify the path points to the folder containing `.Moon+` (usually `Dropbox/Apps/Books`)
 
 ### Progress not showing
@@ -258,10 +204,6 @@ Unchanged books are skipped to keep syncs fast.
 ### Wrong book metadata
 - Use "Fetch Book Metadata" command to search and select the correct book
 - This sets `custom_metadata: true` to prevent future syncs from changing it
-
-## Support
-
-If you find this plugin useful, consider [buying me a coffee](https://ko-fi.com/titandrive)!
 
 ## License
 
