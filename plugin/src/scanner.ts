@@ -1,6 +1,7 @@
 import { App, normalizePath } from "obsidian";
 import { BookData, MoonReaderBook, MoonReaderHighlight } from "./types";
 import { generateFilename } from "./writer/markdown";
+import { parseFrontmatter as parseSharedFrontmatter } from "./utils";
 
 /**
  * Parsed book data from a markdown file's frontmatter
@@ -39,7 +40,7 @@ export async function scanAllBookNotes(app: App, outputPath: string): Promise<Sc
 
 		try {
 			const content = await app.vault.adapter.read(filePath);
-			const bookData = parseFrontmatter(content, filePath);
+			const bookData = parseBookFrontmatter(content, filePath);
 
 			if (bookData) {
 				books.push(bookData);
@@ -55,54 +56,33 @@ export async function scanAllBookNotes(app: App, outputPath: string): Promise<Sc
 /**
  * Parse frontmatter from a markdown file to extract book data
  */
-function parseFrontmatter(content: string, filePath: string): ScannedBook | null {
-	// Check for frontmatter
-	if (!content.startsWith("---")) {
+function parseBookFrontmatter(content: string, filePath: string): ScannedBook | null {
+	const parsed = parseSharedFrontmatter(content);
+
+	// Title is required
+	if (!parsed.title) {
 		return null;
 	}
-
-	const endIndex = content.indexOf("---", 3);
-	if (endIndex === -1) {
-		return null;
-	}
-
-	const frontmatter = content.substring(3, endIndex);
-
-	// Parse title (required)
-	const titleMatch = frontmatter.match(/^title:\s*"?([^"\n]+)"?/m);
-	if (!titleMatch) {
-		return null;
-	}
-
-	const title = titleMatch[1].trim();
-
-	// Parse optional fields
-	const authorMatch = frontmatter.match(/^author:\s*"?([^"\n]+)"?/m);
-	const progressMatch = frontmatter.match(/^progress:\s*"?(\d+(?:\.\d+)?)/m);
-	const highlightsMatch = frontmatter.match(/^highlights_count:\s*(\d+)/m);
-	const coverMatch = frontmatter.match(/^cover:\s*"?([^"\n]+)"?/m);
-	const moonReaderPathMatch = frontmatter.match(/^moon_reader_path:/m);
-	const lastSyncedMatch = frontmatter.match(/^last_synced:\s*(\d{4}-\d{2}-\d{2})/m);
 
 	// Count notes by looking for "**Note:**" in the content
 	const notesCount = (content.match(/\*\*Note:\*\*/g) || []).length;
 
 	// Estimate last read timestamp from last_synced date
 	let lastReadTimestamp: number | null = null;
-	if (lastSyncedMatch) {
-		lastReadTimestamp = new Date(lastSyncedMatch[1]).getTime();
+	if (parsed.lastSynced) {
+		lastReadTimestamp = new Date(parsed.lastSynced).getTime();
 	}
 
 	return {
-		title,
-		author: authorMatch ? authorMatch[1].trim() : null,
-		progress: progressMatch ? parseFloat(progressMatch[1]) : null,
-		highlightsCount: highlightsMatch ? parseInt(highlightsMatch[1], 10) : 0,
+		title: parsed.title,
+		author: parsed.author,
+		progress: parsed.progress,
+		highlightsCount: parsed.highlightsCount ?? 0,
 		notesCount,
-		coverPath: coverMatch ? coverMatch[1].trim() : null,
+		coverPath: parsed.coverPath,
 		lastReadTimestamp,
 		filePath,
-		isMoonReader: !!moonReaderPathMatch,
+		isMoonReader: !!parsed.moonReaderPath,
 	};
 }
 

@@ -6,6 +6,7 @@ import { CreateBookModal, generateBookTemplate, SelectCoverModal, SelectBookMeta
 import { generateFilename, generateBookNote } from "./src/writer/markdown";
 import { fetchBookInfo, downloadCover, downloadAndResizeCover, BookInfoResult } from "./src/covers";
 import { parseManualExport } from "./src/parser/manual-export";
+import { parseFrontmatter } from "./src/utils";
 import { join } from "path";
 
 export default class MoonSyncPlugin extends Plugin {
@@ -481,27 +482,15 @@ export default class MoonSyncPlugin extends Plugin {
 		try {
 			// Read the file content to get title and author from frontmatter
 			const content = await this.app.vault.read(activeFile);
+			const parsed = parseFrontmatter(content);
 
-			// Extract frontmatter
-			const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-			if (!frontmatterMatch) {
-				new Notice("MoonSync: This file doesn't have frontmatter");
-				return;
-			}
-
-			const frontmatter = frontmatterMatch[1];
-
-			// Extract title and author
-			const titleMatch = frontmatter.match(/^title:\s*"?([^"\n]+)"?/m);
-			const authorMatch = frontmatter.match(/^author:\s*"?([^"\n]+)"?/m);
-
-			if (!titleMatch) {
+			if (!parsed.title) {
 				new Notice("MoonSync: No title found in frontmatter");
 				return;
 			}
 
-			const title = titleMatch[1].trim().replace(/\\"/g, '"');
-			const author = authorMatch ? authorMatch[1].trim().replace(/\\"/g, '"') : "";
+			const title = parsed.title.replace(/\\"/g, '"');
+			const author = parsed.author ? parsed.author.replace(/\\"/g, '"') : "";
 
 			// Open cover selection modal
 			new SelectCoverModal(
@@ -645,27 +634,15 @@ export default class MoonSyncPlugin extends Plugin {
 		try {
 			// Read the file content to get title and author from frontmatter
 			const content = await this.app.vault.read(activeFile);
+			const parsed = parseFrontmatter(content);
 
-			// Extract frontmatter
-			const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-			if (!frontmatterMatch) {
-				new Notice("MoonSync: This file doesn't have frontmatter");
-				return;
-			}
-
-			const frontmatter = frontmatterMatch[1];
-
-			// Extract title and author
-			const titleMatch = frontmatter.match(/^title:\s*"?([^"\n]+)"?/m);
-			const authorMatch = frontmatter.match(/^author:\s*"?([^"\n]+)"?/m);
-
-			if (!titleMatch) {
+			if (!parsed.title) {
 				new Notice("MoonSync: No title found in frontmatter");
 				return;
 			}
 
-			const title = titleMatch[1].trim().replace(/\\"/g, '"');
-			const author = authorMatch ? authorMatch[1].trim().replace(/\\"/g, '"') : "";
+			const title = parsed.title.replace(/\\"/g, '"');
+			const author = parsed.author ? parsed.author.replace(/\\"/g, '"') : "";
 
 			// Open metadata selection modal
 			new SelectBookMetadataModal(

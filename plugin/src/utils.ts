@@ -8,6 +8,85 @@ export function escapeYaml(str: string): string {
 }
 
 /**
+ * Parsed frontmatter fields from a markdown file
+ */
+export interface ParsedFrontmatter {
+	title: string | null;
+	author: string | null;
+	progress: number | null;
+	highlightsCount: number | null;
+	highlightsHash: string | null;
+	coverPath: string | null;
+	moonReaderPath: string | null;
+	lastSynced: string | null;
+	isManualNote: boolean;
+	hasCustomMetadata: boolean;
+}
+
+/**
+ * Extract frontmatter section from markdown content
+ * Returns null if no valid frontmatter found
+ */
+export function extractFrontmatter(content: string): string | null {
+	if (!content.startsWith("---")) {
+		return null;
+	}
+	const endIndex = content.indexOf("---", 3);
+	if (endIndex === -1) {
+		return null;
+	}
+	return content.substring(3, endIndex);
+}
+
+/**
+ * Parse a single frontmatter field value
+ * Handles quoted and unquoted values
+ */
+export function parseFrontmatterField(frontmatter: string, fieldName: string): string | null {
+	const regex = new RegExp(`^${fieldName}:\\s*"?([^"\\n]+)"?`, "m");
+	const match = frontmatter.match(regex);
+	return match ? match[1].trim() : null;
+}
+
+/**
+ * Parse common frontmatter fields from markdown content
+ */
+export function parseFrontmatter(content: string): ParsedFrontmatter {
+	const frontmatter = extractFrontmatter(content);
+
+	if (!frontmatter) {
+		return {
+			title: null,
+			author: null,
+			progress: null,
+			highlightsCount: null,
+			highlightsHash: null,
+			coverPath: null,
+			moonReaderPath: null,
+			lastSynced: null,
+			isManualNote: false,
+			hasCustomMetadata: false,
+		};
+	}
+
+	const progressStr = parseFrontmatterField(frontmatter, "progress");
+	const highlightsCountStr = parseFrontmatterField(frontmatter, "highlights_count");
+
+	return {
+		title: parseFrontmatterField(frontmatter, "title"),
+		author: parseFrontmatterField(frontmatter, "author"),
+		progress: progressStr ? parseFloat(progressStr) : null,
+		highlightsCount: highlightsCountStr ? parseInt(highlightsCountStr, 10) : null,
+		highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
+		coverPath: parseFrontmatterField(frontmatter, "cover"),
+		moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
+		lastSynced: parseFrontmatterField(frontmatter, "last_synced"),
+		isManualNote: /^manual_note:\s*true/m.test(frontmatter),
+		hasCustomMetadata: /^custom_metadata:\s*true/m.test(frontmatter),
+	};
+}
+
+/**
  * Generate a hash/fingerprint of highlights for change detection
  * Uses position + timestamp + text length to create a unique signature
  */

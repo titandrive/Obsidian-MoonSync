@@ -2,11 +2,11 @@ import { App, Notice, normalizePath } from "obsidian";
 import { SyncSummaryModal } from "./modal";
 import { parseAnnotationFiles } from "./parser/annotations";
 import { generateBookNote, generateFilename, generateIndexNote, generateBaseFile, formatHighlight } from "./writer/markdown";
-import { fetchBookInfo, downloadCover, BookInfoResult } from "./covers";
+import { fetchBookInfo, downloadCover, batchFetchBookInfo, BookInfoResult } from "./covers";
 import { MoonSyncSettings, BookData, MoonReaderHighlight } from "./types";
 import { loadCache, saveCache, getCachedInfo, setCachedInfo, BookInfoCache } from "./cache";
 import { scanAllBookNotes, mergeBookLists } from "./scanner";
-import { computeHighlightsHash } from "./utils";
+import { computeHighlightsHash, parseFrontmatter } from "./utils";
 
 export interface SyncResult {
 	success: boolean;
@@ -85,13 +85,52 @@ export async function syncFromMoonReader(
 		const cache = await loadCache(app, outputPath);
 		let cacheModified = false;
 
+		// Build title cache once for efficient file matching
+		progressNotice.setMessage("MoonSync: Scanning existing notes...");
+		const titleCache = await buildTitleCache(app, outputPath);
+
+		// Pre-fetch book info for books that need it (batch API calls)
+		progressNotice.setMessage("MoonSync: Fetching book metadata...");
+		const coversFolder = normalizePath(`${outputPath}/moonsync-covers`);
+		let existingCoversSet = new Set<string>();
+		try {
+			if (await app.vault.adapter.exists(coversFolder)) {
+				const listing = await app.vault.adapter.list(coversFolder);
+				existingCoversSet = new Set(listing.files.map(f => f.split("/").pop() || ""));
+			}
+		} catch {
+			// Folder doesn't exist, use empty set
+		}
+
+		// Determine which books need API fetching
+		const booksToFetch: Array<{ title: string; author: string }> = [];
+		for (const bookData of booksWithHighlights) {
+			const cachedInfo = getCachedInfo(cache, bookData.book.title, bookData.book.author);
+			const hasAttemptedFetch = cachedInfo && (
+				cachedInfo.publishedDate !== undefined &&
+				cachedInfo.publisher !== undefined &&
+				cachedInfo.pageCount !== undefined
+			);
+			const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
+			const coverExists = existingCoversSet.has(coverFilename);
+
+			if (!coverExists || !hasAttemptedFetch) {
+				booksToFetch.push({ title: bookData.book.title, author: bookData.book.author });
+			}
+		}
+
+		// Batch fetch all needed book info
+		const prefetchedInfo = booksToFetch.length > 0
+			? await batchFetchBookInfo(booksToFetch, 5)
+			: new Map<string, BookInfoResult>();
+
 		// Process each book
 		const totalBooks = booksWithHighlights.length;
 		for (let i = 0; i < booksWithHighlights.length; i++) {
 			const bookData = booksWithHighlights[i];
 			progressNotice.setMessage(`MoonSync: ${bookData.book.title} (${i + 1}/${totalBooks})`);
 			try {
-				const processed = await processBook(app, outputPath, bookData, settings, result, cache);
+				const processed = await processBook(app, outputPath, bookData, settings, result, cache, prefetchedInfo, titleCache);
 				if (processed) {
 					cacheModified = true;
 				}
@@ -157,12 +196,22 @@ export async function syncFromMoonReader(
 			// Regenerate if: books changed, index doesn't exist, or manual books detected
 			if (result.booksCreated > 0 || result.booksUpdated > 0 || !indexExists || hasManualBooks) {
 				// Populate cover paths for all books (for the collage)
+				// Get directory listing once instead of checking each file individually
 				const coversFolder = normalizePath(`${outputPath}/moonsync-covers`);
+				let existingCovers = new Set<string>();
+				try {
+					if (await app.vault.adapter.exists(coversFolder)) {
+						const listing = await app.vault.adapter.list(coversFolder);
+						existingCovers = new Set(listing.files.map(f => f.split("/").pop() || ""));
+					}
+				} catch {
+					// Folder doesn't exist or can't be read, use empty set
+				}
+
 				for (const bookData of booksWithHighlights) {
 					if (!bookData.coverPath) {
 						const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-						const coverPath = normalizePath(`${coversFolder}/${coverFilename}`);
-						if (await app.vault.adapter.exists(coverPath)) {
+						if (existingCovers.has(coverFilename)) {
 							bookData.coverPath = `moonsync-covers/${coverFilename}`;
 						}
 					}
@@ -211,20 +260,15 @@ async function getExistingBookData(app: App, filePath: string): Promise<Existing
 		}
 
 		const content = await app.vault.adapter.read(filePath);
+		const parsed = parseFrontmatter(content);
 
-		const countMatch = content.match(/^highlights_count:\s*(\d+)/m);
-		const hashMatch = content.match(/^highlights_hash:\s*"?([^"\n]+)"?/m);
-		const progressMatch = content.match(/^progress:\s*"?(\d+(?:\.\d+)?)/m);
-		const manualNoteMatch = content.match(/^manual_note:\s*true/m);
-		const customMetadataMatch = content.match(/^custom_metadata:\s*true/m);
-
-		if (countMatch) {
+		if (parsed.highlightsCount !== null) {
 			return {
-				highlightsCount: parseInt(countMatch[1], 10),
-				highlightsHash: hashMatch ? hashMatch[1].trim() : null,
-				progress: progressMatch ? parseFloat(progressMatch[1]) : null,
-				isManualNote: !!manualNoteMatch,
-				hasCustomMetadata: !!customMetadataMatch,
+				highlightsCount: parsed.highlightsCount,
+				highlightsHash: parsed.highlightsHash,
+				progress: parsed.progress,
+				isManualNote: parsed.isManualNote,
+				hasCustomMetadata: parsed.hasCustomMetadata,
 				fullContent: content,
 			};
 		}
@@ -431,22 +475,69 @@ function calculateSimilarity(str1: string, str2: string): number {
 }
 
 /**
- * Find existing file with fuzzy matching by comparing frontmatter titles
- * Returns the actual file path if found, otherwise returns the preferred path
- * Uses 85% similarity threshold for fuzzy matching
- */
-/**
  * Normalize a book title for fuzzy matching by removing file extensions
- * Note: Author stripping is now handled at source in annotations.ts using known author data
  */
 function normalizeBookTitle(title: string): string {
 	return title
-		// Remove file extensions
 		.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, '')
 		.trim();
 }
 
-async function findExistingFile(app: App, outputPath: string, preferredFilename: string, bookTitle: string): Promise<string> {
+/**
+ * Cache of normalized titles to file paths, built once per sync
+ */
+interface TitleCacheEntry {
+	normalizedTitle: string;
+	filePath: string;
+}
+
+/**
+ * Build a cache of all book titles from markdown files in the output folder
+ * This avoids reading every file for each book during sync
+ */
+async function buildTitleCache(app: App, outputPath: string): Promise<TitleCacheEntry[]> {
+	const cache: TitleCacheEntry[] = [];
+
+	try {
+		const listing = await app.vault.adapter.list(normalizePath(outputPath));
+
+		for (const filePath of listing.files) {
+			if (!filePath.endsWith('.md')) continue;
+
+			try {
+				const content = await app.vault.adapter.read(filePath);
+				const parsed = parseFrontmatter(content);
+
+				if (parsed.title) {
+					cache.push({
+						normalizedTitle: normalizeBookTitle(parsed.title),
+						filePath,
+					});
+				}
+			} catch {
+				// Failed to read file, skip it
+			}
+		}
+	} catch {
+		// Error listing folder
+	}
+
+	return cache;
+}
+
+const SIMILARITY_THRESHOLD = 0.80;
+
+/**
+ * Find existing file with fuzzy matching using pre-built title cache
+ * Returns the actual file path if found, otherwise returns the preferred path
+ */
+async function findExistingFile(
+	app: App,
+	outputPath: string,
+	preferredFilename: string,
+	bookTitle: string,
+	titleCache: TitleCacheEntry[]
+): Promise<string> {
 	const preferredPath = normalizePath(`${outputPath}/${preferredFilename}.md`);
 
 	// Check if preferred path exists (fast path)
@@ -457,61 +548,32 @@ async function findExistingFile(app: App, outputPath: string, preferredFilename:
 	// Normalize the book title for comparison
 	const normalizedBookTitle = normalizeBookTitle(bookTitle);
 
-	// Fuzzy match against existing files by comparing frontmatter titles
-	try {
-		const listing = await app.vault.adapter.list(normalizePath(outputPath));
-		const SIMILARITY_THRESHOLD = 0.80;
-		let bestMatch: { path: string; similarity: number } | null = null;
+	// Fuzzy match against cached titles
+	let bestMatch: { path: string; similarity: number } | null = null;
 
-		for (const filePath of listing.files) {
-			if (!filePath.endsWith('.md')) continue;
+	for (const entry of titleCache) {
+		const similarity = calculateSimilarity(normalizedBookTitle, entry.normalizedTitle);
 
-			// Read file to get frontmatter title
+		if (similarity >= SIMILARITY_THRESHOLD) {
+			if (!bestMatch || similarity > bestMatch.similarity) {
+				bestMatch = { path: entry.filePath, similarity };
+			}
+		}
+	}
+
+	if (bestMatch) {
+		console.log(`Best match: "${bestMatch.path}" (${(bestMatch.similarity * 100).toFixed(1)}%)`);
+
+		if (bestMatch.path !== preferredPath) {
+			// Found a match with different filename - rename to preferred filename
 			try {
-				const content = await app.vault.adapter.read(filePath);
-
-				// Extract title from frontmatter - handle both quoted and unquoted
-				// Match: title: "value" or title: value
-				const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-				if (!frontmatterMatch) continue;
-
-				const frontmatter = frontmatterMatch[1];
-				const titleMatch = frontmatter.match(/^title:\s*"?(.+?)"?\s*$/m);
-
-				if (titleMatch) {
-					// Remove escaped quotes from YAML value
-					let existingTitle = titleMatch[1].trim().replace(/\\"/g, '"');
-					const normalizedExistingTitle = normalizeBookTitle(existingTitle);
-					const similarity = calculateSimilarity(normalizedBookTitle, normalizedExistingTitle);
-
-					if (similarity >= SIMILARITY_THRESHOLD) {
-						if (!bestMatch || similarity > bestMatch.similarity) {
-							bestMatch = { path: filePath, similarity };
-						}
-					}
-				}
-			} catch (error) {
-				// Failed to read file, skip it
-				continue;
+				await app.vault.adapter.rename(bestMatch.path, preferredPath);
+				return preferredPath;
+			} catch {
+				return bestMatch.path;
 			}
 		}
-
-		if (bestMatch) {
-			console.log(`Best match: "${bestMatch.path}" (${(bestMatch.similarity * 100).toFixed(1)}%)`);
-
-			if (bestMatch.path !== preferredPath) {
-				// Found a match with different filename - rename to preferred filename
-				try {
-						await app.vault.adapter.rename(bestMatch.path, preferredPath);
-					return preferredPath;
-				} catch (error) {
-						return bestMatch.path;
-				}
-			}
-			return bestMatch.path;
-		}
-	} catch (error) {
-		// Error listing or renaming, fall through to preferred path
+		return bestMatch.path;
 	}
 
 	return preferredPath;
@@ -527,14 +589,16 @@ async function processBook(
 	bookData: BookData,
 	settings: MoonSyncSettings,
 	result: SyncResult,
-	cache: BookInfoCache
+	cache: BookInfoCache,
+	prefetchedInfo: Map<string, BookInfoResult> = new Map(),
+	titleCache: TitleCacheEntry[] = []
 ): Promise<boolean> {
 	// Store original title for cache key (before Google Books updates it)
 	const originalTitle = bookData.book.title;
 	const originalAuthor = bookData.book.author;
 
 	const filename = generateFilename(bookData.book.title);
-	const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title);
+	const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title, titleCache);
 	let cacheModified = false;
 
 	// Check cache first to determine if we need to fetch metadata
@@ -615,80 +679,69 @@ async function processBook(
 			}
 		}
 
-	// Fetch from APIs if we need cover, description, ratings, or other metadata
-		const needsApiFetch = !coverExists || !hasAttemptedFetch;
+		// Use pre-fetched info if available, otherwise skip API call (was already batched)
+		const prefetchKey = `${bookData.book.title}|${bookData.book.author}`;
+		const bookInfo = prefetchedInfo.get(prefetchKey);
 
-			if (needsApiFetch) {
-			try {
-				const bookInfo = await fetchBookInfo(
-					bookData.book.title,
-					bookData.book.author
-				);
-
-				// Save cover if fetched (covers are always downloaded)
-				if (bookInfo.coverUrl && !coverExists) {
-					// Ensure covers folder exists
-					if (!(await app.vault.adapter.exists(coversFolder))) {
-						await app.vault.createFolder(coversFolder);
-					}
-
-					// Download and save cover
-					const imageData = await downloadCover(bookInfo.coverUrl);
-					if (imageData) {
-						await app.vault.adapter.writeBinary(coverPath, imageData);
-						bookData.coverPath = `moonsync-covers/${coverFilename}`;
-					}
+		if (bookInfo) {
+			// Save cover if fetched (covers are always downloaded)
+			if (bookInfo.coverUrl && !coverExists) {
+				// Ensure covers folder exists
+				if (!(await app.vault.adapter.exists(coversFolder))) {
+					await app.vault.createFolder(coversFolder);
 				}
 
-				// Use fetched description if available
-				if (bookInfo.description) {
-					bookData.fetchedDescription = bookInfo.description;
+				// Download and save cover
+				const imageData = await downloadCover(bookInfo.coverUrl);
+				if (imageData) {
+					await app.vault.adapter.writeBinary(coverPath, imageData);
+					bookData.coverPath = `moonsync-covers/${coverFilename}`;
 				}
-
-				// Use fetched author if book has no author from filename
-				if (!bookData.book.author && bookInfo.author) {
-					bookData.book.author = bookInfo.author;
-				}
-
-				// Don't use API title for Moon Reader books - epub metadata is more reliable
-				// API titles can be truncated or contain junk
-
-				// Use fetched metadata
-				if (bookInfo.publishedDate) {
-					bookData.publishedDate = bookInfo.publishedDate;
-				}
-				if (bookInfo.publisher) {
-					bookData.publisher = bookInfo.publisher;
-				}
-				if (bookInfo.pageCount !== null) {
-					bookData.pageCount = bookInfo.pageCount;
-				}
-				if (bookInfo.genres) {
-					bookData.genres = bookInfo.genres;
-				}
-				if (bookInfo.series) {
-					bookData.series = bookInfo.series;
-				}
-				if (bookInfo.language) {
-					bookData.language = bookInfo.language;
-				}
-
-				// Update cache - store original epub title for Moon Reader books
-				setCachedInfo(cache, originalTitle, originalAuthor, {
-					title: originalTitle,
-					description: bookInfo.description,
-					author: bookInfo.author,
-					publishedDate: bookInfo.publishedDate,
-					publisher: bookInfo.publisher,
-					pageCount: bookInfo.pageCount,
-					genres: bookInfo.genres,
-					series: bookInfo.series,
-					language: bookInfo.language,
-				});
-				cacheModified = true;
-			} catch (error) {
-				console.log(`MoonSync: Failed to fetch book info for "${bookData.book.title}"`, error);
 			}
+
+			// Use fetched description if available
+			if (bookInfo.description) {
+				bookData.fetchedDescription = bookInfo.description;
+			}
+
+			// Use fetched author if book has no author from filename
+			if (!bookData.book.author && bookInfo.author) {
+				bookData.book.author = bookInfo.author;
+			}
+
+			// Use fetched metadata
+			if (bookInfo.publishedDate) {
+				bookData.publishedDate = bookInfo.publishedDate;
+			}
+			if (bookInfo.publisher) {
+				bookData.publisher = bookInfo.publisher;
+			}
+			if (bookInfo.pageCount !== null) {
+				bookData.pageCount = bookInfo.pageCount;
+			}
+			if (bookInfo.genres) {
+				bookData.genres = bookInfo.genres;
+			}
+			if (bookInfo.series) {
+				bookData.series = bookInfo.series;
+			}
+			if (bookInfo.language) {
+				bookData.language = bookInfo.language;
+			}
+
+			// Update cache
+			setCachedInfo(cache, originalTitle, originalAuthor, {
+				title: originalTitle,
+				description: bookInfo.description,
+				author: bookInfo.author,
+				publishedDate: bookInfo.publishedDate,
+				publisher: bookInfo.publisher,
+				pageCount: bookInfo.pageCount,
+				genres: bookInfo.genres,
+				series: bookInfo.series,
+				language: bookInfo.language,
+			});
+			cacheModified = true;
 		}
 
 		// Set cover path if cover already exists

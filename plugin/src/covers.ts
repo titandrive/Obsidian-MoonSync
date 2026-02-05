@@ -121,6 +121,42 @@ export async function fetchBookCover(
 }
 
 /**
+ * Batch fetch book info for multiple books with concurrency control
+ * Returns a Map of "title|author" -> BookInfoResult
+ */
+export async function batchFetchBookInfo(
+	books: Array<{ title: string; author: string }>,
+	concurrency: number = 5
+): Promise<Map<string, BookInfoResult>> {
+	const results = new Map<string, BookInfoResult>();
+
+	// Process in chunks to avoid rate limiting
+	for (let i = 0; i < books.length; i += concurrency) {
+		const chunk = books.slice(i, i + concurrency);
+		const chunkResults = await Promise.all(
+			chunk.map(async (book) => {
+				const key = `${book.title}|${book.author}`;
+				try {
+					const info = await fetchBookInfo(book.title, book.author);
+					return { key, info };
+				} catch (error) {
+					console.log(`MoonSync: Failed to fetch info for "${book.title}"`, error);
+					return { key, info: null };
+				}
+			})
+		);
+
+		for (const { key, info } of chunkResults) {
+			if (info) {
+				results.set(key, info);
+			}
+		}
+	}
+
+	return results;
+}
+
+/**
  * Search Open Library for book cover and description
  */
 async function fetchFromOpenLibrary(
