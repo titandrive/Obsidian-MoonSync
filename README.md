@@ -22,10 +22,10 @@ MoonSync will then keep track of that book and update the note as you make new h
 
 ### Requirements
 
-- [Moon Reader](https://play.google.com/store/apps/details?id=com.flyersoft.moonreader) with Dropbox cloud sync enabled
+- [Moon Reader](https://play.google.com/store/apps/details?id=com.flyersoft.moonreader)
 - [Dropbox Desktop App](https://www.dropbox.com/desktop) 
 - [Obsidian](https://obsidian.md/) 
-- [BRAT](https://github.com/TfTHacker/obsidian42-brat) Obsidian Plugin
+- [BRAT](https://github.com/TfTHacker/obsidian42-brat) 
 
 ## Installation
 MoonSync can be installed either via the BRAT Plugin (recommended) or via a custom install:
@@ -45,10 +45,12 @@ BRAT will now automatically keep track of updates for you
 ### Custom Installation
 1. Browse to MoonSync [Releases](https://github.com/titandrive/moonsync/releases)
 2. Download the latest release
-3. Extract the release and copy it to your obsidian vault: `.obsidian/plugins/MoonSync`
+3. Extract the release and copy it to your obsidian vault: `.../MyVault/.obsidian/plugins/MoonSync`
 4. Configure MoonSync (see below)
 
-## Configuring Automatic Sync
+## How to Sync
+
+### Configuring Automatic Sync
 Once MoonSync is installed, you will need to configure it before it can complete its first sync. 
 1. Open up Settings → Community Plugins → MoonSync
 2. Enable MoonSync
@@ -57,9 +59,15 @@ Once MoonSync is installed, you will need to configure it before it can complete
 *Note: /Books will appear empty as the cache files MoonSync relies on are contained in a hidden folder (/Books/.Moon+)*
 5. Press Sync
 
-By default, MoonSync will now Sync your books anytime you open Obsidian. You can also trigger a manual sync via the ribbon menu shortcut or Command Palette (see below) 
+By default, MoonSync will now Sync your books anytime you open Obsidian. You can also trigger a manual sync at anytime via the ribbon menu shortcut or Command Palette (see below).
 
-## Manual Book Import
+#### Typical Sync Workflow 
+1. Read book and make highlights in Moon Reader
+2. Once you are finished reading, sync your progress to the cloud. Depending on your app settings, you may need to trigger this manually. 
+3. Trigger MoonSync by opening Obsidian or clicking the ribbon  button. 
+4. Your highlights and reading progress should immediately become available. 
+
+### Manual Book Sync
 If you do not want to use automatic syncing, via Dropbox, MoonSync also supports manual exports. 
 
 First, export your notes: 
@@ -69,10 +77,11 @@ First, export your notes:
 *Note: It does not matter where the note is created. It does not need to be made in the /books directory.*
 4. Choose a note in Obsidian to save it to. 
 
-Once you have exported your notes, you can import it using MoonSync
+Once you have exported your notes, you can import it using the command palette:
 1. Open the note that you just created.
 2. While viewing the note, open the Command Palette (`Cmd/Ctrl + P`)
 3. Choose `MoonSync: Import Note`
+4. MoonSync will automatically create a new book note, find matching metadata, and update the index & base files. 
 
 ## Custom Books
 Sometimes you may have books you wish to keep track of that you read outside of Moon Reader. MoonSync supports creating custom books that can be tracked in the same manner. 
@@ -108,22 +117,22 @@ Re-fetch the cover image for the current note. Useful if a cover is missing or y
 Replace all metadata for the current note by selecting from search results. Updates title, author, cover, description, publisher, page count, genres, series, and language. Also sets `custom_metadata: true` to prevent future syncs from overwriting your selection.
 
 ## Settings
-MoonSync has a variety of settings to customize how the plugin works. Default settings should work for most people but are available so you can tailor it to your preferences. 
+MoonSync has a variety of settings to customize how the plugin works. Default settings should work for most readers but are available so you can tailor it to your preferences. 
 
 ### Configuration Tab
 These settings configure how MoonSync works. 
 #### Configuration
-- **Moon Reader Dropbox Path** - path to your Moon Reader data. This is typically... `/Dropbox/Apps/Books`. The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
-- **Output Folder** - Where your booknotes will be stored. Default: `/Books
+- **Moon Reader Dropbox Path** - path to your Moon Reader data. This is typically `.../Dropbox/Apps/Books`. The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
+- **Output Folder** - Where your booknotes will be stored. Default: `/Books`
 
 #### Sync Options
 - **Sync Now** - Trigger manual sync
 - **Sync on Startup** - Automatically sync when Obsidian starts
 - **Show Ribbon Icon** - Show sync button in the ribbon menu
-- **Track Books Without Highlights** - Track books that do not currently have highlights. If enabled, MoonSync will create notes for books you are currently reading but have not created highlights in. 
+- **Track Books Without Highlights** - Track books that do not currently have highlights. If enabled, MoonSync will create notes for books you are currently reading but have not created highlights in. Useful if you want to track reading progress but you don't make a lot of higlights.  
 
 ### Content Tab
-These settings configure what information is shown on your book notes. 
+These settings configure what information is shown in your book notes. 
 
 #### Note Content 
 - **Show Description** - Include book description (from Google Books/Open Library)
@@ -131,12 +140,14 @@ These settings configure what information is shown on your book notes.
 - **Show Highlight Colors** - Use different callout styles based on highlight color
 - **Show Book Covers** - Include book covers 
 
+Note: Enabling/disabling these options will show/hide the feature in real time. 
+
 ### Index & Base Tab
 MoonSync automatically generates an index and base note to give you different way to visualize your data. These settings allow you to customize your index and base. 
 
 #### Library Index
 
-- **Generate Library Index** - Control whether MoonSync will generate an index. MoonSync, by default, will generate an index upon first sync. Disabling this will delete the base file.  
+- **Generate Library Index** - Control whether MoonSync will generate an index. MoonSync, by default, will generate an index upon first sync. Disabling this will delete the index file.  
 - **Index Note Title** - By default, the index note is titled `1. Index Note` so that it stays at the top of the list. You can change the name here. 
 - **Show Cover Collage** - Show or hide the cover collage 
 - **Cover Collage Limit** - Control how many covers show in the collage. Setting it to `0` will show covers for all books in the index. 
@@ -151,10 +162,10 @@ MoonSync automatically generates an index and base note to give you different wa
 
 #### Library Index
 
-When enabled, MoonSync generates an index file titled `1. Library Index.md`, that shows the following: 
+When enabled, MoonSync generates an index file titled `1. Library Index.md` that shows the following: 
 
 - Visual grid of book covers. Clicking on a cover will take you to the associated note. 
-- Summary statistics (total books, highlights, notes, average progress)
+- Summary statistics: total books, highlights, notes, average progress
 - List of all books with author, progress, and highlight counts
 
 The index updates automatically after each sync.
@@ -166,7 +177,7 @@ The base note provides a database-like view of your book data.
 
 The base note provides a Gallery view that shows each cover in your library. Clicking on a cover will take you to the associated link. 
 
-It also provides a Library that shows a breakdown of the following statistics per book:
+It also provides a library view that shows a breakdown of the following statistics per book:
 - Title (file name)
 - Author
 - Highlights count
