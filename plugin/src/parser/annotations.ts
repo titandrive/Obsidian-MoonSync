@@ -247,11 +247,16 @@ export async function parseAnnotationFiles(dropboxPath: string, trackBooksWithou
 
 				if (bookDataMap.has(key)) {
 					// Add progress to existing book with highlights
+					// Only update if this .po file has a more recent timestamp
+					// (handles case where multiple .po files match the same book)
 					if (progressData !== null) {
 						const bookData = bookDataMap.get(key)!;
-						bookData.progress = progressData.progress;
-						bookData.currentChapter = progressData.chapter;
-						bookData.lastReadTimestamp = progressData.timestamp;
+						const existingTimestamp = bookData.lastReadTimestamp || 0;
+						if (progressData.timestamp > existingTimestamp) {
+							bookData.progress = progressData.progress;
+							bookData.currentChapter = progressData.chapter;
+							bookData.lastReadTimestamp = progressData.timestamp;
+						}
 					}
 				} else if (trackBooksWithoutHighlights && progressData !== null) {
 					// Create new book entry from .po file only (no highlights)

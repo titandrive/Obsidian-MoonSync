@@ -1358,9 +1358,12 @@ async function parseAnnotationFiles(dropboxPath, trackBooksWithoutHighlights = f
         if (bookDataMap.has(key)) {
           if (progressData !== null) {
             const bookData = bookDataMap.get(key);
-            bookData.progress = progressData.progress;
-            bookData.currentChapter = progressData.chapter;
-            bookData.lastReadTimestamp = progressData.timestamp;
+            const existingTimestamp = bookData.lastReadTimestamp || 0;
+            if (progressData.timestamp > existingTimestamp) {
+              bookData.progress = progressData.progress;
+              bookData.currentChapter = progressData.chapter;
+              bookData.lastReadTimestamp = progressData.timestamp;
+            }
           }
         } else if (trackBooksWithoutHighlights && progressData !== null) {
           const book = {
