@@ -24,7 +24,7 @@ MoonSync will then keep track of that book and update the note as you make new h
 
 - [Moon Reader](https://play.google.com/store/apps/details?id=com.flyersoft.moonreader)
 - [Dropbox Desktop App](https://www.dropbox.com/desktop) 
-- [Obsidian](https://obsidian.md/) 
+- [Obsidian](https://obsidian.md/download) 
 - [BRAT](https://github.com/TfTHacker/obsidian42-brat) 
 
 ## Installation
