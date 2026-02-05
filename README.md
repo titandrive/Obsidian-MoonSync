@@ -3,6 +3,7 @@
 Sync your reading highlights, notes, and progress from Moon+ Reader to Obsidian. MoonSync supports both automatic synchronization using Dropbox or via manual exports. 
 
 <img src="BookScreenshot.png" alt="Book note example" width="420">
+
 ## How It Works
 Whenever you sync a book to the cloud in Moon Reader, it saves this data to two cache files in Dropbox. These files cotnain all of your book's meta data including highlights, notes, reading progress and book information. MoonSync reads this data and syncs it to your Obsidian vault. 
 
