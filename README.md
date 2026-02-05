@@ -95,17 +95,17 @@ MoonSync provides several commands accessible via the command palette (`Cmd/Ctrl
 ### Sync Now
 Synchronize all books from Moon Reader. Only updates notes when highlights or progress have changed.
 
+### Import Note
+Import highlights from a manual Moon Reader export. Useful for one-time imports or when Dropbox sync isn't available.
+
 ### Create Book Note
-Create a new book note by searching Google Books/Open Library. Opens a visual grid of search results - click a book to create a note with full metadata, cover, and a placeholder highlights section.
+Create a new book note. The command opens up a search modal to find the book via Google Books. It then creates a new note for it. 
 
 ### Fetch Book Cover
-Re-fetch the cover image for the current note. Useful if a book didn't have a cover initially or you want a different edition's cover.
+Re-fetch the cover image for the current note. Useful if a cover is missing or you have a different edition you prefer. Covers can be selected via search or by importing from a url.
 
 ### Fetch Book Metadata
 Replace all metadata for the current note by selecting from search results. Updates title, author, cover, description, publisher, page count, genres, series, and language. Also sets `custom_metadata: true` to prevent future syncs from overwriting your selection.
-
-### Import Moon Reader Export
-Import highlights from a Moon Reader backup export file (`.mrexport`). Useful for one-time imports or when Dropbox sync isn't available.
 
 ## Settings
 MoonSync has a variety of settings to customize how the plugin works. Default settings should work for most people but are available so you can tailor it to your preferences. 
