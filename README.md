@@ -132,8 +132,6 @@ These settings configure what information is shown on your book notes.
 ### Index & Base Tab
 MoonSync automatically generates an index and base note to give you different way to visualize your data. These settings allow you to customize your index and base. 
 
-<img src="IndexScreenshot.png" alt="Library index example" width="420">
-
 #### Library Index
 
 - **Generate Library Index** - Control whether MoonSync will generate an index. MoonSync, by default, will generate an index upon first sync. Disabling this will delete the base file.  
@@ -159,6 +157,8 @@ When enabled, MoonSync generates an index file titled `1. Library Index.md`, tha
 
 The index updates automatically after each sync.
 
+<img src="IndexScreenshot.png" alt="Library index example" width="420">
+
 #### Base Note
 The base note provides a database-like view of your book data. 
 
@@ -178,6 +178,10 @@ It also provides a Library that shows a breakdown of the following statistics pe
 - Publisher
 - Published date
 - Language
+
+<img src="BaseScreenshot2.png" alt="Base Library View" width="420">
+<br><br>
+<img src="BaseScreenshot.png" alt="Base Gallery View" width="420">
 
 ## Privacy & Security
 
