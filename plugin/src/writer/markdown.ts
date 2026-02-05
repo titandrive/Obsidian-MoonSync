@@ -6,6 +6,7 @@ import {
 	formatDuration,
 	formatDate,
 } from "../types";
+import { escapeYaml, computeHighlightsHash } from "../utils";
 
 /**
  * Generate a markdown note for a book with its highlights and reading progress
@@ -42,6 +43,7 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
 	lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
 	lines.push(`highlights_count: ${highlights.length}`);
+	lines.push(`highlights_hash: "${computeHighlightsHash(highlights)}"`);
 	const notesCount = highlights.filter((h) => h.note && h.note.trim()).length;
 	lines.push(`notes_count: ${notesCount}`);
 	if (publishedDate) {
@@ -129,6 +131,13 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 		}
 	}
 
+	// My Notes section - preserved across syncs
+	lines.push("## My Notes");
+	lines.push("");
+	lines.push("> [!moonsync-user-notes]+ Your Notes");
+	lines.push("> Add your thoughts, analysis, and notes here. This section is preserved across syncs.");
+	lines.push("");
+
 	return lines.join("\n");
 }
 
@@ -184,13 +193,6 @@ function parseCategory(categoryField: string): string {
 		.filter((l) => l && !l.startsWith("<") && !l.startsWith("#"));
 
 	return lines[0] || "";
-}
-
-/**
- * Escape special characters for YAML strings
- */
-function escapeYaml(str: string): string {
-	return str.replace(/"/g, '\\"').replace(/\n/g, " ");
 }
 
 /**

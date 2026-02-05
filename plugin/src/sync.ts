@@ -3,9 +3,10 @@ import { SyncSummaryModal } from "./modal";
 import { parseAnnotationFiles } from "./parser/annotations";
 import { generateBookNote, generateFilename, generateIndexNote, generateBaseFile, formatHighlight } from "./writer/markdown";
 import { fetchBookInfo, downloadCover, BookInfoResult } from "./covers";
-import { MoonSyncSettings, BookData } from "./types";
+import { MoonSyncSettings, BookData, MoonReaderHighlight } from "./types";
 import { loadCache, saveCache, getCachedInfo, setCachedInfo, BookInfoCache } from "./cache";
 import { scanAllBookNotes, mergeBookLists } from "./scanner";
+import { computeHighlightsHash } from "./utils";
 
 export interface SyncResult {
 	success: boolean;
@@ -177,6 +178,7 @@ export async function syncFromMoonReader(
 
 interface ExistingBookData {
 	highlightsCount: number;
+	highlightsHash: string | null;
 	progress: number | null;
 	isManualNote: boolean;
 	hasCustomMetadata: boolean;
@@ -195,6 +197,7 @@ async function getExistingBookData(app: App, filePath: string): Promise<Existing
 		const content = await app.vault.adapter.read(filePath);
 
 		const countMatch = content.match(/^highlights_count:\s*(\d+)/m);
+		const hashMatch = content.match(/^highlights_hash:\s*"?([^"\n]+)"?/m);
 		const progressMatch = content.match(/^progress:\s*"?(\d+(?:\.\d+)?)/m);
 		const manualNoteMatch = content.match(/^manual_note:\s*true/m);
 		const customMetadataMatch = content.match(/^custom_metadata:\s*true/m);
@@ -202,6 +205,7 @@ async function getExistingBookData(app: App, filePath: string): Promise<Existing
 		if (countMatch) {
 			return {
 				highlightsCount: parseInt(countMatch[1], 10),
+				highlightsHash: hashMatch ? hashMatch[1].trim() : null,
 				progress: progressMatch ? parseFloat(progressMatch[1]) : null,
 				isManualNote: !!manualNoteMatch,
 				hasCustomMetadata: !!customMetadataMatch,
@@ -244,6 +248,7 @@ function mergeManualNoteWithMoonReader(
 			if (line.startsWith("progress:") ||
 			    line.startsWith("current_chapter:") ||
 			    line.startsWith("highlights_count:") ||
+			    line.startsWith("highlights_hash:") ||
 			    line.startsWith("notes_count:") ||
 			    line.startsWith("last_synced:") ||
 			    line.startsWith("manual_note:") ||
@@ -265,6 +270,7 @@ function mergeManualNoteWithMoonReader(
 	// Add Moon+ Reader metadata
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
 	lines.push(`highlights_count: ${bookData.highlights.length}`);
+	lines.push(`highlights_hash: "${computeHighlightsHash(bookData.highlights)}"`);
 	const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
 	lines.push(`notes_count: ${notesCount}`);
 
@@ -323,7 +329,7 @@ function mergeManualNoteWithMoonReader(
 
 	// Generate highlights
 	for (const highlight of bookData.highlights) {
-		lines.push(formatHighlight(highlight, settings.showHighlightColors, settings.showNotes));
+		lines.push(formatHighlight(highlight, settings.showHighlightColors));
 		lines.push("");
 	}
 
@@ -331,127 +337,41 @@ function mergeManualNoteWithMoonReader(
 }
 
 /**
- * Merge existing note with custom metadata with new highlights from Moon+ Reader
- * Preserves all metadata (title, author, cover, description, etc.) and replaces only highlights
+ * Merge existing Moon Reader note with new data
+ * Regenerates everything fresh EXCEPT the "My Notes" section which is preserved
  */
-function mergeCustomMetadataWithHighlights(
+function mergeExistingNoteWithHighlights(
 	existingContent: string,
 	bookData: BookData,
 	settings: MoonSyncSettings
 ): string {
-	const lines: string[] = [];
+	// Extract user's "My Notes" section content if it exists
+	const myNotesPattern = /\n## My Notes\n([\s\S]*?)(?=\n## |\n---|\s*$)/;
+	const myNotesMatch = existingContent.match(myNotesPattern);
 
-	// Parse existing frontmatter and content
-	const frontmatterMatch = existingContent.match(/^---\n([\s\S]*?)\n---/);
-	if (!frontmatterMatch) {
-		// No frontmatter, fall back to generating new note
-		return generateBookNote(bookData, settings);
-	}
-
-	const frontmatter = frontmatterMatch[1];
-	let contentAfterFrontmatter = existingContent.slice(frontmatterMatch[0].length);
-
-	// Start building new frontmatter - preserve all existing fields except sync stats
-	lines.push("---");
-
-	const frontmatterLines = frontmatter.split("\n");
-	let skipNextLines = false;
-
-	for (const line of frontmatterLines) {
-		// Skip array items from previous field we're skipping
-		if (line.trim().startsWith("-") && skipNextLines) {
-			continue;
-		}
-		skipNextLines = false;
-
-		// Skip fields that sync will update (stats only, not metadata)
-		if (line.startsWith("progress:") ||
-		    line.startsWith("current_chapter:") ||
-		    line.startsWith("highlights_count:") ||
-		    line.startsWith("notes_count:") ||
-		    line.startsWith("last_synced:")) {
-			continue;
-		}
-
-		lines.push(line);
-	}
-
-	// Add/update sync stats
-	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
-	lines.push(`highlights_count: ${bookData.highlights.length}`);
-	const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
-	lines.push(`notes_count: ${notesCount}`);
-
-	if (settings.showProgress && bookData.progress !== null) {
-		lines.push(`progress: "${bookData.progress.toFixed(1)}%"`);
-		if (bookData.currentChapter) {
-			lines.push(`current_chapter: ${bookData.currentChapter}`);
+	// Get the content inside My Notes (after the placeholder callout if present)
+	let userNotesContent = "";
+	if (myNotesMatch) {
+		let notesSection = myNotesMatch[1];
+		// Remove the default placeholder callout if it's still there unchanged
+		const placeholderPattern = /^> \[!moonsync-user-notes\]\+ Your Notes\n> Add your thoughts, analysis, and notes here\. This section is preserved across syncs\.\n?/;
+		notesSection = notesSection.replace(placeholderPattern, "").trim();
+		if (notesSection) {
+			userNotesContent = notesSection;
 		}
 	}
 
-	lines.push("---");
+	// Generate fresh note with all Moon Reader data
+	let freshNote = generateBookNote(bookData, settings);
 
-	// Replace just the Highlights section, preserve everything else
-	// Match both old "## Highlights" and new "## Moon Reader Highlights" headers
-	const highlightsHeaderPattern = /\n## (Moon Reader )?Highlights\n/;
-	const nextSectionPattern = /\n## (?!Moon Reader Highlights|Highlights)[^\n]/; // Next section that's not Highlights
-
-	const highlightsMatch = contentAfterFrontmatter.match(highlightsHeaderPattern);
-
-	if (highlightsMatch && highlightsMatch.index !== undefined) {
-		// Keep content before Highlights
-		const beforeHighlights = contentAfterFrontmatter.slice(0, highlightsMatch.index);
-		lines.push(beforeHighlights);
-
-		// Check if there's content after Highlights section
-		const afterHighlightsStart = highlightsMatch.index + highlightsMatch[0].length;
-		const remainingContent = contentAfterFrontmatter.slice(afterHighlightsStart);
-		const nextSectionMatch = remainingContent.match(nextSectionPattern);
-
-		let afterHighlights = "";
-		if (nextSectionMatch && nextSectionMatch.index !== undefined) {
-			afterHighlights = remainingContent.slice(nextSectionMatch.index);
-		}
-
-		// Generate new Highlights section
-		lines.push("");
-		lines.push("## Moon Reader Highlights");
-		lines.push("");
-
-		if (settings.showReadingProgress && (bookData.progress !== null || bookData.currentChapter !== null)) {
-			lines.push("**Reading Progress:**");
-			if (bookData.progress !== null) {
-				lines.push(`- Progress: ${bookData.progress.toFixed(1)}%`);
-			}
-			if (bookData.currentChapter !== null) {
-				lines.push(`- Chapter: ${bookData.currentChapter}`);
-			}
-			lines.push("");
-		}
-
-		for (const highlight of bookData.highlights) {
-			lines.push(formatHighlight(highlight, settings.showHighlightColors, settings.showNotes));
-			lines.push("");
-		}
-
-		// Add content after Highlights if any
-		if (afterHighlights) {
-			lines.push(afterHighlights);
-		}
-	} else {
-		// No Highlights section found, append to end
-		lines.push(contentAfterFrontmatter);
-		lines.push("");
-		lines.push("## Moon Reader Highlights");
-		lines.push("");
-
-		for (const highlight of bookData.highlights) {
-			lines.push(formatHighlight(highlight, settings.showHighlightColors, settings.showNotes));
-			lines.push("");
-		}
+	// If user had custom notes, replace the placeholder with their content
+	if (userNotesContent) {
+		// Replace the placeholder callout with user's content
+		const placeholderInFresh = "> [!moonsync-user-notes]+ Your Notes\n> Add your thoughts, analysis, and notes here. This section is preserved across syncs.";
+		freshNote = freshNote.replace(placeholderInFresh, userNotesContent);
 	}
 
-	return lines.join("\n");
+	return freshNote;
 }
 
 /**
@@ -617,15 +537,21 @@ async function processBook(
 		cachedInfo.language !== undefined
 	);
 
-	// Check if book has changed (compare highlights count and progress)
+	// Check if book has changed (compare highlights hash and progress)
 	const existingData = await getExistingBookData(app, filePath);
 	const fileExists = existingData !== null;
 
 	if (fileExists) {
-		const highlightsUnchanged = existingData.highlightsCount === bookData.highlights.length;
+		// Compute hash of current highlights for comparison
+		const currentHash = computeHighlightsHash(bookData.highlights);
+
+		// Use hash comparison if available, fall back to count comparison for older notes
+		const highlightsUnchanged = existingData.highlightsHash
+			? existingData.highlightsHash === currentHash
+			: existingData.highlightsCount === bookData.highlights.length;
 		const progressUnchanged = existingData.progress === bookData.progress;
 
-		console.log(`[${bookData.book.title}] Existing: ${existingData.highlightsCount} highlights, ${existingData.progress}% | New: ${bookData.highlights.length} highlights, ${bookData.progress}%`);
+		console.log(`[${bookData.book.title}] Existing hash: ${existingData.highlightsHash || 'none'} | New hash: ${currentHash}`);
 		console.log(`[${bookData.book.title}] Unchanged: highlights=${highlightsUnchanged}, progress=${progressUnchanged}, hasAttemptedFetch=${hasAttemptedFetch}`);
 
 		// Only skip if: nothing changed AND we've already attempted to fetch metadata
@@ -763,9 +689,9 @@ async function processBook(
 	if (fileExists && existingData.isManualNote) {
 		// Merge manual note with Moon+ Reader data
 		markdown = mergeManualNoteWithMoonReader(existingData.fullContent!, bookData, settings);
-	} else if (fileExists && existingData.hasCustomMetadata) {
-		// Preserve custom metadata, only update highlights
-		markdown = mergeCustomMetadataWithHighlights(existingData.fullContent!, bookData, settings);
+	} else if (fileExists) {
+		// Existing Moon Reader note: preserve user content outside highlights section
+		markdown = mergeExistingNoteWithHighlights(existingData.fullContent!, bookData, settings);
 	} else {
 		// Generate new Moon+ Reader note
 		markdown = generateBookNote(bookData, settings);

@@ -111,6 +111,7 @@ export default class MoonSyncPlugin extends Plugin {
 		// Style moonsync callouts
 		rules.push(`.callout[data-callout="moonsync-reading-progress"] { --callout-color: var(--callout-success); }`);
 		rules.push(`.callout[data-callout="moonsync-description"] { --callout-color: var(--callout-quote); }`);
+		rules.push(`.callout[data-callout="moonsync-user-notes"] { --callout-color: 168, 130, 255; }`);
 
 		if (!this.settings.showCovers) {
 			rules.push(`.internal-embed[src*="moonsync-covers/"] { display: none !important; }`);

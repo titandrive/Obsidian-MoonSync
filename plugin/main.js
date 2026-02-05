@@ -1339,6 +1339,23 @@ async function parseAnnotationFiles(dropboxPath, trackBooksWithoutHighlights = f
   }
 }
 
+// src/utils.ts
+function escapeYaml(str) {
+  return str.replace(/"/g, '\\"').replace(/\n/g, " ");
+}
+function computeHighlightsHash(highlights) {
+  if (highlights.length === 0)
+    return "";
+  const sorted = [...highlights].sort((a, b) => a.position - b.position);
+  const fingerprint = sorted.map((h) => `${h.position}:${h.timestamp}:${h.originalText.length}`).join("|");
+  let hash = 5381;
+  for (let i = 0; i < fingerprint.length; i++) {
+    hash = (hash << 5) + hash + fingerprint.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
+
 // src/writer/markdown.ts
 function generateBookNote(bookData, settings) {
   const { book, highlights, statistics, progress, currentChapter, lastReadTimestamp, coverPath, fetchedDescription, publishedDate, publisher, pageCount, genres, series, isbn10, isbn13, language } = bookData;
@@ -1369,6 +1386,7 @@ function generateBookNote(bookData, settings) {
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
   lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
   lines.push(`highlights_count: ${highlights.length}`);
+  lines.push(`highlights_hash: "${computeHighlightsHash(highlights)}"`);
   const notesCount = highlights.filter((h) => h.note && h.note.trim()).length;
   lines.push(`notes_count: ${notesCount}`);
   if (publishedDate) {
@@ -1441,6 +1459,11 @@ function generateBookNote(bookData, settings) {
       lines.push("");
     }
   }
+  lines.push("## My Notes");
+  lines.push("");
+  lines.push("> [!moonsync-user-notes]+ Your Notes");
+  lines.push("> Add your thoughts, analysis, and notes here. This section is preserved across syncs.");
+  lines.push("");
   return lines.join("\n");
 }
 function formatHighlight(highlight, useColors) {
@@ -1472,9 +1495,6 @@ function formatHighlight(highlight, useColors) {
 function parseCategory(categoryField) {
   const lines = categoryField.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("<") && !l.startsWith("#"));
   return lines[0] || "";
-}
-function escapeYaml(str) {
-  return str.replace(/"/g, '\\"').replace(/\n/g, " ");
 }
 function generateFilename(title) {
   return title.replace(/[<>:"/\\|?*]/g, "").replace(/\s+/g, " ").trim().substring(0, 100);
@@ -1931,12 +1951,14 @@ async function getExistingBookData(app, filePath) {
     }
     const content = await app.vault.adapter.read(filePath);
     const countMatch = content.match(/^highlights_count:\s*(\d+)/m);
+    const hashMatch = content.match(/^highlights_hash:\s*"?([^"\n]+)"?/m);
     const progressMatch = content.match(/^progress:\s*"?(\d+(?:\.\d+)?)/m);
     const manualNoteMatch = content.match(/^manual_note:\s*true/m);
     const customMetadataMatch = content.match(/^custom_metadata:\s*true/m);
     if (countMatch) {
       return {
         highlightsCount: parseInt(countMatch[1], 10),
+        highlightsHash: hashMatch ? hashMatch[1].trim() : null,
         progress: progressMatch ? parseFloat(progressMatch[1]) : null,
         isManualNote: !!manualNoteMatch,
         hasCustomMetadata: !!customMetadataMatch,
@@ -1956,7 +1978,7 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
     const frontmatter = frontmatterMatch[1];
     const frontmatterLines = frontmatter.split("\n");
     for (const line of frontmatterLines) {
-      if (line.startsWith("progress:") || line.startsWith("current_chapter:") || line.startsWith("highlights_count:") || line.startsWith("notes_count:") || line.startsWith("last_synced:") || line.startsWith("manual_note:") || line.startsWith("published_date:") || line.startsWith("publisher:") || line.startsWith("page_count:") || line.startsWith("genres:") || line.startsWith("series:") || line.startsWith("language:") || line.startsWith("rating:") || line.startsWith("ratings_count:") || line.trim().startsWith("-")) {
+      if (line.startsWith("progress:") || line.startsWith("current_chapter:") || line.startsWith("highlights_count:") || line.startsWith("highlights_hash:") || line.startsWith("notes_count:") || line.startsWith("last_synced:") || line.startsWith("manual_note:") || line.startsWith("published_date:") || line.startsWith("publisher:") || line.startsWith("page_count:") || line.startsWith("genres:") || line.startsWith("series:") || line.startsWith("language:") || line.startsWith("rating:") || line.startsWith("ratings_count:") || line.trim().startsWith("-")) {
         continue;
       }
       lines.push(line);
@@ -1964,6 +1986,7 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
   }
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
   lines.push(`highlights_count: ${bookData.highlights.length}`);
+  lines.push(`highlights_hash: "${computeHighlightsHash(bookData.highlights)}"`);
   const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
   lines.push(`notes_count: ${notesCount}`);
   if (settings.showProgress && bookData.progress !== null) {
@@ -2010,87 +2033,29 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
     lines.push("");
   }
   for (const highlight of bookData.highlights) {
-    lines.push(formatHighlight(highlight, settings.showHighlightColors, settings.showNotes));
+    lines.push(formatHighlight(highlight, settings.showHighlightColors));
     lines.push("");
   }
   return lines.join("\n");
 }
-function mergeCustomMetadataWithHighlights(existingContent, bookData, settings) {
-  const lines = [];
-  const frontmatterMatch = existingContent.match(/^---\n([\s\S]*?)\n---/);
-  if (!frontmatterMatch) {
-    return generateBookNote(bookData, settings);
-  }
-  const frontmatter = frontmatterMatch[1];
-  let contentAfterFrontmatter = existingContent.slice(frontmatterMatch[0].length);
-  lines.push("---");
-  const frontmatterLines = frontmatter.split("\n");
-  let skipNextLines = false;
-  for (const line of frontmatterLines) {
-    if (line.trim().startsWith("-") && skipNextLines) {
-      continue;
-    }
-    skipNextLines = false;
-    if (line.startsWith("progress:") || line.startsWith("current_chapter:") || line.startsWith("highlights_count:") || line.startsWith("notes_count:") || line.startsWith("last_synced:")) {
-      continue;
-    }
-    lines.push(line);
-  }
-  lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
-  lines.push(`highlights_count: ${bookData.highlights.length}`);
-  const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
-  lines.push(`notes_count: ${notesCount}`);
-  if (settings.showProgress && bookData.progress !== null) {
-    lines.push(`progress: "${bookData.progress.toFixed(1)}%"`);
-    if (bookData.currentChapter) {
-      lines.push(`current_chapter: ${bookData.currentChapter}`);
+function mergeExistingNoteWithHighlights(existingContent, bookData, settings) {
+  const myNotesPattern = /\n## My Notes\n([\s\S]*?)(?=\n## |\n---|\s*$)/;
+  const myNotesMatch = existingContent.match(myNotesPattern);
+  let userNotesContent = "";
+  if (myNotesMatch) {
+    let notesSection = myNotesMatch[1];
+    const placeholderPattern = /^> \[!moonsync-user-notes\]\+ Your Notes\n> Add your thoughts, analysis, and notes here\. This section is preserved across syncs\.\n?/;
+    notesSection = notesSection.replace(placeholderPattern, "").trim();
+    if (notesSection) {
+      userNotesContent = notesSection;
     }
   }
-  lines.push("---");
-  const highlightsHeaderPattern = /\n## (Moon Reader )?Highlights\n/;
-  const nextSectionPattern = /\n## (?!Moon Reader Highlights|Highlights)[^\n]/;
-  const highlightsMatch = contentAfterFrontmatter.match(highlightsHeaderPattern);
-  if (highlightsMatch && highlightsMatch.index !== void 0) {
-    const beforeHighlights = contentAfterFrontmatter.slice(0, highlightsMatch.index);
-    lines.push(beforeHighlights);
-    const afterHighlightsStart = highlightsMatch.index + highlightsMatch[0].length;
-    const remainingContent = contentAfterFrontmatter.slice(afterHighlightsStart);
-    const nextSectionMatch = remainingContent.match(nextSectionPattern);
-    let afterHighlights = "";
-    if (nextSectionMatch && nextSectionMatch.index !== void 0) {
-      afterHighlights = remainingContent.slice(nextSectionMatch.index);
-    }
-    lines.push("");
-    lines.push("## Moon Reader Highlights");
-    lines.push("");
-    if (settings.showReadingProgress && (bookData.progress !== null || bookData.currentChapter !== null)) {
-      lines.push("**Reading Progress:**");
-      if (bookData.progress !== null) {
-        lines.push(`- Progress: ${bookData.progress.toFixed(1)}%`);
-      }
-      if (bookData.currentChapter !== null) {
-        lines.push(`- Chapter: ${bookData.currentChapter}`);
-      }
-      lines.push("");
-    }
-    for (const highlight of bookData.highlights) {
-      lines.push(formatHighlight(highlight, settings.showHighlightColors, settings.showNotes));
-      lines.push("");
-    }
-    if (afterHighlights) {
-      lines.push(afterHighlights);
-    }
-  } else {
-    lines.push(contentAfterFrontmatter);
-    lines.push("");
-    lines.push("## Moon Reader Highlights");
-    lines.push("");
-    for (const highlight of bookData.highlights) {
-      lines.push(formatHighlight(highlight, settings.showHighlightColors, settings.showNotes));
-      lines.push("");
-    }
+  let freshNote = generateBookNote(bookData, settings);
+  if (userNotesContent) {
+    const placeholderInFresh = "> [!moonsync-user-notes]+ Your Notes\n> Add your thoughts, analysis, and notes here. This section is preserved across syncs.";
+    freshNote = freshNote.replace(placeholderInFresh, userNotesContent);
   }
-  return lines.join("\n");
+  return freshNote;
 }
 function calculateSimilarity(str1, str2) {
   const s1 = str1.toLowerCase();
@@ -2191,9 +2156,10 @@ async function processBook(app, outputPath, bookData, settings, result, cache) {
   const existingData = await getExistingBookData(app, filePath);
   const fileExists = existingData !== null;
   if (fileExists) {
-    const highlightsUnchanged = existingData.highlightsCount === bookData.highlights.length;
+    const currentHash = computeHighlightsHash(bookData.highlights);
+    const highlightsUnchanged = existingData.highlightsHash ? existingData.highlightsHash === currentHash : existingData.highlightsCount === bookData.highlights.length;
     const progressUnchanged = existingData.progress === bookData.progress;
-    console.log(`[${bookData.book.title}] Existing: ${existingData.highlightsCount} highlights, ${existingData.progress}% | New: ${bookData.highlights.length} highlights, ${bookData.progress}%`);
+    console.log(`[${bookData.book.title}] Existing hash: ${existingData.highlightsHash || "none"} | New hash: ${currentHash}`);
     console.log(`[${bookData.book.title}] Unchanged: highlights=${highlightsUnchanged}, progress=${progressUnchanged}, hasAttemptedFetch=${hasAttemptedFetch}`);
     if (highlightsUnchanged && progressUnchanged && hasAttemptedFetch) {
       result.booksSkipped++;
@@ -2296,8 +2262,8 @@ async function processBook(app, outputPath, bookData, settings, result, cache) {
   let markdown;
   if (fileExists && existingData.isManualNote) {
     markdown = mergeManualNoteWithMoonReader(existingData.fullContent, bookData, settings);
-  } else if (fileExists && existingData.hasCustomMetadata) {
-    markdown = mergeCustomMetadataWithHighlights(existingData.fullContent, bookData, settings);
+  } else if (fileExists) {
+    markdown = mergeExistingNoteWithHighlights(existingData.fullContent, bookData, settings);
   } else {
     markdown = generateBookNote(bookData, settings);
   }
@@ -2649,6 +2615,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     const rules = [];
     rules.push(`.callout[data-callout="moonsync-reading-progress"] { --callout-color: var(--callout-success); }`);
     rules.push(`.callout[data-callout="moonsync-description"] { --callout-color: var(--callout-quote); }`);
+    rules.push(`.callout[data-callout="moonsync-user-notes"] { --callout-color: 168, 130, 255; }`);
     if (!this.settings.showCovers) {
       rules.push(`.internal-embed[src*="moonsync-covers/"] { display: none !important; }`);
     }
