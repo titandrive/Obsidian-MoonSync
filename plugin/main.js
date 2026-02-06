@@ -90,6 +90,10 @@ function formatDate(timestamp) {
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
+var import_fs = require("fs");
+var import_path = require("path");
+var import_child_process = require("child_process");
+var import_os = require("os");
 var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -310,10 +314,8 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     if (!path) {
       return;
     }
-    const { existsSync } = require("fs");
-    const { join: join3 } = require("path");
-    const cachePath = join3(path, ".Moon+", "Cache");
-    if (existsSync(cachePath)) {
+    const cachePath = (0, import_path.join)(path, ".Moon+", "Cache");
+    if ((0, import_fs.existsSync)(cachePath)) {
       validationEl.createSpan({
         text: "\u2713 Moon Reader cache folder found",
         attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" }
@@ -326,21 +328,19 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     }
   }
   async openFolderPicker() {
-    const { exec } = require("child_process");
-    const { platform } = require("os");
     return new Promise((resolve) => {
-      if (platform() === "darwin") {
+      if ((0, import_os.platform)() === "darwin") {
         const script = `osascript -e 'POSIX path of (choose folder with prompt "Select Moon Reader Dropbox folder")'`;
-        exec(script, (error, stdout) => {
+        (0, import_child_process.exec)(script, (error, stdout) => {
           if (error) {
             resolve(null);
           } else {
             resolve(stdout.trim());
           }
         });
-      } else if (platform() === "win32") {
+      } else if ((0, import_os.platform)() === "win32") {
         const script = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.ShowDialog() | Out-Null; $f.SelectedPath"`;
-        exec(script, (error, stdout) => {
+        (0, import_child_process.exec)(script, (error, stdout) => {
           if (error) {
             resolve(null);
           } else {
@@ -348,7 +348,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
           }
         });
       } else {
-        exec(
+        (0, import_child_process.exec)(
           'zenity --file-selection --directory --title="Select Moon Reader folder"',
           (error, stdout) => {
             if (error) {
@@ -755,7 +755,7 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
     contentEl.empty();
     contentEl.addClass("moonsync-select-cover-modal");
     modalEl.addClass("mod-moonsync-cover");
-    contentEl.createEl("h2", { text: "Fetch book cover" });
+    new import_obsidian3.Setting(contentEl).setName("Fetch book cover").setHeading();
     const tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
     const searchTab = tabNav.createEl("button", { text: "Search", cls: "moonsync-tab active" });
     const urlTab = tabNav.createEl("button", { text: "Import", cls: "moonsync-tab" });
@@ -903,7 +903,7 @@ var SelectBookMetadataModal = class extends import_obsidian3.Modal {
     contentEl.empty();
     contentEl.addClass("moonsync-select-cover-modal");
     modalEl.addClass("mod-moonsync-cover");
-    contentEl.createEl("h2", { text: "Fetch book metadata" });
+    new import_obsidian3.Setting(contentEl).setName("Fetch book metadata").setHeading();
     contentEl.createEl("p", {
       text: "Select a book to replace all metadata including cover, description, and details.",
       cls: "moonsync-url-description"
@@ -1022,7 +1022,7 @@ var CreateBookModal = class extends import_obsidian3.Modal {
     contentEl.empty();
     contentEl.addClass("moonsync-select-cover-modal");
     modalEl.addClass("mod-moonsync-cover");
-    contentEl.createEl("h2", { text: "Create book note" });
+    new import_obsidian3.Setting(contentEl).setName("Create book note").setHeading();
     contentEl.createEl("p", {
       text: "Search for a book and select it to create a note.",
       cls: "moonsync-url-description"
@@ -1184,7 +1184,7 @@ function generateBookTemplate(title, author, coverPath, description, publishedDa
 
 // src/parser/annotations.ts
 var import_promises = require("fs/promises");
-var import_path = require("path");
+var import_path2 = require("path");
 var import_zlib = require("zlib");
 function normalizeBookTitle(title, author) {
   let normalized = title.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "");
@@ -1289,14 +1289,14 @@ function parseProgressFile(data) {
 }
 async function parseAnnotationFiles(dropboxPath, trackBooksWithoutHighlights = false) {
   var _a, _b;
-  const cacheDir = (0, import_path.join)(dropboxPath, ".Moon+", "Cache");
+  const cacheDir = (0, import_path2.join)(dropboxPath, ".Moon+", "Cache");
   const bookDataMap = /* @__PURE__ */ new Map();
   try {
     const files = await (0, import_promises.readdir)(cacheDir);
     const anFiles = files.filter((f) => f.endsWith(".an"));
     for (const anFile of anFiles) {
       try {
-        const filePath = (0, import_path.join)(cacheDir, anFile);
+        const filePath = (0, import_path2.join)(cacheDir, anFile);
         const data = await (0, import_promises.readFile)(filePath);
         const parsed = parseAnnotationFile(data, anFile);
         if (parsed && parsed.highlights.length > 0) {
@@ -1352,7 +1352,7 @@ async function parseAnnotationFiles(dropboxPath, trackBooksWithoutHighlights = f
           bookTitle = bookTitle.replace(/_/g, " ");
         }
         const key = bookTitle.toLowerCase();
-        const filePath = (0, import_path.join)(cacheDir, poFile);
+        const filePath = (0, import_path2.join)(cacheDir, poFile);
         const data = await (0, import_promises.readFile)(filePath);
         const progressData = parseProgressFile(data);
         if (bookDataMap.has(key)) {
@@ -2688,7 +2688,7 @@ function parseManualExport(content) {
 }
 
 // main.ts
-var import_path2 = require("path");
+var import_path3 = require("path");
 var MoonSyncPlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
@@ -2795,7 +2795,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     const pluginDir = this.app.vault.adapter.getBasePath();
     const pluginPath = this.manifest.dir;
     if (pluginPath) {
-      return (0, import_path2.join)(pluginDir, pluginPath, "sql-wasm.wasm");
+      return (0, import_path3.join)(pluginDir, pluginPath, "sql-wasm.wasm");
     }
     throw new Error("Could not determine plugin directory");
   }

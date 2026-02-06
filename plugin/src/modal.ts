@@ -118,7 +118,7 @@ export class SelectCoverModal extends Modal {
 		modalEl.addClass("mod-moonsync-cover");
 
 		// Title
-		contentEl.createEl("h2", { text: "Fetch book cover" });
+		new Setting(contentEl).setName("Fetch book cover").setHeading();
 
 		// Tab navigation
 		const tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
@@ -343,7 +343,7 @@ export class SelectBookMetadataModal extends Modal {
 		modalEl.addClass("mod-moonsync-cover");
 
 		// Title
-		contentEl.createEl("h2", { text: "Fetch book metadata" });
+		new Setting(contentEl).setName("Fetch book metadata").setHeading();
 		contentEl.createEl("p", {
 			text: "Select a book to replace all metadata including cover, description, and details.",
 			cls: "moonsync-url-description"
@@ -519,7 +519,7 @@ export class CreateBookModal extends Modal {
 		contentEl.addClass("moonsync-select-cover-modal");
 		modalEl.addClass("mod-moonsync-cover");
 
-		contentEl.createEl("h2", { text: "Create book note" });
+		new Setting(contentEl).setName("Create book note").setHeading();
 		contentEl.createEl("p", {
 			text: "Search for a book and select it to create a note.",
 			cls: "moonsync-url-description"

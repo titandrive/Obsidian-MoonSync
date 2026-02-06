@@ -1,5 +1,9 @@
 import { App, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type MoonSyncPlugin from "../main";
+import { existsSync } from "fs";
+import { join } from "path";
+import { exec } from "child_process";
+import { platform } from "os";
 
 // Electron types for folder picker
 declare global {
@@ -386,9 +390,6 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			return;
 		}
 
-		const { existsSync } = require("fs");
-		const { join } = require("path");
-
 		const cachePath = join(path, ".Moon+", "Cache");
 
 		if (existsSync(cachePath)) {
@@ -406,9 +407,6 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 
 	private async openFolderPicker(): Promise<string | null> {
 		// Use osascript on macOS to show native folder picker
-		const { exec } = require("child_process");
-		const { platform } = require("os");
-
 		return new Promise((resolve) => {
 			if (platform() === "darwin") {
 				// macOS: use osascript
