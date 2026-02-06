@@ -60,7 +60,7 @@ Once MoonSync is installed, you will need to configure it before it can complete
 4. Under configuration, browse to your MoonSync folder within Dropbox on your computer. This is typically `.../Dropbox/Apps/Books/`. MoonSync will validate that it can find the correct cache files. 
 5. Press Sync
 
-<img src="assets/validate.png" alt="Validate" width="420">
+<img src="assets/validate.png" alt="Validate" width="500">
 
 By default, MoonSync will now Sync your books anytime you open Obsidian. You can also trigger a manual sync at anytime via the ribbon menu shortcut or Command Palette (see below).
 
@@ -105,7 +105,7 @@ If in the future, you begin reading that same book in Moon Reader, and make more
 
 MoonSync provides several commands accessible via the command palette (`Cmd/Ctrl + P`):
 
-<img src="assets/CommandPalette.png" alt="Command Palette" width="500">
+<img src="assets/CommandPalette.png" alt="Command Palette" width="420">
 
 ### Sync Now
 Synchronize all books from Moon Reader. Only updates notes when highlights or progress have changed.
