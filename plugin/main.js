@@ -103,7 +103,6 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("General").setHeading();
     const tabNav = containerEl.createDiv({ cls: "moonsync-tab-nav" });
     const tabs = [
       { id: "configuration", name: "Configuration" },
