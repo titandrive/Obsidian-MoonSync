@@ -252,7 +252,8 @@ export async function parseAnnotationFiles(dropboxPath: string, trackBooksWithou
 					if (progressData !== null) {
 						const bookData = bookDataMap.get(key)!;
 						const existingTimestamp = bookData.lastReadTimestamp || 0;
-						if (progressData.timestamp > existingTimestamp) {
+						if (progressData.timestamp > existingTimestamp ||
+						(progressData.timestamp === existingTimestamp && progressData.progress > (bookData.progress || 0))) {
 							bookData.progress = progressData.progress;
 							bookData.currentChapter = progressData.chapter;
 							bookData.lastReadTimestamp = progressData.timestamp;
