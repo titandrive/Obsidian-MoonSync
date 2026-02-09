@@ -1,4 +1,4 @@
-import { readFile, readdir } from "fs/promises";
+import { readFile, readdir, stat } from "fs/promises";
 import { join } from "path";
 import { inflateSync } from "zlib";
 import { MoonReaderHighlight, BookData, MoonReaderBook } from "../types";
@@ -244,19 +244,23 @@ export async function parseAnnotationFiles(dropboxPath: string, trackBooksWithou
 				const filePath = join(cacheDir, poFile);
 				const data = await readFile(filePath);
 				const progressData = parseProgressFile(data);
+				// Use file modification time as "last read" date (the internal .po
+				// timestamp is unreliable — often reflects initial sync, not last read)
+				const fileStat = await stat(filePath);
+				const fileMtime = fileStat.mtimeMs;
 
 				if (bookDataMap.has(key)) {
 					// Add progress to existing book with highlights
-					// Only update if this .po file has a more recent timestamp
+					// Only update if this .po file was modified more recently
 					// (handles case where multiple .po files match the same book)
 					if (progressData !== null) {
 						const bookData = bookDataMap.get(key)!;
 						const existingTimestamp = bookData.lastReadTimestamp || 0;
-						if (progressData.timestamp > existingTimestamp ||
-						(progressData.timestamp === existingTimestamp && progressData.progress > (bookData.progress || 0))) {
+						if (fileMtime > existingTimestamp ||
+						(fileMtime === existingTimestamp && progressData.progress > (bookData.progress || 0))) {
 							bookData.progress = progressData.progress;
 							bookData.currentChapter = progressData.chapter;
-							bookData.lastReadTimestamp = progressData.timestamp;
+							bookData.lastReadTimestamp = fileMtime;
 						}
 					}
 				} else if (trackBooksWithoutHighlights && progressData !== null) {
@@ -280,7 +284,7 @@ export async function parseAnnotationFiles(dropboxPath: string, trackBooksWithou
 						statistics: null,
 						progress: progressData.progress,
 						currentChapter: progressData.chapter,
-						lastReadTimestamp: progressData.timestamp,
+						lastReadTimestamp: fileMtime,
 						coverPath: null,
 						fetchedDescription: null,
 						publishedDate: null,

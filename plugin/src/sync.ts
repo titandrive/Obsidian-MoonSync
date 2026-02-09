@@ -245,6 +245,7 @@ interface ExistingBookData {
 	highlightsCount: number;
 	highlightsHash: string | null;
 	progress: number | null;
+	lastRead: string | null;
 	isManualNote: boolean;
 	hasCustomMetadata: boolean;
 	fullContent?: string;
@@ -267,6 +268,7 @@ async function getExistingBookData(app: App, filePath: string): Promise<Existing
 				highlightsCount: parsed.highlightsCount,
 				highlightsHash: parsed.highlightsHash,
 				progress: parsed.progress,
+				lastRead: parsed.lastRead,
 				isManualNote: parsed.isManualNote,
 				hasCustomMetadata: parsed.hasCustomMetadata,
 				fullContent: content,
@@ -628,13 +630,17 @@ async function processBook(
 			? existingData.highlightsHash === currentHash
 			: existingData.highlightsCount === bookData.highlights.length;
 		const progressUnchanged = existingData.progress === bookData.progress;
+		const newLastRead = bookData.lastReadTimestamp !== null
+			? new Date(bookData.lastReadTimestamp).toISOString().split("T")[0]
+			: null;
+		const lastReadUnchanged = existingData.lastRead === newLastRead;
 
 		console.debug(`[${bookData.book.title}] Existing hash: ${existingData.highlightsHash || 'none'} | New hash: ${currentHash}`);
-		console.debug(`[${bookData.book.title}] Unchanged: highlights=${highlightsUnchanged}, progress=${progressUnchanged}, hasAttemptedFetch=${hasAttemptedFetch}`);
+		console.debug(`[${bookData.book.title}] Unchanged: highlights=${highlightsUnchanged}, progress=${progressUnchanged}, lastRead=${lastReadUnchanged}, hasAttemptedFetch=${hasAttemptedFetch}`);
 
 		// Only skip if: nothing changed AND we've already attempted to fetch metadata
 		// Once we've tried fetching once, don't keep retrying if data isn't available
-		if (highlightsUnchanged && progressUnchanged && hasAttemptedFetch) {
+		if (highlightsUnchanged && progressUnchanged && lastReadUnchanged && hasAttemptedFetch) {
 			// Book hasn't changed and we have complete cached data, skip
 			result.booksSkipped++;
 			return false;

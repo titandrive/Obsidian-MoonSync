@@ -18,6 +18,7 @@ export interface ParsedFrontmatter {
 	highlightsHash: string | null;
 	coverPath: string | null;
 	moonReaderPath: string | null;
+	lastRead: string | null;
 	lastSynced: string | null;
 	isManualNote: boolean;
 	hasCustomMetadata: boolean;
@@ -63,6 +64,7 @@ export function parseFrontmatter(content: string): ParsedFrontmatter {
 			highlightsHash: null,
 			coverPath: null,
 			moonReaderPath: null,
+			lastRead: null,
 			lastSynced: null,
 			isManualNote: false,
 			hasCustomMetadata: false,
@@ -80,6 +82,7 @@ export function parseFrontmatter(content: string): ParsedFrontmatter {
 		highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
 		coverPath: parseFrontmatterField(frontmatter, "cover"),
 		moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
+		lastRead: parseFrontmatterField(frontmatter, "last_read"),
 		lastSynced: parseFrontmatterField(frontmatter, "last_synced"),
 		isManualNote: /^manual_note:\s*true/m.test(frontmatter),
 		hasCustomMetadata: /^custom_metadata:\s*true/m.test(frontmatter),

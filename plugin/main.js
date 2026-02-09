@@ -1354,14 +1354,16 @@ async function parseAnnotationFiles(dropboxPath, trackBooksWithoutHighlights = f
         const filePath = (0, import_path2.join)(cacheDir, poFile);
         const data = await (0, import_promises.readFile)(filePath);
         const progressData = parseProgressFile(data);
+        const fileStat = await (0, import_promises.stat)(filePath);
+        const fileMtime = fileStat.mtimeMs;
         if (bookDataMap.has(key)) {
           if (progressData !== null) {
             const bookData = bookDataMap.get(key);
             const existingTimestamp = bookData.lastReadTimestamp || 0;
-            if (progressData.timestamp > existingTimestamp || progressData.timestamp === existingTimestamp && progressData.progress > (bookData.progress || 0)) {
+            if (fileMtime > existingTimestamp || fileMtime === existingTimestamp && progressData.progress > (bookData.progress || 0)) {
               bookData.progress = progressData.progress;
               bookData.currentChapter = progressData.chapter;
-              bookData.lastReadTimestamp = progressData.timestamp;
+              bookData.lastReadTimestamp = fileMtime;
             }
           }
         } else if (trackBooksWithoutHighlights && progressData !== null) {
@@ -1383,7 +1385,7 @@ async function parseAnnotationFiles(dropboxPath, trackBooksWithoutHighlights = f
             statistics: null,
             progress: progressData.progress,
             currentChapter: progressData.chapter,
-            lastReadTimestamp: progressData.timestamp,
+            lastReadTimestamp: fileMtime,
             coverPath: null,
             fetchedDescription: null,
             publishedDate: null,
@@ -1440,6 +1442,7 @@ function parseFrontmatter(content) {
       highlightsHash: null,
       coverPath: null,
       moonReaderPath: null,
+      lastRead: null,
       lastSynced: null,
       isManualNote: false,
       hasCustomMetadata: false
@@ -1455,6 +1458,7 @@ function parseFrontmatter(content) {
     highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
     coverPath: parseFrontmatterField(frontmatter, "cover"),
     moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
+    lastRead: parseFrontmatterField(frontmatter, "last_read"),
     lastSynced: parseFrontmatterField(frontmatter, "last_synced"),
     isManualNote: /^manual_note:\s*true/m.test(frontmatter),
     hasCustomMetadata: /^custom_metadata:\s*true/m.test(frontmatter)
@@ -2109,6 +2113,7 @@ async function getExistingBookData(app, filePath) {
         highlightsCount: parsed.highlightsCount,
         highlightsHash: parsed.highlightsHash,
         progress: parsed.progress,
+        lastRead: parsed.lastRead,
         isManualNote: parsed.isManualNote,
         hasCustomMetadata: parsed.hasCustomMetadata,
         fullContent: content
@@ -2311,9 +2316,11 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
     const currentHash = computeHighlightsHash(bookData.highlights);
     const highlightsUnchanged = existingData.highlightsHash ? existingData.highlightsHash === currentHash : existingData.highlightsCount === bookData.highlights.length;
     const progressUnchanged = existingData.progress === bookData.progress;
+    const newLastRead = bookData.lastReadTimestamp !== null ? new Date(bookData.lastReadTimestamp).toISOString().split("T")[0] : null;
+    const lastReadUnchanged = existingData.lastRead === newLastRead;
     console.debug(`[${bookData.book.title}] Existing hash: ${existingData.highlightsHash || "none"} | New hash: ${currentHash}`);
-    console.debug(`[${bookData.book.title}] Unchanged: highlights=${highlightsUnchanged}, progress=${progressUnchanged}, hasAttemptedFetch=${hasAttemptedFetch}`);
-    if (highlightsUnchanged && progressUnchanged && hasAttemptedFetch) {
+    console.debug(`[${bookData.book.title}] Unchanged: highlights=${highlightsUnchanged}, progress=${progressUnchanged}, lastRead=${lastReadUnchanged}, hasAttemptedFetch=${hasAttemptedFetch}`);
+    if (highlightsUnchanged && progressUnchanged && lastReadUnchanged && hasAttemptedFetch) {
       result.booksSkipped++;
       return false;
     }
