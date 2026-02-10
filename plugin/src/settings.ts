@@ -365,7 +365,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			.setDesc("Book covers, descriptions, and metadata from Google Books/Open Library")
 			.addButton((button) =>
 				button.setButtonText("GitHub").onClick(() => {
-					window.open("https://github.com/titandrive/moonsync");
+					window.open("https://github.com/titandrive/Obsidian-MoonSync");
 				})
 			);
 

@@ -38,14 +38,14 @@ Using BRAT is the recommended, and easiest, way to install custom Obsidian plugi
 
 1. Install BRAT via community plugins. 
 2. Open BRAT and select "Add Beta Plugin"
-3. Paste `https://github.com/titandrive/moonsync` into the text bar
+3. Paste `https://github.com/titandrive/Obsidian-MoonSync` into the text bar
 4. Click "Add Plugin"
 5. Configure MoonSync (see below)
 
 BRAT will now automatically keep track of updates for you
 
 ### Custom Installation
-1. Browse to MoonSync [Releases](https://github.com/titandrive/moonsync/releases)
+1. Browse to MoonSync [Releases](https://github.com/titandrive/Obsidian-MoonSync/releases)
 2. Download the latest release
 3. Extract the release and copy it to your obsidian vault: `.../MyVault/.obsidian/plugins/MoonSync`
 4. Configure MoonSync (see below)

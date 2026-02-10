@@ -298,7 +298,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     new import_obsidian.Setting(container).setName("About").setHeading();
     new import_obsidian.Setting(container).setName("Sync your Moon Reader highlights to Obsidian").setDesc("Book covers, descriptions, and metadata from Google Books/Open Library").addButton(
       (button) => button.setButtonText("GitHub").onClick(() => {
-        window.open("https://github.com/titandrive/moonsync");
+        window.open("https://github.com/titandrive/Obsidian-MoonSync");
       })
     );
     new import_obsidian.Setting(container).setName("Support").setHeading();
