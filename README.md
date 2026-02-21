@@ -11,7 +11,7 @@ When MoonSync detects a new book, it pulls metadata from Google Books and Open L
 
 MoonSync will then keep track of that book and update the note as you make new highlights and your reading progress changes. 
 
-**Data flow:** Moon Reader → Dropbox Cloud Sync → MoonSync → Obsidian
+**Data flow:** Moon Reader → Cloud Sync (Dropbox/WebDAV/FTP) → MoonSync → Obsidian
 
 ### What Gets Synced
 
@@ -59,7 +59,7 @@ Once MoonSync is installed, you will need to configure it before it can complete
 1. Open up Settings → Community Plugins → MoonSync
 2. Enable MoonSync
 3. Click on the settings Cog to open up MoonSync settings.
-4. Under configuration, browse to your MoonSync folder within Dropbox on your computer. This is typically `.../Dropbox/Apps/Books/`. MoonSync will validate that it can find the correct cache files. 
+4. Under configuration, browse to your Moon Reader sync folder on your computer. For Dropbox this is typically `.../Dropbox/Apps/Books/`. For WebDAV/FTP, point it to your mounted server. MoonSync will validate that it can find the correct cache files.
 5. Press Sync
 
 <img src="assets/validate.png" alt="Validate" width="500">
@@ -79,7 +79,7 @@ Every book note contains a section called "My Notes". You can add your own notes
 Although Dropbox is the easiest way to sync your notes, Moon Reader also supports syncing via Webdav or FTP. This requires you to have your own webdav or FTP server and is therefore a bit more involved to get working. MoonSync has been tested and works perfectly using a selfhosted server such as [SFTPGo](https://github.com/drakkan/sftpgo).
 
 ### Manual Book Sync
-If you do not want to use automatic syncing, via Dropbox, MoonSync also supports manual exports. 
+If you do not want to use automatic syncing, MoonSync also supports manual exports.
 
 First, export your notes: 
 1. While viewing a book in Moon Reader, open up the Bookmarks bar. You should see all of your existing notes and highlights 
@@ -116,7 +116,7 @@ MoonSync provides several commands accessible via the command palette (`Cmd/Ctrl
 Synchronize all books from Moon Reader. Only updates notes when highlights or progress have changed.
 
 ### Import Note
-Import highlights from a manual Moon Reader export. Useful for one-time imports or when Dropbox sync isn't available.
+Import highlights from a manual Moon Reader export. Useful for one-time imports or when cloud sync isn't available.
 
 ### Create Book Note
 Create a new book note. The command opens up a search modal to find the book via Google Books. It then creates a new note for it. 
@@ -133,7 +133,7 @@ MoonSync has a variety of settings to customize how the plugin works. Default se
 ### Configuration Tab
 These settings configure how MoonSync works. 
 #### Configuration
-- **Moon Reader Dropbox Path** - path to your Moon Reader data. This is typically `.../Dropbox/Apps/Books`. The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
+- **Moon Reader Sync Path** - path to your Moon Reader sync folder (Dropbox, mounted WebDAV, or FTP). For Dropbox this is typically `.../Dropbox/Apps/Books`. The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
 - **Output Folder** - Where your booknotes will be stored. Default: `/Books`
 
 #### Sync Options
@@ -209,7 +209,7 @@ It also provides a library view that shows a breakdown of the following statisti
 
 ## Privacy & Security
 
-- **Read-only access**: MoonSync only reads from your Dropbox folder. It never modifies your Moon Reader data.
+- **Read-only access**: MoonSync only reads from your sync folder. It never modifies your Moon Reader data.
 - **Local processing**: All data stays on your machine. External APIs are only contacted for book metadata (Google Books, Open Library).
 - **Caching**: API responses are cached locally to minimize external requests.
 
@@ -217,9 +217,9 @@ It also provides a library view that shows a breakdown of the following statisti
 
 ### "No annotation files found"
 - Ensure Moon Reader has cloud sync enabled
-- Check that highlights exist and have synced to Dropbox
+- Check that highlights exist and have synced to your sync folder
 - Depending on your device, and settings, you may have to trigger a manual sync in Moon Reader (Sync to Cloud)
-- Verify the path points to the folder containing `.Moon+` (usually `Dropbox/Apps/Books`)
+- Verify the path points to the folder containing `.Moon+` (e.g. `Dropbox/Apps/Books` or your mounted WebDAV/FTP server)
 
 ### Progress not showing
 - Progress requires a `.po` file for the book
