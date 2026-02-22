@@ -104,8 +104,8 @@ export default class MoonSyncPlugin extends Plugin {
 	}
 
 	async runSync(): Promise<void> {
-		if (!this.settings.dropboxPath) {
-			new Notice("MoonSync: Please configure the Dropbox path in settings");
+		if (!this.settings.syncPath) {
+			new Notice("MoonSync: Please configure the sync path in settings");
 			return;
 		}
 
@@ -139,7 +139,13 @@ export default class MoonSyncPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const data = await this.loadData();
+		// Migrate old "dropboxPath" setting to "syncPath"
+		if (data && data.dropboxPath && !data.syncPath) {
+			data.syncPath = data.dropboxPath;
+			delete data.dropboxPath;
+		}
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
 	}
 
 	async saveSettings() {

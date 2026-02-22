@@ -31,7 +31,7 @@ var import_obsidian7 = require("obsidian");
 
 // src/types.ts
 var DEFAULT_SETTINGS = {
-  dropboxPath: "",
+  syncPath: "",
   outputFolder: "Books",
   syncOnStartup: true,
   showRibbonIcon: true,
@@ -133,29 +133,29 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     new import_obsidian.Setting(container).setName("Configuration").setDesc("Set up your Moon Reader backup location and note output folder.").setHeading();
     let textComponent;
     let validationEl;
-    const pathSetting = new import_obsidian.Setting(container).setName("Moon Reader Dropbox path").setDesc(
-      "Path to your Books folder in Dropbox (usually Dropbox/Apps/Books). The plugin will find the hidden .Moon+ folder automatically."
+    const pathSetting = new import_obsidian.Setting(container).setName("Moon Reader sync path").setDesc(
+      "Path to the folder containing your Moon Reader data. The .Moon+ folder will be detected automatically."
     ).addText((text) => {
       textComponent = text;
-      text.setPlaceholder("/Users/you/Dropbox/Apps/Books").setValue(this.plugin.settings.dropboxPath).onChange(async (value) => {
-        this.plugin.settings.dropboxPath = value;
+      text.setPlaceholder("/path/to/sync/folder").setValue(this.plugin.settings.syncPath).onChange(async (value) => {
+        this.plugin.settings.syncPath = value;
         await this.plugin.saveSettings();
-        this.validateDropboxPath(value, validationEl);
+        this.validateSyncPath(value, validationEl);
       });
     }).addButton(
       (button) => button.setButtonText("Browse").onClick(async () => {
         const folder = await this.openFolderPicker();
         if (folder) {
-          this.plugin.settings.dropboxPath = folder;
+          this.plugin.settings.syncPath = folder;
           textComponent.setValue(folder);
           await this.plugin.saveSettings();
-          this.validateDropboxPath(folder, validationEl);
+          this.validateSyncPath(folder, validationEl);
         }
       })
     );
     validationEl = pathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
-    if (this.plugin.settings.dropboxPath) {
-      this.validateDropboxPath(this.plugin.settings.dropboxPath, validationEl);
+    if (this.plugin.settings.syncPath) {
+      this.validateSyncPath(this.plugin.settings.syncPath, validationEl);
     }
     new import_obsidian.Setting(container).setName("Output folder").setDesc("Folder in your vault where book notes will be created").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.outputFolder).onChange(async (value) => {
@@ -308,7 +308,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
       })
     );
   }
-  validateDropboxPath(path, validationEl) {
+  validateSyncPath(path, validationEl) {
     validationEl.empty();
     if (!path) {
       return;
@@ -316,7 +316,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     const cachePath = (0, import_path.join)(path, ".Moon+", "Cache");
     if ((0, import_fs.existsSync)(cachePath)) {
       validationEl.createSpan({
-        text: "\u2713 Moon Reader cache folder found",
+        text: "\u2713 Moon Reader sync folder found",
         attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" }
       });
     } else {
@@ -329,7 +329,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
   async openFolderPicker() {
     return new Promise((resolve) => {
       if ((0, import_os.platform)() === "darwin") {
-        const script = `osascript -e 'POSIX path of (choose folder with prompt "Select Moon Reader Dropbox folder")'`;
+        const script = `osascript -e 'POSIX path of (choose folder with prompt "Select Moon Reader sync folder")'`;
         (0, import_child_process.exec)(script, (error, stdout) => {
           if (error) {
             resolve(null);
@@ -1286,9 +1286,9 @@ function parseProgressFile(data) {
   }
   return null;
 }
-async function parseAnnotationFiles(dropboxPath, trackBooksWithoutHighlights = false) {
+async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = false) {
   var _a, _b;
-  const cacheDir = (0, import_path2.join)(dropboxPath, ".Moon+", "Cache");
+  const cacheDir = (0, import_path2.join)(syncPath, ".Moon+", "Cache");
   const bookDataMap = /* @__PURE__ */ new Map();
   try {
     const files = await (0, import_promises.readdir)(cacheDir);
@@ -1965,12 +1965,12 @@ async function syncFromMoonReader(app, settings, wasmPath) {
   };
   const progressNotice = new import_obsidian6.Notice("MoonSync: Syncing...", 0);
   try {
-    if (!settings.dropboxPath) {
-      result.errors.push("Dropbox path not configured");
+    if (!settings.syncPath) {
+      result.errors.push("Sync path not configured");
       progressNotice.hide();
       return result;
     }
-    const booksWithHighlights = await parseAnnotationFiles(settings.dropboxPath, settings.trackBooksWithoutHighlights);
+    const booksWithHighlights = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
     if (booksWithHighlights.length === 0) {
       result.errors.push("No annotation files found in .Moon+/Cache folder");
       progressNotice.hide();
@@ -2600,9 +2600,9 @@ async function refreshIndexNote(app, settings) {
   }
   try {
     let moonReaderBooks = [];
-    if (settings.dropboxPath) {
+    if (settings.syncPath) {
       try {
-        moonReaderBooks = await parseAnnotationFiles(settings.dropboxPath, settings.trackBooksWithoutHighlights);
+        moonReaderBooks = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
       } catch (e) {
       }
     }
@@ -2823,8 +2823,8 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     document.body.classList.toggle("moonsync-hide-highlight-colors", !this.settings.showHighlightColors);
   }
   async runSync() {
-    if (!this.settings.dropboxPath) {
-      new import_obsidian7.Notice("MoonSync: Please configure the Dropbox path in settings");
+    if (!this.settings.syncPath) {
+      new import_obsidian7.Notice("MoonSync: Please configure the sync path in settings");
       return;
     }
     try {
@@ -2852,7 +2852,12 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     throw new Error("Could not determine plugin directory");
   }
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const data = await this.loadData();
+    if (data && data.dropboxPath && !data.syncPath) {
+      data.syncPath = data.dropboxPath;
+      delete data.dropboxPath;
+    }
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
   }
   async saveSettings() {
     await this.saveData(this.settings);

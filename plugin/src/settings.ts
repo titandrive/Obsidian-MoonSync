@@ -81,29 +81,29 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 		let validationEl: HTMLElement;
 
 		const pathSetting = new Setting(container)
-			.setName("Moon Reader Dropbox path")
+			.setName("Moon Reader sync path")
 			.setDesc(
-				"Path to your Books folder in Dropbox (usually Dropbox/Apps/Books). The plugin will find the hidden .Moon+ folder automatically."
+				"Path to the folder containing your Moon Reader data. The .Moon+ folder will be detected automatically."
 			)
 			.addText((text) => {
 				textComponent = text;
 				text
-					.setPlaceholder("/Users/you/Dropbox/Apps/Books")
-					.setValue(this.plugin.settings.dropboxPath)
+					.setPlaceholder("/path/to/sync/folder")
+					.setValue(this.plugin.settings.syncPath)
 					.onChange(async (value) => {
-						this.plugin.settings.dropboxPath = value;
+						this.plugin.settings.syncPath = value;
 						await this.plugin.saveSettings();
-						this.validateDropboxPath(value, validationEl);
+						this.validateSyncPath(value, validationEl);
 					});
 			})
 			.addButton((button) =>
 				button.setButtonText("Browse").onClick(async () => {
 					const folder = await this.openFolderPicker();
 					if (folder) {
-						this.plugin.settings.dropboxPath = folder;
+						this.plugin.settings.syncPath = folder;
 						textComponent.setValue(folder);
 						await this.plugin.saveSettings();
-						this.validateDropboxPath(folder, validationEl);
+						this.validateSyncPath(folder, validationEl);
 					}
 				})
 			);
@@ -112,8 +112,8 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 		validationEl = pathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
 
 		// Validate on display
-		if (this.plugin.settings.dropboxPath) {
-			this.validateDropboxPath(this.plugin.settings.dropboxPath, validationEl);
+		if (this.plugin.settings.syncPath) {
+			this.validateSyncPath(this.plugin.settings.syncPath, validationEl);
 		}
 
 		new Setting(container)
@@ -381,7 +381,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			);
 	}
 
-	private validateDropboxPath(path: string, validationEl: HTMLElement): void {
+	private validateSyncPath(path: string, validationEl: HTMLElement): void {
 		validationEl.empty();
 
 		if (!path) {
@@ -392,7 +392,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 
 		if (existsSync(cachePath)) {
 			validationEl.createSpan({
-				text: "✓ Moon Reader cache folder found",
+				text: "✓ Moon Reader sync folder found",
 				attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" }
 			});
 		} else {
@@ -408,7 +408,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 		return new Promise((resolve) => {
 			if (platform() === "darwin") {
 				// macOS: use osascript
-				const script = `osascript -e 'POSIX path of (choose folder with prompt "Select Moon Reader Dropbox folder")'`;
+				const script = `osascript -e 'POSIX path of (choose folder with prompt "Select Moon Reader sync folder")'`;
 				exec(script, (error: Error | null, stdout: string) => {
 					if (error) {
 						resolve(null);

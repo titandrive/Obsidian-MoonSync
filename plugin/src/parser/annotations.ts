@@ -164,8 +164,8 @@ function parseProgressFile(data: Buffer): ProgressData | null {
 /**
  * Read all annotation files from the Cache folder
  */
-export async function parseAnnotationFiles(dropboxPath: string, trackBooksWithoutHighlights: boolean = false): Promise<BookData[]> {
-	const cacheDir = join(dropboxPath, ".Moon+", "Cache");
+export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHighlights: boolean = false): Promise<BookData[]> {
+	const cacheDir = join(syncPath, ".Moon+", "Cache");
 	const bookDataMap = new Map<string, BookData>();
 
 	try {

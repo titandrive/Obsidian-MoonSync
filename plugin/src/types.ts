@@ -55,7 +55,7 @@ export interface BookData {
 }
 
 export interface MoonSyncSettings {
-	dropboxPath: string;
+	syncPath: string;
 	outputFolder: string;
 	syncOnStartup: boolean;
 	showRibbonIcon: boolean;
@@ -74,7 +74,7 @@ export interface MoonSyncSettings {
 }
 
 export const DEFAULT_SETTINGS: MoonSyncSettings = {
-	dropboxPath: "",
+	syncPath: "",
 	outputFolder: "Books",
 	syncOnStartup: true,
 	showRibbonIcon: true,
