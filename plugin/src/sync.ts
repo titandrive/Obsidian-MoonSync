@@ -6,7 +6,8 @@ import { fetchBookInfo, downloadCover, batchFetchBookInfo, BookInfoResult } from
 import { MoonSyncSettings, BookData } from "./types";
 import { loadCache, saveCache, getCachedInfo, setCachedInfo, BookInfoCache } from "./cache";
 import { scanAllBookNotes, mergeBookLists } from "./scanner";
-import { computeHighlightsHash, parseFrontmatter } from "./utils";
+import { computeHighlightsHash, parseFrontmatter, parseFrontmatterField, extractFrontmatter } from "./utils";
+import { syncBooksToHardcover, HardcoverSyncItem } from "./hardcover";
 
 export interface SyncResult {
 	success: boolean;
@@ -21,6 +22,7 @@ export interface SyncResult {
 	isFirstSync: boolean;
 	errors: string[];
 	failedBooks: { title: string; error: string }[];
+	hardcoverUpdated?: number;
 }
 
 /**
@@ -128,13 +130,19 @@ export async function syncFromMoonReader(
 
 		// Process each book
 		const totalBooks = booksWithHighlights.length;
+		const changedBookTitles = new Set<string>();
 		for (let i = 0; i < booksWithHighlights.length; i++) {
 			const bookData = booksWithHighlights[i];
 			progressNotice.setMessage(`MoonSync: ${bookData.book.title} (${i + 1}/${totalBooks})`);
 			try {
+				const prevCreated = result.booksCreated;
+				const prevUpdated = result.booksUpdated;
 				const processed = await processBook(app, outputPath, bookData, settings, result, cache, prefetchedInfo, titleCache);
 				if (processed) {
 					cacheModified = true;
+				}
+				if (result.booksCreated > prevCreated || result.booksUpdated > prevUpdated) {
+					changedBookTitles.add(bookData.book.title);
 				}
 				result.booksProcessed++;
 			} catch (error) {
@@ -175,6 +183,105 @@ export async function syncFromMoonReader(
 		// Save cache if modified
 		if (cacheModified) {
 			await saveCache(app, outputPath, cache);
+		}
+
+		// Sync to Hardcover if enabled — sync changed books + books needing migration
+		if (settings.hardcoverEnabled && settings.hardcoverToken) {
+			try {
+				progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
+				console.log(`MoonSync: Hardcover sync starting — ${changedBookTitles.size} changed books, ${booksWithHighlights.length} total books`);
+				const hardcoverItems: HardcoverSyncItem[] = [];
+				for (const b of booksWithHighlights) {
+					if (b.progress === null) {
+						console.log(`MoonSync: Hardcover skipping "${b.book.title}" — no progress data`);
+						continue;
+					}
+					// Read hardcover_id and last-synced progress from frontmatter
+					const filename = generateFilename(b.book.title);
+					const filePath = normalizePath(`${outputPath}/${filename}.md`);
+					let hardcoverId: number | null = null;
+					let lastSyncedProgress: string | null = null;
+					try {
+						if (await app.vault.adapter.exists(filePath)) {
+							const content = await app.vault.adapter.read(filePath);
+							const fm = extractFrontmatter(content);
+							if (fm) {
+								const idStr = parseFrontmatterField(fm, "hardcover_id");
+								if (idStr) hardcoverId = parseInt(idStr, 10) || null;
+								lastSyncedProgress = parseFrontmatterField(fm, "hardcover_progress");
+							}
+						} else {
+							console.log(`MoonSync: Hardcover "${b.book.title}" — note not found at ${filePath}`);
+						}
+					} catch { /* ignore read errors */ }
+
+					// Skip if progress hasn't changed since last Hardcover sync
+					const currentProgress = b.progress.toFixed(1);
+					if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress) {
+						console.log(`MoonSync: Hardcover skipping "${b.book.title}" — progress unchanged (${currentProgress}%)`);
+						continue;
+					}
+
+					console.log(`MoonSync: Hardcover queuing "${b.book.title}" — progress: ${b.progress}%, hardcoverId: ${hardcoverId}, lastSynced: ${lastSyncedProgress}`);
+					hardcoverItems.push({
+						title: b.book.title,
+						author: b.book.author,
+						progress: b.progress,
+						hardcoverId,
+					});
+				}
+
+				console.log(`MoonSync: Hardcover ${hardcoverItems.length} books queued for sync`);
+				if (hardcoverItems.length > 0) {
+					const hcResult = await syncBooksToHardcover(
+						hardcoverItems,
+						settings.hardcoverToken,
+						(msg) => progressNotice.setMessage(`MoonSync: ${msg}`)
+					);
+					result.hardcoverUpdated = hcResult.booksUpdated;
+
+					// Write hardcover_id, hardcover_url, and hardcover_progress to frontmatter
+					console.log(`MoonSync: Hardcover write-back — ${hcResult.updatedTitles.length} updated, ${hcResult.newIds.length} new IDs, ${hcResult.slugs.size} slugs`);
+					const newIdMap = new Map(hcResult.newIds.map(n => [n.title, n.hardcoverId]));
+					const newSlugMap = new Map(hcResult.newIds.map(n => [n.title, n.slug]));
+					const progressMap = new Map(hardcoverItems.map(i => [i.title, i.progress]));
+					for (const title of hcResult.updatedTitles) {
+						try {
+							const fn = generateFilename(title);
+							const fp = normalizePath(`${outputPath}/${fn}.md`);
+							if (await app.vault.adapter.exists(fp)) {
+								let content = await app.vault.adapter.read(fp);
+								// Read existing hardcover_id before stripping
+								const existingIdMatch = content.match(/^hardcover_id: (.+)$/m);
+								const existingId = existingIdMatch ? existingIdMatch[1].trim() : null;
+								// Remove old hardcover fields before inserting updated ones
+								content = content.replace(/^hardcover_id: .*\n/m, "");
+								content = content.replace(/^hardcover_progress: .*\n/m, "");
+								content = content.replace(/^hardcover_url: .*\n/m, "");
+								// Build new fields: use new ID if discovered, otherwise preserve existing
+								const newId = newIdMap.get(title);
+								const hardcoverId = newId || existingId;
+								const slug = hcResult.slugs.get(title) || newSlugMap.get(title);
+								const syncedProgress = progressMap.get(title);
+								const fields: string[] = [];
+								if (hardcoverId) fields.push(`hardcover_id: ${hardcoverId}`);
+								if (slug) fields.push(`hardcover_url: "https://hardcover.app/books/${slug}"`);
+								if (syncedProgress !== null && syncedProgress !== undefined) {
+									fields.push(`hardcover_progress: "${syncedProgress.toFixed(1)}%"`);
+								}
+								if (fields.length > 0) {
+									content = content.replace(/\n---\n/, `\n${fields.join("\n")}\n---\n`);
+								}
+								await app.vault.adapter.write(fp, content);
+							}
+						} catch (err) {
+							console.log(`MoonSync: Failed to write hardcover data for "${title}"`, err);
+						}
+					}
+				}
+			} catch (error) {
+				console.log("MoonSync: Hardcover sync failed", error);
+			}
 		}
 
 		// Update index note if enabled
@@ -442,8 +549,22 @@ function mergeExistingNoteWithHighlights(
 		}
 	}
 
+	// Preserve hardcover fields from existing frontmatter
+	const hardcoverFields: string[] = [];
+	const hcIdMatch = existingContent.match(/^hardcover_id: .+$/m);
+	if (hcIdMatch) hardcoverFields.push(hcIdMatch[0]);
+	const hcUrlMatch = existingContent.match(/^hardcover_url: .+$/m);
+	if (hcUrlMatch) hardcoverFields.push(hcUrlMatch[0]);
+	const hcProgressMatch = existingContent.match(/^hardcover_progress: .+$/m);
+	if (hcProgressMatch) hardcoverFields.push(hcProgressMatch[0]);
+
 	// Generate fresh note with all Moon Reader data
 	let freshNote = generateBookNote(bookData, settings);
+
+	// Inject hardcover fields at end of frontmatter
+	if (hardcoverFields.length > 0) {
+		freshNote = freshNote.replace(/\n---\n/, `\n${hardcoverFields.join("\n")}\n---\n`);
+	}
 
 	// If user had custom notes, replace the placeholder with their content
 	if (userNotesContent) {
@@ -1162,6 +1283,9 @@ export function showSyncResults(app: App, result: SyncResult, settings: MoonSync
 				}
 				if (result.booksDeleted > 0) {
 					parts.push(`Removed ${result.booksDeleted}`);
+				}
+				if (result.hardcoverUpdated && result.hardcoverUpdated > 0) {
+					parts.push(`Hardcover: ${result.hardcoverUpdated} synced`);
 				}
 				new Notice(`MoonSync: ${parts.join(", ")} of ${totalBooks} books`);
 			}

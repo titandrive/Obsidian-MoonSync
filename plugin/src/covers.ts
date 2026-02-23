@@ -40,6 +40,36 @@ interface GoogleBooksResult {
 }
 
 /**
+ * Pick the result from a list whose title most closely matches the target title.
+ * Falls back to the first result if none are close.
+ */
+function pickBestTitleMatch<T>(items: T[], targetTitle: string, getTitle: (item: T) => string): T {
+	if (items.length === 1) return items[0];
+
+	const target = targetTitle.toLowerCase().trim();
+	let bestItem = items[0];
+	let bestScore = -1;
+
+	for (const item of items) {
+		const candidate = getTitle(item).toLowerCase().trim();
+		// Exact match is best
+		if (candidate === target) return item;
+		// Score: how much of the target appears in the candidate (and vice versa)
+		// Prefer candidates that are the same length as target (penalize extra words)
+		const targetWords = target.split(/\s+/);
+		const candidateWords = candidate.split(/\s+/);
+		const commonWords = targetWords.filter(w => candidateWords.includes(w)).length;
+		const score = commonWords / Math.max(targetWords.length, candidateWords.length);
+		if (score > bestScore) {
+			bestScore = score;
+			bestItem = item;
+		}
+	}
+
+	return bestItem;
+}
+
+/**
  * Fetch book info (cover and description) from Open Library and Google Books
  * Tries both sources and combines best results:
  * - Cover: prefers Open Library (higher quality), falls back to Google
@@ -178,13 +208,14 @@ async function fetchFromOpenLibrary(
 
 	try {
 		const query = encodeURIComponent(`${title} ${author}`);
-		const searchUrl = `https://openlibrary.org/search.json?q=${query}&limit=1`;
+		const searchUrl = `https://openlibrary.org/search.json?q=${query}&limit=5`;
 
 		const response = await requestUrl({ url: searchUrl });
 		const data = response.json;
 
 		if (data.docs && data.docs.length > 0) {
-			const book = data.docs[0];
+			// Pick the result whose title best matches the searched title
+			const book = pickBestTitleMatch(data.docs, title, (d: any) => d.title || "");
 
 			// Get title only (skip subtitle - often unreliable marketing blurbs)
 			if (book.title) {
@@ -280,13 +311,14 @@ async function fetchFromGoogleBooks(
 		// Use simple keyword search for better matching
 		// Field operators (intitle:, inauthor:) are too strict and miss many books
 		const query = author ? `${title} ${author}` : title;
-		const searchUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`;
+		const searchUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5`;
 
 		const response = await requestUrl({ url: searchUrl });
 		const data = response.json;
 
 		if (data.items && data.items.length > 0) {
-			const book = data.items[0];
+			// Pick the result whose title best matches the searched title
+			const book = pickBestTitleMatch(data.items, title, (item: any) => item.volumeInfo?.title || "");
 			const volumeInfo = book.volumeInfo;
 
 			// Get title only (skip subtitle - often unreliable marketing blurbs)

@@ -127,6 +127,9 @@ Re-fetch the cover image for the current note. Useful if a cover is missing or y
 ### Fetch Book Metadata
 Replace all metadata for the current note by selecting from search results. Updates title, author, cover, description, publisher, page count, genres, series, and language. Also sets `custom_metadata: true` to prevent future syncs from overwriting your selection.
 
+### Update Hardcover Link
+Manually set the Hardcover book for the current note. Paste a Hardcover URL (e.g. `https://hardcover.app/books/the-man-in-the-high-castle`) and MoonSync will update the `hardcover_id` and `hardcover_url` in frontmatter and immediately sync your reading progress. Useful when the automatic match picks the wrong book or edition. This command only appears when Hardcover sync is enabled.
+
 ## Settings
 MoonSync has a variety of settings to customize how the plugin works. Default settings should work for most readers but are available so you can tailor it to your preferences. 
 
@@ -169,6 +172,28 @@ MoonSync automatically generates an index and base note to give you different wa
 - **Base File Name** - By default, the base note is titled `2. Base` so that it stays at the top of the list. You can change the name here. 
 
 
+### Hardcover Tab
+MoonSync can sync your reading status and progress to [Hardcover.app](https://hardcover.app), a modern book tracking platform.
+
+#### Getting Your API Token
+1. Create a [Hardcover](https://hardcover.app) account if you don't have one
+2. Go to the [API Getting Started](https://docs.hardcover.app/api/getting-started/) page
+3. Follow the instructions to get your bearer token
+4. Paste the token into MoonSync settings
+
+#### Settings
+- **Enable Hardcover sync** - Turn on/off syncing to Hardcover after each MoonSync sync
+- **API token** - Your Hardcover bearer token
+- **Test connection** - Verify your token is working
+
+#### How It Works
+After each sync, MoonSync pushes reading status for any books whose progress changed:
+- Books with progress under 99% are marked as **Currently Reading**
+- Books with progress 99% or above are marked as **Read**
+- Books without progress data are skipped
+
+MoonSync searches Hardcover by title and author to find the matching book. Once found, the `hardcover_id` and `hardcover_url` are saved to your note's frontmatter so future syncs skip the search. If the wrong book is matched, use the **Update Hardcover Link** command to correct it.
+
 ### About the Index and Base Notes
 
 #### Library Index
@@ -210,7 +235,7 @@ It also provides a library view that shows a breakdown of the following statisti
 ## Privacy & Security
 
 - **Read-only access**: MoonSync only reads from your sync folder. It never modifies your Moon Reader data.
-- **Local processing**: All data stays on your machine. External APIs are only contacted for book metadata (Google Books, Open Library).
+- **Local processing**: All data stays on your machine. External APIs are only contacted for book metadata (Google Books, Open Library) and optionally for Hardcover sync (if enabled).
 - **Caching**: API responses are cached locally to minimize external requests.
 
 ## Troubleshooting

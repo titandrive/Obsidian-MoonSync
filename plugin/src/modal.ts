@@ -735,3 +735,57 @@ export function generateBookTemplate(
 
 	return lines.join("\n");
 }
+
+export class UpdateHardcoverModal extends Modal {
+	private onSubmit: (url: string) => void;
+
+	constructor(app: App, onSubmit: (url: string) => void) {
+		super(app);
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.createEl("h3", { text: "Update Hardcover link" });
+		contentEl.createEl("p", {
+			text: "Paste the Hardcover URL for this book to correct the match.",
+			cls: "setting-item-description",
+		});
+
+		let url = "";
+		new Setting(contentEl)
+			.setName("Hardcover URL")
+			.addText((text) => {
+				text.setPlaceholder("https://hardcover.app/books/...");
+				text.onChange((value) => { url = value; });
+				text.inputEl.style.width = "100%";
+				text.inputEl.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						if (url.trim()) {
+							this.onSubmit(url.trim());
+							this.close();
+						}
+					}
+				});
+			});
+
+		new Setting(contentEl)
+			.addButton((btn) => {
+				btn.setButtonText("Update")
+					.setCta()
+					.onClick(() => {
+						if (url.trim()) {
+							this.onSubmit(url.trim());
+							this.close();
+						}
+					});
+			});
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}

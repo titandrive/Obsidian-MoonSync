@@ -41,6 +41,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			{ id: "configuration", name: "Configuration" },
 			{ id: "content", name: "Content" },
 			{ id: "index-base", name: "Index & base" },
+			{ id: "integrations", name: "Hardcover" },
 			{ id: "about", name: "About" }
 		];
 
@@ -59,18 +60,13 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 		const configTab = containerEl.createDiv({ cls: this.activeTab === "configuration" ? "moonsync-tab-content moonsync-tab-visible" : "moonsync-tab-content moonsync-tab-hidden" });
 		const contentTab = containerEl.createDiv({ cls: this.activeTab === "content" ? "moonsync-tab-content moonsync-tab-visible" : "moonsync-tab-content moonsync-tab-hidden" });
 		const indexBaseTab = containerEl.createDiv({ cls: this.activeTab === "index-base" ? "moonsync-tab-content moonsync-tab-visible" : "moonsync-tab-content moonsync-tab-hidden" });
+		const integrationsTab = containerEl.createDiv({ cls: this.activeTab === "integrations" ? "moonsync-tab-content moonsync-tab-visible" : "moonsync-tab-content moonsync-tab-hidden" });
 		const aboutTab = containerEl.createDiv({ cls: this.activeTab === "about" ? "moonsync-tab-content moonsync-tab-visible" : "moonsync-tab-content moonsync-tab-hidden" });
 
-		// Configuration Tab
 		this.displayConfigurationTab(configTab);
-
-		// Content Tab
 		this.displayContentTab(contentTab);
-
-		// Index & Base Tab
 		this.displayIndexBaseTab(indexBaseTab);
-
-		// About Tab
+		this.displayIntegrationsTab(integrationsTab);
 		this.displayAboutTab(aboutTab);
 	}
 
@@ -355,6 +351,87 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 						}
 					})
 			);
+	}
+
+	private displayIntegrationsTab(container: HTMLElement): void {
+		new Setting(container)
+			.setName("Hardcover.app")
+			.setDesc("Sync your reading status and progress to Hardcover.")
+			.setHeading();
+
+		new Setting(container)
+			.setName("Enable Hardcover sync")
+			.setDesc("Update reading status on Hardcover after each sync")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.hardcoverEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.hardcoverEnabled = value;
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
+
+		if (this.plugin.settings.hardcoverEnabled) {
+			let tokenValidationEl: HTMLElement;
+
+			const tokenSetting = new Setting(container)
+				.setName("API token")
+				.setDesc("Your Hardcover bearer token from hardcover.app/account/api")
+				.addText((text) =>
+					text
+						.setPlaceholder("Enter your API token")
+						.setValue(this.plugin.settings.hardcoverToken)
+						.onChange(async (value) => {
+							this.plugin.settings.hardcoverToken = value.trim();
+							await this.plugin.saveSettings();
+						})
+				);
+
+			tokenValidationEl = tokenSetting.descEl.createDiv({
+				cls: "moonsync-path-validation",
+			});
+
+			new Setting(container)
+				.setName("Test connection")
+				.setDesc("Verify your API token is working")
+				.addButton((button) =>
+					button.setButtonText("Test").onClick(async () => {
+						if (!this.plugin.settings.hardcoverToken) {
+							tokenValidationEl.empty();
+							tokenValidationEl.createSpan({
+								text: "Please enter a token first",
+								attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" },
+							});
+							return;
+						}
+						button.setDisabled(true);
+						button.setButtonText("Testing...");
+
+						const { validateHardcoverToken } = await import("./hardcover");
+						const valid = await validateHardcoverToken(this.plugin.settings.hardcoverToken);
+
+						tokenValidationEl.empty();
+						if (valid) {
+							tokenValidationEl.createSpan({
+								text: "✓ Connected to Hardcover",
+								attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" },
+							});
+						} else {
+							tokenValidationEl.createSpan({
+								text: "✗ Connection failed. Check your token.",
+								attr: { style: "color: var(--text-error); font-size: 0.85em; margin-top: 0.5em; display: block;" },
+							});
+						}
+
+						button.setDisabled(false);
+						button.setButtonText("Test");
+					})
+				);
+
+			new Setting(container)
+				.setDesc("0% → Want to Read. 1–98% → Currently Reading. 99%+ → Read. No progress data → skipped.");
+		}
 	}
 
 	private displayAboutTab(container: HTMLElement): void {

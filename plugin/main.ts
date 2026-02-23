@@ -2,11 +2,12 @@ import { Plugin, Notice, normalizePath, TFile, FileSystemAdapter } from "obsidia
 import { MoonSyncSettings, DEFAULT_SETTINGS, BookData } from "./src/types";
 import { MoonSyncSettingTab } from "./src/settings";
 import { syncFromMoonReader, showSyncResults, refreshIndexNote, refreshBaseFile } from "./src/sync";
-import { CreateBookModal, generateBookTemplate, SelectCoverModal, SelectBookMetadataModal } from "./src/modal";
+import { CreateBookModal, generateBookTemplate, SelectCoverModal, SelectBookMetadataModal, UpdateHardcoverModal } from "./src/modal";
 import { generateFilename, generateBookNote } from "./src/writer/markdown";
 import { fetchBookInfo, downloadCover, downloadAndResizeCover, BookInfoResult } from "./src/covers";
 import { parseManualExport } from "./src/parser/manual-export";
-import { parseFrontmatter } from "./src/utils";
+import { parseFrontmatter, extractFrontmatter, parseFrontmatterField } from "./src/utils";
+import { lookupBookBySlug, updateHardcoverBook } from "./src/hardcover";
 import { join } from "path";
 
 export default class MoonSyncPlugin extends Plugin {
@@ -14,6 +15,7 @@ export default class MoonSyncPlugin extends Plugin {
 	ribbonIconEl: HTMLElement | null = null;
 
 	async onload() {
+		console.log("MoonSync: BUILD 2026-02-23-A loaded");
 		await this.loadSettings();
 
 		// Add settings tab
@@ -58,6 +60,17 @@ export default class MoonSyncPlugin extends Plugin {
 			id: "fetch-metadata",
 			name: "Fetch book metadata",
 			callback: () => { void this.fetchBookMetadata(); },
+		});
+
+		// Add update Hardcover link command (only visible when Hardcover is enabled)
+		this.addCommand({
+			id: "update-hardcover",
+			name: "Update Hardcover link",
+			checkCallback: (checking: boolean) => {
+				if (!this.settings.hardcoverEnabled || !this.settings.hardcoverToken) return false;
+				if (!checking) { void this.updateHardcoverLink(); }
+				return true;
+			},
 		});
 
 		// Sync on startup if enabled
@@ -634,6 +647,73 @@ export default class MoonSyncPlugin extends Plugin {
 		} catch (error) {
 			console.error("MoonSync: Failed to fetch metadata", error);
 			new Notice(`MoonSync: Failed to fetch metadata - ${error}`);
+		}
+	}
+
+	/**
+	 * Update the Hardcover link for the current note by providing a Hardcover URL
+	 */
+	async updateHardcoverLink(): Promise<void> {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile) {
+			new Notice("MoonSync: No active file");
+			return;
+		}
+
+		const content = await this.app.vault.read(activeFile);
+		const parsed = parseFrontmatter(content);
+
+		if (!parsed.title) {
+			new Notice("MoonSync: No title found in frontmatter");
+			return;
+		}
+
+		new UpdateHardcoverModal(this.app, (url: string) => {
+			void this.handleHardcoverUrlSubmit(url, content, activeFile, parsed.progress);
+		}).open();
+	}
+
+	private async handleHardcoverUrlSubmit(url: string, content: string, activeFile: TFile, progress: number | null): Promise<void> {
+		// Extract slug from URL
+		const slugMatch = url.match(/hardcover\.app\/books\/([^/?#]+)/);
+		if (!slugMatch) {
+			new Notice("MoonSync: Invalid Hardcover URL. Expected format: https://hardcover.app/books/...");
+			return;
+		}
+		const slug = slugMatch[1];
+
+		const progressNotice = new Notice("MoonSync: Looking up book on Hardcover...", 0);
+
+		try {
+			const book = await lookupBookBySlug(slug, this.settings.hardcoverToken);
+			if (!book) {
+				progressNotice.hide();
+				new Notice("MoonSync: Book not found on Hardcover");
+				return;
+			}
+
+			// Update frontmatter
+			let updated = content;
+			updated = updated.replace(/^hardcover_id: .*\n/m, "");
+			updated = updated.replace(/^hardcover_progress: .*\n/m, "");
+			updated = updated.replace(/^hardcover_url: .*\n/m, "");
+			const fields = `hardcover_id: ${book.id}\nhardcover_url: "https://hardcover.app/books/${book.slug}"`;
+			updated = updated.replace(/\n---\n/, `\n${fields}\n---\n`);
+			await this.app.vault.modify(activeFile, updated);
+
+			// Sync progress if available
+			if (progress !== null && progress > 0) {
+				progressNotice.setMessage("MoonSync: Syncing progress to Hardcover...");
+				const statusId = progress >= 99 ? 3 : 2; // STATUS_READ or STATUS_CURRENTLY_READING
+				await updateHardcoverBook(book.id, statusId, progress, book.pages, this.settings.hardcoverToken);
+			}
+
+			progressNotice.hide();
+			new Notice(`MoonSync: Linked to "${book.title}" on Hardcover`);
+		} catch (error) {
+			progressNotice.hide();
+			console.error("MoonSync: Failed to update Hardcover link", error);
+			new Notice(`MoonSync: Failed to update Hardcover link - ${error}`);
 		}
 	}
 
