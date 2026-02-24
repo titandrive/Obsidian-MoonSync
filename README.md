@@ -1,42 +1,49 @@
 # MoonSync
 
-Sync your reading highlights, notes, and progress from Moon+ Reader to Obsidian. MoonSync supports both automatic synchronization using Dropbox/Webdav/FTP or via manual exports. 
+Sync your reading highlights, notes, and progress from Moon+ Reader to **Obsidian** and **[Hardcover.app](https://hardcover.app)**.
 
 <img src="assets/BookScreenshot.png" alt="Book note example" width="420">
 
+## Features
+
+- **Obsidian Sync** — Automatically create and update book notes with highlights, reading progress, covers, and metadata
+- **Hardcover Sync** — Push reading status and progress to [Hardcover.app](https://hardcover.app) so your library stays up to date across platforms
+- **Rich Metadata** — Book covers, descriptions, genres, series info, and ratings pulled from Google Books and Open Library
+- **Library Index** — Auto-generated index with cover collage, stats, and an Obsidian Bases database view
+- **Highlight Colors** — Preserve Moon Reader highlight colors as styled callouts
+- **Smart Updates** — Only syncs when highlights or progress actually change
+
 ## How It Works
-Whenever you sync a book to the cloud (via Dropbox/Webdav/FTP) in Moon Reader, it saves this data to two cache files in the sync folder. These files contain all of your book's metadata including highlights, notes, reading progress and book information. MoonSync reads this data and syncs it to your Obsidian vault. 
 
-When MoonSync detects a new book, it pulls metadata from Google Books and Open Library to create a note containing all of your highlights, notes, and book progress as well as book information (cover, genre, date published, etc). 
+Moon Reader syncs your reading data to the cloud (Dropbox, WebDAV, or FTP). MoonSync reads that data and creates rich book notes in Obsidian. If Hardcover sync is enabled, it also updates your reading status there.
 
-MoonSync will then keep track of that book and update the note as you make new highlights and your reading progress changes. 
-
-**Data flow:** Moon Reader → Cloud Sync (Dropbox/WebDAV/FTP) → MoonSync → Obsidian
+**Data flow:** Moon Reader → Cloud Sync → MoonSync → Obsidian + Hardcover
 
 ### What Gets Synced
 
-- Book highlights with timestamps and colors
-- Reading progress (percentage and current chapter)
-- Book metadata (title, author, publisher, page count, genres, series)
-- Book covers, descriptions, and ratings (fetched from Google Books/Open Library)
+| To Obsidian | To Hardcover |
+|---|---|
+| Book highlights with timestamps and colors | Reading status (Want to Read, Currently Reading, Read) |
+| Reading progress (percentage and chapter) | Reading progress (page count) |
+| Book metadata (title, author, publisher, genres, series) | Book matched by title/author |
+| Book covers and descriptions | |
 
 ### Requirements
 
 - [Moon Reader](https://play.google.com/store/apps/details?id=com.flyersoft.moonreader)
-- [Dropbox Desktop App](https://www.dropbox.com/desktop) or mounted Webdav/FTP server
-- [Obsidian](https://obsidian.md/download) 
-- [BRAT](https://github.com/TfTHacker/obsidian42-brat) 
+- [Dropbox Desktop App](https://www.dropbox.com/desktop) or mounted WebDAV/FTP server
+- [Obsidian](https://obsidian.md/download)
+- [BRAT](https://github.com/TfTHacker/obsidian42-brat)
 
 ## Installation
-MoonSync can be installed either via the BRAT Plugin (recommended) or via a custom install. 
+MoonSync can be installed either via the BRAT Plugin (recommended) or via a custom install.
 
 *This plugin has been submitted as a community plugin and is pending review*
-
 
 ### BRAT Installation
 Using BRAT is the recommended, and easiest, way to install custom Obsidian plugins that are not available in the Obsidian Community Store.
 
-1. Install BRAT via community plugins. 
+1. Install BRAT via community plugins.
 2. Open BRAT and select "Add Beta Plugin"
 3. Paste `https://github.com/titandrive/Obsidian-MoonSync` into the text bar
 4. Click "Add Plugin"
@@ -55,7 +62,7 @@ MoonSync is now installed and BRAT will automatically keep track of updates for 
 ## How to Sync
 
 ### Configuring Automatic Sync
-Once MoonSync is installed, you will need to configure it before it can complete its first sync. 
+Once MoonSync is installed, you will need to configure it before it can complete its first sync.
 1. Open up Settings → Community Plugins → MoonSync
 2. Enable MoonSync
 3. Click on the settings Cog to open up MoonSync settings.
@@ -66,45 +73,63 @@ Once MoonSync is installed, you will need to configure it before it can complete
 
 By default, MoonSync will now Sync your books anytime you open Obsidian. You can also trigger a manual sync at anytime via the ribbon menu shortcut or Command Palette (see below).
 
+### Setting Up Hardcover Sync
+
+MoonSync can automatically sync your reading progress to [Hardcover.app](https://hardcover.app), a modern book tracking platform.
+
+1. Create a [Hardcover](https://hardcover.app) account if you don't have one
+2. Go to the [API Getting Started](https://docs.hardcover.app/api/getting-started/) page and get your bearer token
+3. In MoonSync settings, go to the **Hardcover** tab
+4. Enable Hardcover sync and paste your API token
+5. Click **Test** to verify the connection
+
+After each sync, MoonSync automatically updates your Hardcover library:
+- **0% progress** → Want to Read
+- **1–98% progress** → Currently Reading
+- **99%+ progress** → Read
+- Books without progress data are skipped
+
+MoonSync searches Hardcover by title to find matching books. Once matched, the `hardcover_id` is saved to your note's frontmatter so future syncs are instant. If the wrong book is matched, use the **Update Hardcover Link** command to correct it.
+
 #### My Notes
-Every book note contains a section called "My Notes". You can add your own notes here such as your thoughts on the book. As your reading progresses, MoonSync will continue to update your reading progress and add new highlights. Anything added in "My Notes" will be preserved. 
+Every book note contains a section called "My Notes". You can add your own notes here such as your thoughts on the book. As your reading progresses, MoonSync will continue to update your reading progress and add new highlights. Anything added in "My Notes" will be preserved.
 
-#### Typical Sync Workflow 
+#### Typical Sync Workflow
 1. Read book and make highlights in Moon Reader
-2. Once you are finished reading, sync your progress to the cloud. Depending on your app settings, you may need to trigger this manually. 
-3. Trigger MoonSync by opening Obsidian or clicking the ribbon  button. 
-4. Your highlights and reading progress should immediately become available. 
+2. Once you are finished reading, sync your progress to the cloud. Depending on your app settings, you may need to trigger this manually.
+3. Trigger MoonSync by opening Obsidian or clicking the ribbon  button.
+4. Your highlights and reading progress should immediately become available.
 
-#### FTP/Webdav Support
-Although Dropbox is the easiest way to sync your notes, Moon Reader also supports syncing via Webdav or FTP. This requires you to have your own webdav or FTP server and is therefore a bit more involved to get working. MoonSync has been tested and works perfectly using a selfhosted server such as [SFTPGo](https://github.com/drakkan/sftpgo).
+#### FTP/WebDAV Support
+Although Dropbox is the easiest way to sync your notes, Moon Reader also supports syncing via WebDAV or FTP. This requires you to have your own WebDAV or FTP server and is therefore a bit more involved to get working. MoonSync has been tested and works perfectly using a selfhosted server such as [SFTPGo](https://github.com/drakkan/sftpgo).
 
 ### Manual Book Sync
 If you do not want to use automatic syncing, MoonSync also supports manual exports.
 
-First, export your notes: 
-1. While viewing a book in Moon Reader, open up the Bookmarks bar. You should see all of your existing notes and highlights 
+First, export your notes:
+1. While viewing a book in Moon Reader, open up the Bookmarks bar. You should see all of your existing notes and highlights
 2. Click the share button then "Share notes & highlights (TXT)"
-3. Share the notes to Obsidian. 
+3. Share the notes to Obsidian.
 *Note: It does not matter where the note is created. It does not need to be made in the /books directory.*
-4. Choose a note in Obsidian to save it to. 
+4. Choose a note in Obsidian to save it to.
 
 Once you have exported your notes, you can import it using the command palette:
 1. Open the note that you just created.
 2. While viewing the note, open the Command Palette (`Cmd/Ctrl + P`)
 3. Choose `MoonSync: Import Note`
-4. MoonSync will automatically create a new book note, find matching metadata, and update the index & base files. 
+4. MoonSync will automatically create a new book note, find matching metadata, and update the index & base files.
 
 ## Custom Books
-Sometimes you may have books you wish to keep track of that you read outside of Moon Reader. MoonSync supports creating custom books that can be tracked in the same manner. 
+Sometimes you may have books you wish to keep track of that you read outside of Moon Reader. MoonSync supports creating custom books that can be tracked in the same manner.
 
-To create a custom book, 
-1. Open the Command Palette and select `MoonSync: Create Book Note`. 
+To create a custom book,
+1. Open the Command Palette and select `MoonSync: Create Book Note`.
 2. Search for your book in the search prompt
 3. Select your book
 
-MoonSync will import all available metadata and create a new book note in `/Books`. You can then enter your favorite highlights and notes! 
+MoonSync will import all available metadata and create a new book note in `/Books`. You can then enter your favorite highlights and notes!
 
-If in the future, you begin reading that same book in Moon Reader, and make more highlights, MoonSync will intelligently update this note so you won't lose any of your past highlights. 
+If in the future, you begin reading that same book in Moon Reader, and make more highlights, MoonSync will intelligently update this note so you won't lose any of your past highlights.
 
 ## Command Palette
 
@@ -119,7 +144,7 @@ Synchronize all books from Moon Reader. Only updates notes when highlights or pr
 Import highlights from a manual Moon Reader export. Useful for one-time imports or when cloud sync isn't available.
 
 ### Create Book Note
-Create a new book note. The command opens up a search modal to find the book via Google Books. It then creates a new note for it. 
+Create a new book note. The command opens up a search modal to find the book via Google Books. It then creates a new note for it.
 
 ### Fetch Book Cover
 Re-fetch the cover image for the current note. Useful if a cover is missing or you have a different edition you prefer. Covers can be selected via search or by importing from a url.
@@ -131,10 +156,10 @@ Replace all metadata for the current note by selecting from search results. Upda
 Manually set the Hardcover book for the current note. Paste a Hardcover URL (e.g. `https://hardcover.app/books/the-man-in-the-high-castle`) and MoonSync will update the `hardcover_id` and `hardcover_url` in frontmatter and immediately sync your reading progress. Useful when the automatic match picks the wrong book or edition. This command only appears when Hardcover sync is enabled.
 
 ## Settings
-MoonSync has a variety of settings to customize how the plugin works. Default settings should work for most readers but are available so you can tailor it to your preferences. 
+MoonSync has a variety of settings to customize how the plugin works. Default settings should work for most readers but are available so you can tailor it to your preferences.
 
 ### Configuration Tab
-These settings configure how MoonSync works. 
+These settings configure how MoonSync works.
 #### Configuration
 - **Moon Reader Sync Path** - path to your Moon Reader sync folder (Dropbox, mounted WebDAV, or FTP). For Dropbox this is typically `.../Dropbox/Apps/Books`. The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
 - **Output Folder** - Where your booknotes will be stored. Default: `/Books`
@@ -143,64 +168,46 @@ These settings configure how MoonSync works.
 - **Sync Now** - Trigger manual sync
 - **Sync on Startup** - Automatically sync when Obsidian starts
 - **Show Ribbon Icon** - Show sync button in the ribbon menu
-- **Track Books Without Highlights** - Track books that do not currently have highlights. If enabled, MoonSync will create notes for books you are currently reading but have not created highlights in. Useful if you want to track reading progress but you don't make a lot of highlights.  
+- **Track Books Without Highlights** - Track books that do not currently have highlights. If enabled, MoonSync will create notes for books you are currently reading but have not created highlights in. Useful if you want to track reading progress but you don't make a lot of highlights.
 
 ### Content Tab
-These settings configure what information is shown in your book notes. 
+These settings configure what information is shown in your book notes.
 
-#### Note Content 
+#### Note Content
 - **Show Description** - Include book description (from Google Books/Open Library)
 - **Show Reading Progress** - Include progress percentage, current chapter, and date last read
 - **Show Highlight Colors** - Use different callout styles based on highlight color
-- **Show Book Covers** - Include book covers 
+- **Show Book Covers** - Include book covers
 
-Note: Enabling/disabling these options will show/hide the feature in real time. 
+Note: Enabling/disabling these options will show/hide the feature in real time.
 
 ### Index & Base Tab
-MoonSync automatically generates an index and base note to give you different way to visualize your data. These settings allow you to customize your index and base. 
+MoonSync automatically generates an index and base note to give you different way to visualize your data. These settings allow you to customize your index and base.
 
 #### Library Index
 
-- **Generate Library Index** - Control whether MoonSync will generate an index. MoonSync, by default, will generate an index upon first sync. Disabling this will delete the index file.  
-- **Index Note Title** - By default, the index note is titled `1. Index Note` so that it stays at the top of the list. You can change the name here. 
-- **Show Cover Collage** - Show or hide the cover collage 
-- **Cover Collage Limit** - Control how many covers show in the collage. Setting it to `0` will show covers for all books in the index. 
-- **Cover Collage Sort** - Controls whether the cover collage is sorted alphabetically or chronologically. 
+- **Generate Library Index** - Control whether MoonSync will generate an index. MoonSync, by default, will generate an index upon first sync. Disabling this will delete the index file.
+- **Index Note Title** - By default, the index note is titled `1. Index Note` so that it stays at the top of the list. You can change the name here.
+- **Show Cover Collage** - Show or hide the cover collage
+- **Cover Collage Limit** - Control how many covers show in the collage. Setting it to `0` will show covers for all books in the index.
+- **Cover Collage Sort** - Controls whether the cover collage is sorted alphabetically or chronologically.
 
 #### Obsidian Bases
-- **Generate Base File** - Control whether MoonSync will generate a Base file. MoonSync, by default, will generate a base upon first sync. Disabling this will delete the base file. 
-- **Base File Name** - By default, the base note is titled `2. Base` so that it stays at the top of the list. You can change the name here. 
-
+- **Generate Base File** - Control whether MoonSync will generate a Base file. MoonSync, by default, will generate a base upon first sync. Disabling this will delete the base file.
+- **Base File Name** - By default, the base note is titled `2. Base` so that it stays at the top of the list. You can change the name here.
 
 ### Hardcover Tab
-MoonSync can sync your reading status and progress to [Hardcover.app](https://hardcover.app), a modern book tracking platform.
-
-#### Getting Your API Token
-1. Create a [Hardcover](https://hardcover.app) account if you don't have one
-2. Go to the [API Getting Started](https://docs.hardcover.app/api/getting-started/) page
-3. Follow the instructions to get your bearer token
-4. Paste the token into MoonSync settings
-
-#### Settings
 - **Enable Hardcover sync** - Turn on/off syncing to Hardcover after each MoonSync sync
 - **API token** - Your Hardcover bearer token
 - **Test connection** - Verify your token is working
-
-#### How It Works
-After each sync, MoonSync pushes reading status for any books whose progress changed:
-- Books with progress under 99% are marked as **Currently Reading**
-- Books with progress 99% or above are marked as **Read**
-- Books without progress data are skipped
-
-MoonSync searches Hardcover by title and author to find the matching book. Once found, the `hardcover_id` and `hardcover_url` are saved to your note's frontmatter so future syncs skip the search. If the wrong book is matched, use the **Update Hardcover Link** command to correct it.
 
 ### About the Index and Base Notes
 
 #### Library Index
 
-When enabled, MoonSync generates an index file titled `1. Library Index.md` that shows the following: 
+When enabled, MoonSync generates an index file titled `1. Library Index.md` that shows the following:
 
-- Visual grid of book covers. Clicking on a cover will take you to the associated note. 
+- Visual grid of book covers. Clicking on a cover will take you to the associated note.
 - Summary statistics: total books, highlights, notes, average progress
 - List of all books with author, progress, and highlight counts
 
@@ -209,9 +216,9 @@ The index updates automatically after each sync.
 <img src="assets/IndexScreenshot.png" alt="Library index example" width="420">
 
 #### Base Note
-The base note provides a database-like view of your book data. 
+The base note provides a database-like view of your book data.
 
-The base note provides a Gallery view that shows each cover in your library. Clicking on a cover will take you to the associated link. 
+The base note provides a Gallery view that shows each cover in your library. Clicking on a cover will take you to the associated link.
 
 It also provides a library view that shows a breakdown of the following statistics per book:
 - Title (file name)
@@ -259,8 +266,12 @@ It also provides a library view that shows a breakdown of the following statisti
 - Use "Fetch Book Metadata" command to search and select the correct book
 - This sets `custom_metadata: true` to prevent future syncs from changing it
 
+### Hardcover matching wrong book
+- Use the "Update Hardcover Link" command to paste the correct Hardcover URL
+- This saves the `hardcover_id` to your note so future syncs use the correct book
+
 ## AI Disclosure
-This plugin was made with the assistance of Claude Code. 
+This plugin was made with the assistance of Claude Code.
 
 ## License
 
