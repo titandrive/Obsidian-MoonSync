@@ -443,7 +443,7 @@ function mergeManualNoteWithMoonReader(
 	const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
 	lines.push(`notes_count: ${notesCount}`);
 
-	if (settings.showProgress && bookData.progress !== null) {
+	if (settings.showReadingProgress && bookData.progress !== null) {
 		lines.push(`progress: "${bookData.progress.toFixed(1)}%"`);
 		if (bookData.currentChapter) {
 			lines.push(`current_chapter: ${bookData.currentChapter}`);

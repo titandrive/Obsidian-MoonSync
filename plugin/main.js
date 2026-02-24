@@ -35,6 +35,9 @@ __export(hardcover_exports, {
 function escapeGraphQL(str) {
   return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
+function cleanTitleForSearch(title) {
+  return title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+}
 async function rateLimitDelay() {
   const now = Date.now();
   const elapsed = now - lastRequestTime;
@@ -49,38 +52,21 @@ async function hardcoverGraphQL(query, token, variables) {
   if (variables) {
     payload.variables = variables;
   }
-  const body = JSON.stringify(payload);
-  return new Promise((resolve, reject) => {
-    (0, import_child_process.execFile)("curl", [
-      "-s",
-      "-X",
-      "POST",
-      HARDCOVER_API,
-      "-H",
-      "Content-Type: application/json",
-      "-H",
-      `Authorization: Bearer ${cleanToken}`,
-      "-d",
-      body
-    ], { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr || error.message));
-        return;
-      }
-      try {
-        const json = JSON.parse(stdout);
-        if (json.errors && json.errors.length > 0) {
-          console.log("MoonSync: Hardcover GraphQL errors:", JSON.stringify(json.errors));
-          reject(new Error(json.errors[0].message));
-          return;
-        }
-        resolve(json);
-      } catch (e) {
-        console.log("MoonSync: Hardcover raw response:", stdout.slice(0, 500));
-        reject(new Error("Failed to parse Hardcover response"));
-      }
-    });
+  const response = await (0, import_obsidian.requestUrl)({
+    url: HARDCOVER_API,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${cleanToken}`
+    },
+    body: JSON.stringify(payload)
   });
+  const json = response.json;
+  if (json.errors && json.errors.length > 0) {
+    console.log("MoonSync: Hardcover GraphQL errors:", JSON.stringify(json.errors));
+    throw new Error(json.errors[0].message);
+  }
+  return json;
 }
 async function validateHardcoverToken(token) {
   var _a, _b, _c;
@@ -115,7 +101,7 @@ async function lookupBookBySlug(slug, token) {
   return null;
 }
 async function searchHardcoverBook(title, author, token, excludeId) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
   try {
     await rateLimitDelay();
     const exactQuery = `{
@@ -167,54 +153,68 @@ async function searchHardcoverBook(title, author, token, excludeId) {
   } catch (error) {
     console.debug("MoonSync: Hardcover title-only search failed", error);
   }
-  try {
-    await rateLimitDelay();
-    const searchQuery = `{
-			search(
-				query: "${escapeGraphQL(title + " " + author)}",
-				query_type: "books",
-				per_page: 5
-			) {
-				results
-			}
-		}`;
-    const result = await hardcoverGraphQL(searchQuery, token);
-    const hits = (_i = (_h = (_g = result.data) == null ? void 0 : _g.search) == null ? void 0 : _h.results) == null ? void 0 : _i.hits;
-    if (hits && Array.isArray(hits) && hits.length > 0) {
-      const authorLower = author.toLowerCase();
-      let bestHit = hits[0].document;
-      if (author) {
-        for (const h of hits) {
-          const names = ((_j = h.document) == null ? void 0 : _j.author_names) || [];
-          if (names.some((n) => n.toLowerCase().includes(authorLower))) {
-            bestHit = h.document;
-            break;
-          }
-        }
-      }
-      const doc = bestHit;
-      if ((doc == null ? void 0 : doc.id) && (!excludeId || doc.id !== excludeId)) {
-        let pages = null;
-        let slug = "";
-        try {
-          await rateLimitDelay();
-          const detailQuery = `{ books(where: { id: { _eq: ${doc.id} } }, limit: 1) { slug pages } }`;
-          const detailResult = await hardcoverGraphQL(detailQuery, token);
-          const detail = (_l = (_k = detailResult.data) == null ? void 0 : _k.books) == null ? void 0 : _l[0];
-          pages = (_m = detail == null ? void 0 : detail.pages) != null ? _m : null;
-          slug = (_n = detail == null ? void 0 : detail.slug) != null ? _n : "";
-        } catch (e) {
-        }
-        return { id: doc.id, title: doc.title || title, slug, pages };
-      }
+  const cleanTitle = cleanTitleForSearch(title);
+  const searchQueries = [cleanTitle];
+  const words = cleanTitle.split(" ");
+  if (words.length > 3) {
+    searchQueries.push(words.slice(0, Math.ceil(words.length / 2)).join(" "));
+    const skipArticles = ["a", "an", "the"];
+    const startIdx = skipArticles.includes(words[0].toLowerCase()) ? 1 : 0;
+    const mainWord = words[startIdx] || words[0];
+    if (!searchQueries.includes(mainWord)) {
+      searchQueries.push(mainWord);
     }
-  } catch (error) {
-    console.debug("MoonSync: Hardcover text search failed", error);
+  }
+  for (const searchTitle of searchQueries) {
+    try {
+      await rateLimitDelay();
+      const searchQuery = `{
+				search(
+					query: "${escapeGraphQL(searchTitle)}",
+					query_type: "books",
+					per_page: 5
+				) {
+					results
+				}
+			}`;
+      const result = await hardcoverGraphQL(searchQuery, token);
+      const hits = (_i = (_h = (_g = result.data) == null ? void 0 : _g.search) == null ? void 0 : _h.results) == null ? void 0 : _i.hits;
+      if (hits && Array.isArray(hits) && hits.length > 0) {
+        const bestHit = hits.reduce((best, h) => {
+          var _a2;
+          const bestCount = (best == null ? void 0 : best.users_count) || 0;
+          const hCount = ((_a2 = h.document) == null ? void 0 : _a2.users_count) || 0;
+          return hCount > bestCount ? h.document : best;
+        }, hits[0].document);
+        const doc = bestHit;
+        const docId = (doc == null ? void 0 : doc.id) ? parseInt(String(doc.id), 10) : null;
+        const docUsers = (doc == null ? void 0 : doc.users_count) || 0;
+        console.log(`MoonSync: Hardcover search "${searchTitle}" \u2014 best hit: id=${docId}, users=${docUsers}, title="${doc == null ? void 0 : doc.title}"`);
+        if (docId && (!excludeId || docId !== excludeId) && docUsers >= 10) {
+          let pages = null;
+          let slug = "";
+          try {
+            await rateLimitDelay();
+            const detailQuery = `{ books(where: { id: { _eq: ${docId} } }, limit: 1) { slug pages } }`;
+            const detailResult = await hardcoverGraphQL(detailQuery, token);
+            const detail = (_k = (_j = detailResult.data) == null ? void 0 : _j.books) == null ? void 0 : _k[0];
+            pages = (_l = detail == null ? void 0 : detail.pages) != null ? _l : null;
+            slug = (_m = detail == null ? void 0 : detail.slug) != null ? _m : "";
+          } catch (e) {
+          }
+          return { id: docId, title: doc.title || title, slug, pages };
+        } else {
+          console.log(`MoonSync: Hardcover search "${searchTitle}" \u2014 rejected (users=${docUsers}, need >= 10)`);
+        }
+      }
+    } catch (error) {
+      console.debug("MoonSync: Hardcover text search failed", error);
+    }
   }
   return null;
 }
 async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
   try {
     const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
     await rateLimitDelay();
@@ -223,7 +223,18 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
     const privacySettingId = (_c = meData == null ? void 0 : meData.account_privacy_setting_id) != null ? _c : 1;
     let myUserBook = (_d = meData == null ? void 0 : meData.user_books) == null ? void 0 : _d[0];
     console.log(`MoonSync: Hardcover book ${bookId} \u2014 existing user_book:`, JSON.stringify(myUserBook));
-    const needsStatusChange = !myUserBook || myUserBook.status_id !== statusId;
+    let progressIncreased = true;
+    if (myUserBook) {
+      const allReads = (_e = myUserBook.user_book_reads) != null ? _e : [];
+      const unfinished = allReads.filter((r) => !r.finished_at);
+      const lastRead = unfinished.length > 0 ? unfinished[unfinished.length - 1] : null;
+      const existingPages = (_f = lastRead == null ? void 0 : lastRead.progress_pages) != null ? _f : 0;
+      const edPages = (_h = (_g = myUserBook.edition) == null ? void 0 : _g.pages) != null ? _h : pages;
+      const incomingPages = edPages && edPages > 0 ? Math.round(progress / 100 * edPages) : 0;
+      progressIncreased = incomingPages > existingPages;
+      console.log(`MoonSync: Hardcover book ${bookId} \u2014 existing progress: ${existingPages} pages, incoming: ${incomingPages} pages, increased: ${progressIncreased}`);
+    }
+    const needsStatusChange = !myUserBook || myUserBook.status_id !== statusId && progressIncreased;
     if (needsStatusChange) {
       await rateLimitDelay();
       const insertVars = {
@@ -238,7 +249,7 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
       }
       console.log(`MoonSync: Hardcover book ${bookId} \u2014 insert_user_book vars:`, JSON.stringify(insertVars));
       const statusResult = await hardcoverGraphQL(INSERT_USER_BOOK, token, insertVars);
-      const insertResult = (_e = statusResult.data) == null ? void 0 : _e.insert_user_book;
+      const insertResult = (_i = statusResult.data) == null ? void 0 : _i.insert_user_book;
       if (insertResult == null ? void 0 : insertResult.error) {
         console.log(`MoonSync: Hardcover insert_user_book error for book ${bookId}: ${insertResult.error}`);
       }
@@ -248,7 +259,7 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
         if (!myUserBook.edition) {
           await rateLimitDelay();
           const reResult = await hardcoverGraphQL(FIND_USER_BOOK, token, { bookId });
-          const freshUserBook = (_i = (_h = (_g = (_f = reResult.data) == null ? void 0 : _f.me) == null ? void 0 : _g[0]) == null ? void 0 : _h.user_books) == null ? void 0 : _i[0];
+          const freshUserBook = (_m = (_l = (_k = (_j = reResult.data) == null ? void 0 : _j.me) == null ? void 0 : _k[0]) == null ? void 0 : _l.user_books) == null ? void 0 : _m[0];
           if (freshUserBook) {
             myUserBook = freshUserBook;
           }
@@ -413,10 +424,10 @@ async function syncBooksToHardcover(books, token, onProgress) {
   }
   return result;
 }
-var import_child_process, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ;
+var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ;
 var init_hardcover = __esm({
   "src/hardcover.ts"() {
-    import_child_process = require("child_process");
+    import_obsidian = require("obsidian");
     HARDCOVER_API = "https://api.hardcover.app/v1/graphql";
     STATUS_WANT_TO_READ = 1;
     STATUS_CURRENTLY_READING = 2;
@@ -533,7 +544,7 @@ __export(main_exports, {
   default: () => MoonSyncPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/types.ts
 var DEFAULT_SETTINGS = {
@@ -597,12 +608,12 @@ function formatDate(timestamp) {
 }
 
 // src/settings.ts
-var import_obsidian = require("obsidian");
+var import_obsidian2 = require("obsidian");
 var import_fs = require("fs");
 var import_path = require("path");
-var import_child_process2 = require("child_process");
+var import_child_process = require("child_process");
 var import_os = require("os");
-var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
+var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.activeTab = "configuration";
@@ -641,10 +652,10 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     this.displayAboutTab(aboutTab);
   }
   displayConfigurationTab(container) {
-    new import_obsidian.Setting(container).setName("Configuration").setDesc("Set up your Moon Reader backup location and note output folder.").setHeading();
+    new import_obsidian2.Setting(container).setName("Configuration").setDesc("Set up your Moon Reader backup location and note output folder.").setHeading();
     let textComponent;
     let validationEl;
-    const pathSetting = new import_obsidian.Setting(container).setName("Moon Reader sync path").setDesc(
+    const pathSetting = new import_obsidian2.Setting(container).setName("Moon Reader sync path").setDesc(
       "Path to the folder containing your Moon Reader data. The .Moon+ folder will be detected automatically."
     ).addText((text) => {
       textComponent = text;
@@ -668,32 +679,32 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     if (this.plugin.settings.syncPath) {
       this.validateSyncPath(this.plugin.settings.syncPath, validationEl);
     }
-    new import_obsidian.Setting(container).setName("Output folder").setDesc("Folder in your vault where book notes will be created").addText(
+    new import_obsidian2.Setting(container).setName("Output folder").setDesc("Folder in your vault where book notes will be created").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.outputFolder).onChange(async (value) => {
         this.plugin.settings.outputFolder = value || "Books";
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(container).setName("Sync").setDesc("Control when and how MoonSync syncs your highlights.").setHeading();
-    new import_obsidian.Setting(container).setName("Sync now").setDesc("Manually trigger a sync from Moon Reader").addButton(
+    new import_obsidian2.Setting(container).setName("Sync").setDesc("Control when and how MoonSync syncs your highlights.").setHeading();
+    new import_obsidian2.Setting(container).setName("Sync now").setDesc("Manually trigger a sync from Moon Reader").addButton(
       (button) => button.setButtonText("Sync").onClick(async () => {
         await this.plugin.runSync();
       })
     );
-    new import_obsidian.Setting(container).setName("Sync on startup").setDesc("Automatically sync when Obsidian starts").addToggle(
+    new import_obsidian2.Setting(container).setName("Sync on startup").setDesc("Automatically sync when Obsidian starts").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.syncOnStartup).onChange(async (value) => {
         this.plugin.settings.syncOnStartup = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(container).setName("Show ribbon icon").setDesc("Show sync button in ribbon menu").addToggle(
+    new import_obsidian2.Setting(container).setName("Show ribbon icon").setDesc("Show sync button in ribbon menu").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showRibbonIcon).onChange(async (value) => {
         this.plugin.settings.showRibbonIcon = value;
         await this.plugin.saveSettings();
         this.plugin.updateRibbonIcon();
       })
     );
-    new import_obsidian.Setting(container).setName("Track books without highlights").setDesc("Track books you have started reading but have no existing highlights or notes").addToggle(
+    new import_obsidian2.Setting(container).setName("Track books without highlights").setDesc("Track books you have started reading but have no existing highlights or notes").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.trackBooksWithoutHighlights).onChange(async (value) => {
         this.plugin.settings.trackBooksWithoutHighlights = value;
         await this.plugin.saveSettings();
@@ -701,29 +712,29 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     );
   }
   displayContentTab(container) {
-    new import_obsidian.Setting(container).setName("Note content").setDesc("Control what data is included in your book notes.").setHeading();
-    new import_obsidian.Setting(container).setName("Show description").setDesc("Include book description in generated notes").addToggle(
+    new import_obsidian2.Setting(container).setName("Note content").setDesc("Control what data is included in your book notes.").setHeading();
+    new import_obsidian2.Setting(container).setName("Show description").setDesc("Include book description in generated notes").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showDescription).onChange(async (value) => {
         this.plugin.settings.showDescription = value;
         await this.plugin.saveSettings();
         this.plugin.updateContentVisibility();
       })
     );
-    new import_obsidian.Setting(container).setName("Show reading progress").setDesc("Include reading progress section. Note: Progress data may not always be accurate depending on Moon Reader sync.").addToggle(
+    new import_obsidian2.Setting(container).setName("Show reading progress").setDesc("Include reading progress section. Note: Progress data may not always be accurate depending on Moon Reader sync.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showReadingProgress).onChange(async (value) => {
         this.plugin.settings.showReadingProgress = value;
         await this.plugin.saveSettings();
         this.plugin.updateContentVisibility();
       })
     );
-    new import_obsidian.Setting(container).setName("Show highlight colors").setDesc("Use different callout styles based on highlight color. When off, all highlights appear as quotes.").addToggle(
+    new import_obsidian2.Setting(container).setName("Show highlight colors").setDesc("Use different callout styles based on highlight color. When off, all highlights appear as quotes.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showHighlightColors).onChange(async (value) => {
         this.plugin.settings.showHighlightColors = value;
         await this.plugin.saveSettings();
         this.plugin.updateContentVisibility();
       })
     );
-    new import_obsidian.Setting(container).setName("Show book covers").setDesc("Display book covers in notes. Covers are always downloaded to the 'covers' subfolder.").addToggle(
+    new import_obsidian2.Setting(container).setName("Show book covers").setDesc("Display book covers in notes. Covers are always downloaded to the 'covers' subfolder.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showCovers).onChange(async (value) => {
         this.plugin.settings.showCovers = value;
         await this.plugin.saveSettings();
@@ -732,8 +743,8 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     );
   }
   displayIndexBaseTab(container) {
-    new import_obsidian.Setting(container).setName("Library index").setDesc("Configure the automatically generated index of all your books.").setHeading();
-    new import_obsidian.Setting(container).setName("Generate library index").setDesc("Create an index note with summary stats and links to all books. Turning this off will delete the existing index note.").addToggle(
+    new import_obsidian2.Setting(container).setName("Library index").setDesc("Configure the automatically generated index of all your books.").setHeading();
+    new import_obsidian2.Setting(container).setName("Generate library index").setDesc("Create an index note with summary stats and links to all books. Turning this off will delete the existing index note.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showIndex).onChange(async (value) => {
         this.plugin.settings.showIndex = value;
         await this.plugin.saveSettings();
@@ -744,7 +755,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
         }
       })
     );
-    new import_obsidian.Setting(container).setName("Index note title").setDesc("Name of the library index note. Changing this will rename the existing file.").addText(
+    new import_obsidian2.Setting(container).setName("Index note title").setDesc("Name of the library index note. Changing this will rename the existing file.").addText(
       (text) => text.setPlaceholder("1. Library Index").setValue(this.plugin.settings.indexNoteTitle).onChange(async (value) => {
         const oldName = this.plugin.settings.indexNoteTitle;
         const newName = value || "1. Library Index";
@@ -757,14 +768,14 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
         }
       })
     );
-    new import_obsidian.Setting(container).setName("Show cover collage").setDesc("Display book covers at the top of the library index").addToggle(
+    new import_obsidian2.Setting(container).setName("Show cover collage").setDesc("Display book covers at the top of the library index").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showCoverCollage).onChange(async (value) => {
         this.plugin.settings.showCoverCollage = value;
         await this.plugin.saveSettings();
         await this.plugin.refreshIndex();
       })
     );
-    new import_obsidian.Setting(container).setName("Cover collage limit").setDesc("Maximum number of covers to show (0 = show all)").addText(
+    new import_obsidian2.Setting(container).setName("Cover collage limit").setDesc("Maximum number of covers to show (0 = show all)").addText(
       (text) => text.setPlaceholder("0").setValue(String(this.plugin.settings.coverCollageLimit)).onChange(async (value) => {
         const num = parseInt(value) || 0;
         this.plugin.settings.coverCollageLimit = Math.max(0, num);
@@ -772,15 +783,15 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.refreshIndex();
       })
     );
-    new import_obsidian.Setting(container).setName("Cover collage sort").setDesc("How to sort covers in the collage").addDropdown(
+    new import_obsidian2.Setting(container).setName("Cover collage sort").setDesc("How to sort covers in the collage").addDropdown(
       (dropdown) => dropdown.addOption("alpha", "Alphabetical").addOption("recent", "Most recent").setValue(this.plugin.settings.coverCollageSort).onChange(async (value) => {
         this.plugin.settings.coverCollageSort = value;
         await this.plugin.saveSettings();
         await this.plugin.refreshIndex();
       })
     );
-    new import_obsidian.Setting(container).setName("Obsidian Bases").setDesc("Automatically generate a database configuration file for the Obsidian Bases plugin.").setHeading();
-    new import_obsidian.Setting(container).setName("Generate base file").setDesc("Automatically create and update the .base file for the Obsidian Bases plugin. Turning this off will delete the existing base file.").addToggle(
+    new import_obsidian2.Setting(container).setName("Obsidian Bases").setDesc("Automatically generate a database configuration file for the Obsidian Bases plugin.").setHeading();
+    new import_obsidian2.Setting(container).setName("Generate base file").setDesc("Automatically create and update the .base file for the Obsidian Bases plugin. Turning this off will delete the existing base file.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.generateBaseFile).onChange(async (value) => {
         this.plugin.settings.generateBaseFile = value;
         await this.plugin.saveSettings();
@@ -791,7 +802,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
         }
       })
     );
-    new import_obsidian.Setting(container).setName("Base file name").setDesc("Name of the .base file (without extension). Changing this will rename the existing file.").addText(
+    new import_obsidian2.Setting(container).setName("Base file name").setDesc("Name of the .base file (without extension). Changing this will rename the existing file.").addText(
       (text) => text.setPlaceholder("2. Books Database").setValue(this.plugin.settings.baseFileName).onChange(async (value) => {
         const oldName = this.plugin.settings.baseFileName;
         const newName = value || "2. Books Database";
@@ -806,8 +817,8 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     );
   }
   displayIntegrationsTab(container) {
-    new import_obsidian.Setting(container).setName("Hardcover.app").setDesc("Sync your reading status and progress to Hardcover.").setHeading();
-    new import_obsidian.Setting(container).setName("Enable Hardcover sync").setDesc("Update reading status on Hardcover after each sync").addToggle(
+    new import_obsidian2.Setting(container).setName("Hardcover.app").setDesc("Sync your reading status and progress to Hardcover.").setHeading();
+    new import_obsidian2.Setting(container).setName("Enable Hardcover sync").setDesc("Update reading status on Hardcover after each sync").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.hardcoverEnabled).onChange(async (value) => {
         this.plugin.settings.hardcoverEnabled = value;
         await this.plugin.saveSettings();
@@ -816,7 +827,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     );
     if (this.plugin.settings.hardcoverEnabled) {
       let tokenValidationEl;
-      const tokenSetting = new import_obsidian.Setting(container).setName("API token").setDesc("Your Hardcover bearer token from hardcover.app/account/api").addText(
+      const tokenSetting = new import_obsidian2.Setting(container).setName("API token").setDesc("Your Hardcover bearer token from hardcover.app/account/api").addText(
         (text) => text.setPlaceholder("Enter your API token").setValue(this.plugin.settings.hardcoverToken).onChange(async (value) => {
           this.plugin.settings.hardcoverToken = value.trim();
           await this.plugin.saveSettings();
@@ -825,7 +836,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
       tokenValidationEl = tokenSetting.descEl.createDiv({
         cls: "moonsync-path-validation"
       });
-      new import_obsidian.Setting(container).setName("Test connection").setDesc("Verify your API token is working").addButton(
+      new import_obsidian2.Setting(container).setName("Test connection").setDesc("Verify your API token is working").addButton(
         (button) => button.setButtonText("Test").onClick(async () => {
           if (!this.plugin.settings.hardcoverToken) {
             tokenValidationEl.empty();
@@ -855,18 +866,18 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
           button.setButtonText("Test");
         })
       );
-      new import_obsidian.Setting(container).setDesc("0% \u2192 Want to Read. 1\u201398% \u2192 Currently Reading. 99%+ \u2192 Read. No progress data \u2192 skipped.");
+      new import_obsidian2.Setting(container).setDesc("0% \u2192 Want to Read. 1\u201398% \u2192 Currently Reading. 99%+ \u2192 Read. No progress data \u2192 skipped.");
     }
   }
   displayAboutTab(container) {
-    new import_obsidian.Setting(container).setName("About").setHeading();
-    new import_obsidian.Setting(container).setName("Sync your Moon Reader highlights to Obsidian").setDesc("Book covers, descriptions, and metadata from Google Books/Open Library").addButton(
+    new import_obsidian2.Setting(container).setName("About").setHeading();
+    new import_obsidian2.Setting(container).setName("Sync your Moon Reader highlights to Obsidian").setDesc("Book covers, descriptions, and metadata from Google Books/Open Library").addButton(
       (button) => button.setButtonText("GitHub").onClick(() => {
         window.open("https://github.com/titandrive/Obsidian-MoonSync");
       })
     );
-    new import_obsidian.Setting(container).setName("Support").setHeading();
-    new import_obsidian.Setting(container).setName("Buy me a coffee").setDesc("If you find this plugin useful, consider supporting its development!").addButton(
+    new import_obsidian2.Setting(container).setName("Support").setHeading();
+    new import_obsidian2.Setting(container).setName("Buy me a coffee").setDesc("If you find this plugin useful, consider supporting its development!").addButton(
       (button) => button.setButtonText("Ko-fi").onClick(() => {
         window.open("https://ko-fi.com/titandrive");
       })
@@ -894,7 +905,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
     return new Promise((resolve) => {
       if ((0, import_os.platform)() === "darwin") {
         const script = `osascript -e 'POSIX path of (choose folder with prompt "Select Moon Reader sync folder")'`;
-        (0, import_child_process2.exec)(script, (error, stdout) => {
+        (0, import_child_process.exec)(script, (error, stdout) => {
           if (error) {
             resolve(null);
           } else {
@@ -903,7 +914,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
         });
       } else if ((0, import_os.platform)() === "win32") {
         const script = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.ShowDialog() | Out-Null; $f.SelectedPath"`;
-        (0, import_child_process2.exec)(script, (error, stdout) => {
+        (0, import_child_process.exec)(script, (error, stdout) => {
           if (error) {
             resolve(null);
           } else {
@@ -911,7 +922,7 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
           }
         });
       } else {
-        (0, import_child_process2.exec)(
+        (0, import_child_process.exec)(
           'zenity --file-selection --directory --title="Select Moon Reader folder"',
           (error, stdout) => {
             if (error) {
@@ -927,13 +938,13 @@ var MoonSyncSettingTab = class extends import_obsidian.PluginSettingTab {
 };
 
 // src/sync.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/modal.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/covers.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 function pickBestTitleMatch(items, targetTitle, getTitle) {
   if (items.length === 1)
     return items[0];
@@ -956,9 +967,11 @@ function pickBestTitleMatch(items, targetTitle, getTitle) {
   return bestItem;
 }
 async function fetchBookInfo(title, author) {
+  const cleanTitle = title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+  const cleanAuthor = author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
   const [openLibraryResult, googleBooksResult] = await Promise.all([
-    fetchFromOpenLibrary(title, author),
-    fetchFromGoogleBooks(title, author)
+    fetchFromOpenLibrary(cleanTitle, cleanAuthor),
+    fetchFromGoogleBooks(cleanTitle, cleanAuthor)
   ]);
   const coverUrl = openLibraryResult.coverUrl || googleBooksResult.coverUrl;
   const description = googleBooksResult.description || openLibraryResult.description;
@@ -1038,7 +1051,7 @@ async function fetchFromOpenLibrary(title, author) {
   try {
     const query = encodeURIComponent(`${title} ${author}`);
     const searchUrl = `https://openlibrary.org/search.json?q=${query}&limit=5`;
-    const response = await (0, import_obsidian2.requestUrl)({ url: searchUrl });
+    const response = await (0, import_obsidian3.requestUrl)({ url: searchUrl });
     const data = response.json;
     if (data.docs && data.docs.length > 0) {
       const book = pickBestTitleMatch(data.docs, title, (d) => d.title || "");
@@ -1071,7 +1084,7 @@ async function fetchFromOpenLibrary(title, author) {
       if (book.key) {
         try {
           const workUrl = `https://openlibrary.org${book.key}.json`;
-          const workResponse = await (0, import_obsidian2.requestUrl)({ url: workUrl });
+          const workResponse = await (0, import_obsidian3.requestUrl)({ url: workUrl });
           const workData = workResponse.json;
           if (workData.description) {
             result.description = typeof workData.description === "string" ? workData.description : workData.description.value || null;
@@ -1104,7 +1117,7 @@ async function fetchFromGoogleBooks(title, author) {
   try {
     const query = author ? `${title} ${author}` : title;
     const searchUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5`;
-    const response = await (0, import_obsidian2.requestUrl)({ url: searchUrl });
+    const response = await (0, import_obsidian3.requestUrl)({ url: searchUrl });
     const data = response.json;
     if (data.items && data.items.length > 0) {
       const book = pickBestTitleMatch(data.items, title, (item) => {
@@ -1152,7 +1165,7 @@ async function fetchMultipleBookCovers(title, author, maxResults = 10) {
   try {
     const googleQuery = author ? `${title} ${author}` : title;
     const googleUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(googleQuery)}&maxResults=${maxResults}`;
-    const googleResponse = await (0, import_obsidian2.requestUrl)({ url: googleUrl });
+    const googleResponse = await (0, import_obsidian3.requestUrl)({ url: googleUrl });
     const googleData = googleResponse.json;
     if (googleData.items && googleData.items.length > 0) {
       for (const book of googleData.items) {
@@ -1184,7 +1197,7 @@ async function fetchMultipleBookCovers(title, author, maxResults = 10) {
   try {
     const olQuery = encodeURIComponent(`${title} ${author}`);
     const olUrl = `https://openlibrary.org/search.json?q=${olQuery}&limit=${maxResults}`;
-    const olResponse = await (0, import_obsidian2.requestUrl)({ url: olUrl });
+    const olResponse = await (0, import_obsidian3.requestUrl)({ url: olUrl });
     const olData = olResponse.json;
     if (olData.docs && olData.docs.length > 0) {
       for (const book of olData.docs) {
@@ -1222,7 +1235,7 @@ async function fetchMultipleBookCovers(title, author, maxResults = 10) {
 }
 async function downloadCover(url) {
   try {
-    const response = await (0, import_obsidian2.requestUrl)({ url });
+    const response = await (0, import_obsidian3.requestUrl)({ url });
     return response.arrayBuffer;
   } catch (error) {
     console.debug("MoonSync: Failed to download cover", error);
@@ -1231,7 +1244,7 @@ async function downloadCover(url) {
 }
 async function downloadAndResizeCover(url, maxWidth = 400, maxHeight = 600) {
   try {
-    const response = await (0, import_obsidian2.requestUrl)({ url });
+    const response = await (0, import_obsidian3.requestUrl)({ url });
     const arrayBuffer = response.arrayBuffer;
     const blob = new Blob([arrayBuffer]);
     const imageBitmap = await createImageBitmap(blob);
@@ -1268,7 +1281,7 @@ async function downloadAndResizeCover(url, maxWidth = 400, maxHeight = 600) {
 }
 
 // src/modal.ts
-var SyncSummaryModal = class extends import_obsidian3.Modal {
+var SyncSummaryModal = class extends import_obsidian4.Modal {
   constructor(app, result, settings) {
     super(app);
     this.result = result;
@@ -1309,7 +1322,7 @@ var SyncSummaryModal = class extends import_obsidian3.Modal {
     const openIndexButton = buttonContainer.createEl("button", { text: "Open library" });
     openIndexButton.addEventListener("click", async () => {
       this.close();
-      const indexPath = (0, import_obsidian3.normalizePath)(`${this.settings.outputFolder}/${this.settings.indexNoteTitle}.md`);
+      const indexPath = (0, import_obsidian4.normalizePath)(`${this.settings.outputFolder}/${this.settings.indexNoteTitle}.md`);
       const file = this.app.vault.getAbstractFileByPath(indexPath);
       if (file) {
         await this.app.workspace.openLinkText(indexPath, "", false);
@@ -1328,7 +1341,7 @@ var SyncSummaryModal = class extends import_obsidian3.Modal {
     contentEl.empty();
   }
 };
-var SelectCoverModal = class extends import_obsidian3.Modal {
+var SelectCoverModal = class extends import_obsidian4.Modal {
   constructor(app, title, author, onSelect) {
     super(app);
     this.customUrl = "";
@@ -1342,7 +1355,7 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
     contentEl.empty();
     contentEl.addClass("moonsync-select-cover-modal");
     modalEl.addClass("mod-moonsync-cover");
-    new import_obsidian3.Setting(contentEl).setName("Fetch book cover").setHeading();
+    new import_obsidian4.Setting(contentEl).setName("Fetch book cover").setHeading();
     const tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
     const searchTab = tabNav.createEl("button", { text: "Search", cls: "moonsync-tab active" });
     const urlTab = tabNav.createEl("button", { text: "Import", cls: "moonsync-tab" });
@@ -1360,7 +1373,7 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
       urlContent.addClass("active");
       searchContent.removeClass("active");
     });
-    const titleSetting = new import_obsidian3.Setting(searchContent).setName("Title").addText((text) => {
+    const titleSetting = new import_obsidian4.Setting(searchContent).setName("Title").addText((text) => {
       text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
         this.title = value;
       });
@@ -1372,7 +1385,7 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
       });
     });
     titleSetting.settingEl.addClass("moonsync-labeled-field");
-    const authorSetting = new import_obsidian3.Setting(searchContent).setName("Author").addText((text) => {
+    const authorSetting = new import_obsidian4.Setting(searchContent).setName("Author").addText((text) => {
       text.setPlaceholder("Enter author name").setValue(this.author).onChange((value) => {
         this.author = value;
       });
@@ -1384,7 +1397,7 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
       });
     });
     authorSetting.settingEl.addClass("moonsync-labeled-field");
-    new import_obsidian3.Setting(searchContent).addButton((button) => {
+    new import_obsidian4.Setting(searchContent).addButton((button) => {
       button.setButtonText("Search").setCta().onClick(() => this.performSearch());
     });
     this.resultsContainer = searchContent.createDiv({ cls: "moonsync-cover-results" });
@@ -1392,7 +1405,7 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
       text: "If search can't find the cover, or you have one you prefer, you can import it here.",
       cls: "moonsync-url-description"
     });
-    const urlSetting = new import_obsidian3.Setting(urlContent).setName("URL").addText((text) => {
+    const urlSetting = new import_obsidian4.Setting(urlContent).setName("URL").addText((text) => {
       text.setPlaceholder("https://example.com/cover.jpg").onChange((value) => {
         this.customUrl = value;
       });
@@ -1407,7 +1420,7 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
       });
     });
     urlSetting.settingEl.addClass("moonsync-labeled-field");
-    new import_obsidian3.Setting(urlContent).addButton((button) => {
+    new import_obsidian4.Setting(urlContent).addButton((button) => {
       button.setButtonText("Import").setCta().onClick(() => {
         if (this.customUrl.trim()) {
           this.onSelect(this.customUrl.trim());
@@ -1477,7 +1490,7 @@ var SelectCoverModal = class extends import_obsidian3.Modal {
     contentEl.empty();
   }
 };
-var SelectBookMetadataModal = class extends import_obsidian3.Modal {
+var SelectBookMetadataModal = class extends import_obsidian4.Modal {
   constructor(app, title, author, onSelect) {
     super(app);
     this.resultsContainer = null;
@@ -1490,12 +1503,12 @@ var SelectBookMetadataModal = class extends import_obsidian3.Modal {
     contentEl.empty();
     contentEl.addClass("moonsync-select-cover-modal");
     modalEl.addClass("mod-moonsync-cover");
-    new import_obsidian3.Setting(contentEl).setName("Fetch book metadata").setHeading();
+    new import_obsidian4.Setting(contentEl).setName("Fetch book metadata").setHeading();
     contentEl.createEl("p", {
       text: "Select a book to replace all metadata including cover, description, and details.",
       cls: "moonsync-url-description"
     });
-    const titleSetting = new import_obsidian3.Setting(contentEl).setName("Title").addText((text) => {
+    const titleSetting = new import_obsidian4.Setting(contentEl).setName("Title").addText((text) => {
       text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
         this.title = value;
       });
@@ -1507,7 +1520,7 @@ var SelectBookMetadataModal = class extends import_obsidian3.Modal {
       });
     });
     titleSetting.settingEl.addClass("moonsync-labeled-field");
-    const authorSetting = new import_obsidian3.Setting(contentEl).setName("Author").addText((text) => {
+    const authorSetting = new import_obsidian4.Setting(contentEl).setName("Author").addText((text) => {
       text.setPlaceholder("Enter author name").setValue(this.author).onChange((value) => {
         this.author = value;
       });
@@ -1519,7 +1532,7 @@ var SelectBookMetadataModal = class extends import_obsidian3.Modal {
       });
     });
     authorSetting.settingEl.addClass("moonsync-labeled-field");
-    new import_obsidian3.Setting(contentEl).addButton((button) => {
+    new import_obsidian4.Setting(contentEl).addButton((button) => {
       button.setButtonText("Search").setCta().onClick(() => this.performSearch());
     });
     this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
@@ -1595,7 +1608,7 @@ var SelectBookMetadataModal = class extends import_obsidian3.Modal {
     contentEl.empty();
   }
 };
-var CreateBookModal = class extends import_obsidian3.Modal {
+var CreateBookModal = class extends import_obsidian4.Modal {
   constructor(app, settings, onSubmit) {
     super(app);
     this.title = "";
@@ -1609,12 +1622,12 @@ var CreateBookModal = class extends import_obsidian3.Modal {
     contentEl.empty();
     contentEl.addClass("moonsync-select-cover-modal");
     modalEl.addClass("mod-moonsync-cover");
-    new import_obsidian3.Setting(contentEl).setName("Create book note").setHeading();
+    new import_obsidian4.Setting(contentEl).setName("Create book note").setHeading();
     contentEl.createEl("p", {
       text: "Search for a book and select it to create a note.",
       cls: "moonsync-url-description"
     });
-    const titleSetting = new import_obsidian3.Setting(contentEl).setName("Title").addText((text) => {
+    const titleSetting = new import_obsidian4.Setting(contentEl).setName("Title").addText((text) => {
       text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
         this.title = value;
       });
@@ -1626,7 +1639,7 @@ var CreateBookModal = class extends import_obsidian3.Modal {
       });
     });
     titleSetting.settingEl.addClass("moonsync-labeled-field");
-    const authorSetting = new import_obsidian3.Setting(contentEl).setName("Author").addText((text) => {
+    const authorSetting = new import_obsidian4.Setting(contentEl).setName("Author").addText((text) => {
       text.setPlaceholder("Enter author name (optional)").setValue(this.author).onChange((value) => {
         this.author = value;
       });
@@ -1638,7 +1651,7 @@ var CreateBookModal = class extends import_obsidian3.Modal {
       });
     });
     authorSetting.settingEl.addClass("moonsync-labeled-field");
-    new import_obsidian3.Setting(contentEl).addButton((button) => {
+    new import_obsidian4.Setting(contentEl).addButton((button) => {
       button.setButtonText("Search").setCta().onClick(() => this.performSearch());
     });
     this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
@@ -1768,7 +1781,7 @@ function generateBookTemplate(title, author, coverPath, description, publishedDa
   lines.push("");
   return lines.join("\n");
 }
-var UpdateHardcoverModal = class extends import_obsidian3.Modal {
+var UpdateHardcoverModal = class extends import_obsidian4.Modal {
   constructor(app, onSubmit) {
     super(app);
     this.onSubmit = onSubmit;
@@ -1782,7 +1795,7 @@ var UpdateHardcoverModal = class extends import_obsidian3.Modal {
       cls: "setting-item-description"
     });
     let url = "";
-    new import_obsidian3.Setting(contentEl).setName("Hardcover URL").addText((text) => {
+    new import_obsidian4.Setting(contentEl).setName("Hardcover URL").addText((text) => {
       text.setPlaceholder("https://hardcover.app/books/...");
       text.onChange((value) => {
         url = value;
@@ -1798,7 +1811,7 @@ var UpdateHardcoverModal = class extends import_obsidian3.Modal {
         }
       });
     });
-    new import_obsidian3.Setting(contentEl).addButton((btn) => {
+    new import_obsidian4.Setting(contentEl).addButton((btn) => {
       btn.setButtonText("Update").setCta().onClick(() => {
         if (url.trim()) {
           this.onSubmit(url.trim());
@@ -1918,6 +1931,9 @@ function parseProgressFile(data) {
   }
   return null;
 }
+function normalizeKey(title) {
+  return title.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
 async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = false) {
   var _a, _b;
   const cacheDir = (0, import_path2.join)(syncPath, ".Moon+", "Cache");
@@ -1932,7 +1948,7 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
         const parsed = parseAnnotationFile(data, anFile);
         if (parsed) {
           const actualTitle = (parsed.highlights.length > 0 ? (_a = parsed.highlights[0]) == null ? void 0 : _a.book : null) || parsed.bookTitle;
-          const key = actualTitle.toLowerCase();
+          const key = normalizeKey(actualTitle);
           if (!bookDataMap.has(key)) {
             const book = {
               id: 0,
@@ -1984,7 +2000,7 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
         if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
           bookTitle = bookTitle.replace(/_/g, " ");
         }
-        const key = bookTitle.toLowerCase();
+        const key = normalizeKey(bookTitle);
         const filePath = (0, import_path2.join)(cacheDir, poFile);
         const data = await (0, import_promises.readFile)(filePath);
         const progressData = parseProgressFile(data);
@@ -2406,13 +2422,13 @@ function generateBaseFile(settings) {
 }
 
 // src/cache.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var CACHE_FILE = ".moonsync-cache.json";
 function getCacheKey(title, author) {
   return `${title.toLowerCase()}|${author.toLowerCase()}`;
 }
 async function loadCache(app, outputFolder) {
-  const cachePath = (0, import_obsidian4.normalizePath)(`${outputFolder}/${CACHE_FILE}`);
+  const cachePath = (0, import_obsidian5.normalizePath)(`${outputFolder}/${CACHE_FILE}`);
   try {
     if (await app.vault.adapter.exists(cachePath)) {
       const data = await app.vault.adapter.read(cachePath);
@@ -2424,7 +2440,7 @@ async function loadCache(app, outputFolder) {
   return {};
 }
 async function saveCache(app, outputFolder, cache) {
-  const cachePath = (0, import_obsidian4.normalizePath)(`${outputFolder}/${CACHE_FILE}`);
+  const cachePath = (0, import_obsidian5.normalizePath)(`${outputFolder}/${CACHE_FILE}`);
   try {
     await app.vault.adapter.write(cachePath, JSON.stringify(cache, null, 2));
   } catch (error) {
@@ -2444,10 +2460,10 @@ function setCachedInfo(cache, title, author, info) {
 }
 
 // src/scanner.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 async function scanAllBookNotes(app, outputPath) {
   const books = [];
-  const normalizedPath = (0, import_obsidian5.normalizePath)(outputPath);
+  const normalizedPath = (0, import_obsidian6.normalizePath)(outputPath);
   if (!await app.vault.adapter.exists(normalizedPath)) {
     return books;
   }
@@ -2596,7 +2612,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     errors: [],
     failedBooks: []
   };
-  const progressNotice = new import_obsidian6.Notice("MoonSync: Syncing...", 0);
+  const progressNotice = new import_obsidian7.Notice("MoonSync: Syncing...", 0);
   try {
     if (!settings.syncPath) {
       result.errors.push("Sync path not configured");
@@ -2609,7 +2625,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       progressNotice.hide();
       return result;
     }
-    const outputPath = (0, import_obsidian6.normalizePath)(settings.outputFolder);
+    const outputPath = (0, import_obsidian7.normalizePath)(settings.outputFolder);
     const outputFolderExisted = await app.vault.adapter.exists(outputPath);
     result.isFirstSync = !outputFolderExisted;
     if (!outputFolderExisted) {
@@ -2625,7 +2641,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     progressNotice.setMessage("MoonSync: Scanning existing notes...");
     const titleCache = await buildTitleCache(app, outputPath);
     progressNotice.setMessage("MoonSync: Fetching book metadata...");
-    const coversFolder = (0, import_obsidian6.normalizePath)(`${outputPath}/moonsync-covers`);
+    const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
     let existingCoversSet = /* @__PURE__ */ new Set();
     try {
       if (await app.vault.adapter.exists(coversFolder)) {
@@ -2706,7 +2722,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
             continue;
           }
           const filename = generateFilename(b.book.title);
-          const filePath = (0, import_obsidian6.normalizePath)(`${outputPath}/${filename}.md`);
+          const filePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${filename}.md`);
           let hardcoverId = null;
           let lastSyncedProgress = null;
           try {
@@ -2752,7 +2768,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
           for (const title of hcResult.updatedTitles) {
             try {
               const fn = generateFilename(title);
-              const fp = (0, import_obsidian6.normalizePath)(`${outputPath}/${fn}.md`);
+              const fp = (0, import_obsidian7.normalizePath)(`${outputPath}/${fn}.md`);
               if (await app.vault.adapter.exists(fp)) {
                 let content = await app.vault.adapter.read(fp);
                 const existingIdMatch = content.match(/^hardcover_id: (.+)$/m);
@@ -2790,7 +2806,7 @@ ${fields.join("\n")}
       }
     }
     if (settings.showIndex) {
-      const indexPath = (0, import_obsidian6.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
+      const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
       const indexExists = await app.vault.adapter.exists(indexPath);
       const indexFilename = `${settings.indexNoteTitle}.md`;
       const filteredScanned = scannedBooks.filter((b) => !b.filePath.endsWith(indexFilename));
@@ -2801,7 +2817,7 @@ ${fields.join("\n")}
         result.manualBooksAdded = manualBookCount;
       }
       if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !indexExists || hasManualBooks) {
-        const coversFolder2 = (0, import_obsidian6.normalizePath)(`${outputPath}/moonsync-covers`);
+        const coversFolder2 = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
         let existingCovers = /* @__PURE__ */ new Set();
         try {
           if (await app.vault.adapter.exists(coversFolder2)) {
@@ -2822,7 +2838,7 @@ ${fields.join("\n")}
       }
     }
     if (settings.generateBaseFile) {
-      const baseFilePath = (0, import_obsidian6.normalizePath)(`${outputPath}/${settings.baseFileName}.base`);
+      const baseFilePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.baseFileName}.base`);
       const baseExists = await app.vault.adapter.exists(baseFilePath);
       if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !baseExists) {
         await updateBaseFile(app, outputPath, settings);
@@ -2879,7 +2895,7 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
   lines.push(`highlights_hash: "${computeHighlightsHash(bookData.highlights)}"`);
   const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
   lines.push(`notes_count: ${notesCount}`);
-  if (settings.showProgress && bookData.progress !== null) {
+  if (settings.showReadingProgress && bookData.progress !== null) {
     lines.push(`progress: "${bookData.progress.toFixed(1)}%"`);
     if (bookData.currentChapter) {
       lines.push(`current_chapter: ${bookData.currentChapter}`);
@@ -3015,7 +3031,7 @@ function normalizeBookTitle2(title) {
 async function buildTitleCache(app, outputPath) {
   const cache = [];
   try {
-    const listing = await app.vault.adapter.list((0, import_obsidian6.normalizePath)(outputPath));
+    const listing = await app.vault.adapter.list((0, import_obsidian7.normalizePath)(outputPath));
     for (const filePath of listing.files) {
       if (!filePath.endsWith(".md"))
         continue;
@@ -3037,7 +3053,7 @@ async function buildTitleCache(app, outputPath) {
 }
 var SIMILARITY_THRESHOLD = 0.8;
 async function findExistingFile(app, outputPath, preferredFilename, bookTitle, titleCache) {
-  const preferredPath = (0, import_obsidian6.normalizePath)(`${outputPath}/${preferredFilename}.md`);
+  const preferredPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${preferredFilename}.md`);
   if (await app.vault.adapter.exists(preferredPath)) {
     return preferredPath;
   }
@@ -3116,8 +3132,8 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
   const shouldFetchMetadata = true;
   if (shouldFetchMetadata) {
     const coverFilename = `${filename}.jpg`;
-    const coversFolder = (0, import_obsidian6.normalizePath)(`${outputPath}/moonsync-covers`);
-    const coverPath = (0, import_obsidian6.normalizePath)(`${coversFolder}/${coverFilename}`);
+    const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
+    const coverPath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
     const coverExists = await app.vault.adapter.exists(coverPath);
     if (cachedInfo) {
       if (cachedInfo.description) {
@@ -3251,8 +3267,8 @@ async function processCustomBook(app, outputPath, scannedBook, settings, result,
     result.booksUpdated++;
     if (bookInfo.coverUrl) {
       const coverFilename = `${generateFilename(scannedBook.title)}.jpg`;
-      const coversFolder = (0, import_obsidian6.normalizePath)(`${outputPath}/moonsync-covers`);
-      const coverPath = (0, import_obsidian6.normalizePath)(`${coversFolder}/${coverFilename}`);
+      const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
+      const coverPath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
       if (!await app.vault.adapter.exists(coverPath)) {
         if (!await app.vault.adapter.exists(coversFolder)) {
           await app.vault.createFolder(coversFolder);
@@ -3323,7 +3339,7 @@ function escapeYaml2(str) {
   return str.replace(/"/g, '\\"').replace(/\n/g, " ");
 }
 async function updateIndexNote(app, outputPath, moonReaderBooks, settings) {
-  const indexPath = (0, import_obsidian6.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
+  const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
   const scannedBooks = await scanAllBookNotes(app, outputPath);
   const indexFilename = `${settings.indexNoteTitle}.md`;
   const filteredScanned = scannedBooks.filter(
@@ -3339,12 +3355,12 @@ async function updateIndexNote(app, outputPath, moonReaderBooks, settings) {
 }
 async function refreshIndexNote(app, settings) {
   if (!settings.showIndex) {
-    new import_obsidian6.Notice("MoonSync: Index generation is disabled in settings");
+    new import_obsidian7.Notice("MoonSync: Index generation is disabled in settings");
     return;
   }
-  const outputPath = (0, import_obsidian6.normalizePath)(settings.outputFolder);
+  const outputPath = (0, import_obsidian7.normalizePath)(settings.outputFolder);
   if (!await app.vault.adapter.exists(outputPath)) {
-    new import_obsidian6.Notice("MoonSync: Output folder does not exist");
+    new import_obsidian7.Notice("MoonSync: Output folder does not exist");
     return;
   }
   try {
@@ -3355,25 +3371,25 @@ async function refreshIndexNote(app, settings) {
       } catch (e) {
       }
     }
-    const coversFolder = (0, import_obsidian6.normalizePath)(`${outputPath}/moonsync-covers`);
+    const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
     for (const bookData of moonReaderBooks) {
       if (!bookData.coverPath) {
         const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-        const coverPath = (0, import_obsidian6.normalizePath)(`${coversFolder}/${coverFilename}`);
+        const coverPath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
         if (await app.vault.adapter.exists(coverPath)) {
           bookData.coverPath = `moonsync-covers/${coverFilename}`;
         }
       }
     }
     await updateIndexNote(app, outputPath, moonReaderBooks, settings);
-    new import_obsidian6.Notice("MoonSync: Index refreshed");
+    new import_obsidian7.Notice("MoonSync: Index refreshed");
   } catch (error) {
     console.error("MoonSync: Failed to refresh index", error);
-    new import_obsidian6.Notice("MoonSync: Failed to refresh index");
+    new import_obsidian7.Notice("MoonSync: Failed to refresh index");
   }
 }
 async function updateBaseFile(app, outputPath, settings) {
-  const baseFilePath = (0, import_obsidian6.normalizePath)(`${outputPath}/${settings.baseFileName}.base`);
+  const baseFilePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.baseFileName}.base`);
   const content = generateBaseFile(settings);
   if (await app.vault.adapter.exists(baseFilePath)) {
     await app.vault.adapter.write(baseFilePath, content);
@@ -3383,34 +3399,34 @@ async function updateBaseFile(app, outputPath, settings) {
 }
 async function refreshBaseFile(app, settings) {
   if (!settings.generateBaseFile) {
-    new import_obsidian6.Notice("MoonSync: Base file generation is disabled in settings");
+    new import_obsidian7.Notice("MoonSync: Base file generation is disabled in settings");
     return;
   }
-  const outputPath = (0, import_obsidian6.normalizePath)(settings.outputFolder);
+  const outputPath = (0, import_obsidian7.normalizePath)(settings.outputFolder);
   if (!await app.vault.adapter.exists(outputPath)) {
-    new import_obsidian6.Notice("MoonSync: Output folder does not exist");
+    new import_obsidian7.Notice("MoonSync: Output folder does not exist");
     return;
   }
   try {
     await updateBaseFile(app, outputPath, settings);
-    new import_obsidian6.Notice("MoonSync: Base file refreshed");
+    new import_obsidian7.Notice("MoonSync: Base file refreshed");
   } catch (error) {
     console.error("MoonSync: Failed to refresh base file", error);
-    new import_obsidian6.Notice("MoonSync: Failed to refresh base file");
+    new import_obsidian7.Notice("MoonSync: Failed to refresh base file");
   }
 }
 function showSyncResults(app, result, settings) {
   const hasFailedBooks = result.failedBooks && result.failedBooks.length > 0;
   if (result.success) {
     if (result.booksProcessed === 0 && !hasFailedBooks) {
-      new import_obsidian6.Notice("MoonSync: No books with highlights to sync");
+      new import_obsidian7.Notice("MoonSync: No books with highlights to sync");
     } else if (result.isFirstSync || hasFailedBooks) {
       new SyncSummaryModal(app, result, settings).open();
     } else {
       const totalProcessed = result.booksCreated + result.booksUpdated + result.booksDeleted;
       const totalBooks = totalProcessed + result.booksSkipped + result.manualBooksAdded;
       if (totalProcessed === 0) {
-        new import_obsidian6.Notice("MoonSync: All books up to date");
+        new import_obsidian7.Notice("MoonSync: All books up to date");
       } else {
         const parts = [];
         if (result.booksCreated + result.booksUpdated > 0) {
@@ -3422,11 +3438,11 @@ function showSyncResults(app, result, settings) {
         if (result.hardcoverUpdated && result.hardcoverUpdated > 0) {
           parts.push(`Hardcover: ${result.hardcoverUpdated} synced`);
         }
-        new import_obsidian6.Notice(`MoonSync: ${parts.join(", ")} of ${totalBooks} books`);
+        new import_obsidian7.Notice(`MoonSync: ${parts.join(", ")} of ${totalBooks} books`);
       }
     }
   } else {
-    new import_obsidian6.Notice(`MoonSync: Sync failed - ${result.errors[0]}`);
+    new import_obsidian7.Notice(`MoonSync: Sync failed - ${result.errors[0]}`);
   }
   for (const error of result.errors) {
     console.error("MoonSync:", error);
@@ -3494,7 +3510,7 @@ function parseManualExport(content) {
 // main.ts
 init_hardcover();
 var import_path3 = require("path");
-var MoonSyncPlugin = class extends import_obsidian7.Plugin {
+var MoonSyncPlugin = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
@@ -3590,7 +3606,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
   }
   async runSync() {
     if (!this.settings.syncPath) {
-      new import_obsidian7.Notice("MoonSync: Please configure the sync path in settings");
+      new import_obsidian8.Notice("MoonSync: Please configure the sync path in settings");
       return;
     }
     try {
@@ -3603,7 +3619,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       showSyncResults(this.app, result, this.settings);
     } catch (error) {
       console.error("MoonSync sync error:", error);
-      new import_obsidian7.Notice(`MoonSync: Sync failed - ${error}`);
+      new import_obsidian8.Notice(`MoonSync: Sync failed - ${error}`);
     }
   }
   /**
@@ -3646,14 +3662,14 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
   async createBookNote(bookInfo) {
     var _a, _b, _c, _d, _e, _f, _g;
     const title = bookInfo.title || "Untitled";
-    const progressNotice = new import_obsidian7.Notice("MoonSync: Creating book note...", 0);
+    const progressNotice = new import_obsidian8.Notice("MoonSync: Creating book note...", 0);
     try {
-      const outputPath = (0, import_obsidian7.normalizePath)(this.settings.outputFolder);
+      const outputPath = (0, import_obsidian8.normalizePath)(this.settings.outputFolder);
       const filename = generateFilename(title);
-      const filePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${filename}.md`);
+      const filePath = (0, import_obsidian8.normalizePath)(`${outputPath}/${filename}.md`);
       if (await this.app.vault.adapter.exists(filePath)) {
         progressNotice.hide();
-        new import_obsidian7.Notice(`MoonSync: A note for "${title}" already exists`);
+        new import_obsidian8.Notice(`MoonSync: A note for "${title}" already exists`);
         return;
       }
       if (!await this.app.vault.adapter.exists(outputPath)) {
@@ -3662,12 +3678,12 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       let coverPath = null;
       if (bookInfo.coverUrl) {
         try {
-          const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
+          const coversFolder = (0, import_obsidian8.normalizePath)(`${outputPath}/moonsync-covers`);
           if (!await this.app.vault.adapter.exists(coversFolder)) {
             await this.app.vault.createFolder(coversFolder);
           }
           const coverFilename = `${filename}.jpg`;
-          const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
+          const coverFilePath = (0, import_obsidian8.normalizePath)(`${coversFolder}/${coverFilename}`);
           const imageData = await downloadAndResizeCover(bookInfo.coverUrl);
           if (imageData) {
             await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
@@ -3691,7 +3707,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       );
       await this.app.vault.create(filePath, content);
       progressNotice.hide();
-      new import_obsidian7.Notice(`MoonSync: Created note for "${title}"`);
+      new import_obsidian8.Notice(`MoonSync: Created note for "${title}"`);
       if (this.settings.showIndex) {
         await refreshIndexNote(this.app, this.settings);
       }
@@ -3702,7 +3718,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     } catch (error) {
       progressNotice.hide();
       console.error("MoonSync: Failed to create book note", error);
-      new import_obsidian7.Notice(`MoonSync: Failed to create book note - ${error}`);
+      new import_obsidian8.Notice(`MoonSync: Failed to create book note - ${error}`);
     }
   }
   async refreshIndex() {
@@ -3712,40 +3728,40 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     await refreshBaseFile(this.app, this.settings);
   }
   async deleteIndex() {
-    const outputPath = (0, import_obsidian7.normalizePath)(this.settings.outputFolder);
-    const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${this.settings.indexNoteTitle}.md`);
+    const outputPath = (0, import_obsidian8.normalizePath)(this.settings.outputFolder);
+    const indexPath = (0, import_obsidian8.normalizePath)(`${outputPath}/${this.settings.indexNoteTitle}.md`);
     if (await this.app.vault.adapter.exists(indexPath)) {
       const file = this.app.vault.getAbstractFileByPath(indexPath);
       if (file) {
         await this.app.vault.delete(file);
-        new import_obsidian7.Notice("MoonSync: Index note deleted");
+        new import_obsidian8.Notice("MoonSync: Index note deleted");
       }
     }
   }
   async deleteBase() {
-    const outputPath = (0, import_obsidian7.normalizePath)(this.settings.outputFolder);
-    const basePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${this.settings.baseFileName}.base`);
+    const outputPath = (0, import_obsidian8.normalizePath)(this.settings.outputFolder);
+    const basePath = (0, import_obsidian8.normalizePath)(`${outputPath}/${this.settings.baseFileName}.base`);
     if (await this.app.vault.adapter.exists(basePath)) {
       const file = this.app.vault.getAbstractFileByPath(basePath);
       if (file) {
         await this.app.vault.delete(file);
-        new import_obsidian7.Notice("MoonSync: Base file deleted");
+        new import_obsidian8.Notice("MoonSync: Base file deleted");
       }
     }
   }
   async renameIndex(oldName, newName) {
-    const outputPath = (0, import_obsidian7.normalizePath)(this.settings.outputFolder);
-    const oldPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${oldName}.md`);
-    const newPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${newName}.md`);
+    const outputPath = (0, import_obsidian8.normalizePath)(this.settings.outputFolder);
+    const oldPath = (0, import_obsidian8.normalizePath)(`${outputPath}/${oldName}.md`);
+    const newPath = (0, import_obsidian8.normalizePath)(`${outputPath}/${newName}.md`);
     const file = this.app.vault.getAbstractFileByPath(oldPath);
     if (file) {
       await this.app.fileManager.renameFile(file, newPath);
     }
   }
   async renameBase(oldName, newName) {
-    const outputPath = (0, import_obsidian7.normalizePath)(this.settings.outputFolder);
-    const oldPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${oldName}.base`);
-    const newPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${newName}.base`);
+    const outputPath = (0, import_obsidian8.normalizePath)(this.settings.outputFolder);
+    const oldPath = (0, import_obsidian8.normalizePath)(`${outputPath}/${oldName}.base`);
+    const newPath = (0, import_obsidian8.normalizePath)(`${outputPath}/${newName}.base`);
     const file = this.app.vault.getAbstractFileByPath(oldPath);
     if (file) {
       await this.app.fileManager.renameFile(file, newPath);
@@ -3757,24 +3773,24 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
   async importManualExport() {
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
-      new import_obsidian7.Notice("MoonSync: No active file to import");
+      new import_obsidian8.Notice("MoonSync: No active file to import");
       return;
     }
-    const progressNotice = new import_obsidian7.Notice("MoonSync: Importing note...", 0);
+    const progressNotice = new import_obsidian8.Notice("MoonSync: Importing note...", 0);
     try {
       const content = await this.app.vault.read(activeFile);
       const exportData = parseManualExport(content);
       if (!exportData) {
         progressNotice.hide();
-        new import_obsidian7.Notice("MoonSync: File is not a valid Moon Reader export");
+        new import_obsidian8.Notice("MoonSync: File is not a valid Moon Reader export");
         return;
       }
-      const outputPath = (0, import_obsidian7.normalizePath)(this.settings.outputFolder);
+      const outputPath = (0, import_obsidian8.normalizePath)(this.settings.outputFolder);
       const filename = generateFilename(exportData.title);
-      const filePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${filename}.md`);
+      const filePath = (0, import_obsidian8.normalizePath)(`${outputPath}/${filename}.md`);
       if (await this.app.vault.adapter.exists(filePath)) {
         progressNotice.hide();
-        new import_obsidian7.Notice(`MoonSync: A note for "${exportData.title}" already exists`);
+        new import_obsidian8.Notice(`MoonSync: A note for "${exportData.title}" already exists`);
         return;
       }
       if (!await this.app.vault.adapter.exists(outputPath)) {
@@ -3791,12 +3807,12 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       try {
         const bookInfo = await fetchBookInfo(exportData.title, exportData.author);
         if (bookInfo.coverUrl) {
-          const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
+          const coversFolder = (0, import_obsidian8.normalizePath)(`${outputPath}/moonsync-covers`);
           if (!await this.app.vault.adapter.exists(coversFolder)) {
             await this.app.vault.createFolder(coversFolder);
           }
           const coverFilename = `${filename}.jpg`;
-          const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
+          const coverFilePath = (0, import_obsidian8.normalizePath)(`${coversFolder}/${coverFilename}`);
           const imageData = await downloadCover(bookInfo.coverUrl);
           if (imageData) {
             await this.app.vault.adapter.writeBinary(coverFilePath, imageData);
@@ -3845,7 +3861,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       const noteContent = generateBookNote(bookData, this.settings);
       await this.app.vault.create(filePath, noteContent);
       progressNotice.hide();
-      new import_obsidian7.Notice(`MoonSync: Imported "${exportData.title}" with ${exportData.highlights.length} highlights`);
+      new import_obsidian8.Notice(`MoonSync: Imported "${exportData.title}" with ${exportData.highlights.length} highlights`);
       if (this.settings.showIndex) {
         await refreshIndexNote(this.app, this.settings);
       }
@@ -3859,7 +3875,7 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
     } catch (error) {
       progressNotice.hide();
       console.error("MoonSync: Failed to import note", error);
-      new import_obsidian7.Notice(`MoonSync: Failed to import note - ${error}`);
+      new import_obsidian8.Notice(`MoonSync: Failed to import note - ${error}`);
     }
   }
   /**
@@ -3868,14 +3884,14 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
   async refetchBookCover() {
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
-      new import_obsidian7.Notice("MoonSync: No active file");
+      new import_obsidian8.Notice("MoonSync: No active file");
       return;
     }
     try {
       const content = await this.app.vault.read(activeFile);
       const parsed = parseFrontmatter(content);
       if (!parsed.title) {
-        new import_obsidian7.Notice("MoonSync: No title found in frontmatter");
+        new import_obsidian8.Notice("MoonSync: No title found in frontmatter");
         return;
       }
       const title = parsed.title.replace(/\\"/g, '"');
@@ -3890,28 +3906,28 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       ).open();
     } catch (error) {
       console.error("MoonSync: Failed to re-fetch cover", error);
-      new import_obsidian7.Notice(`MoonSync: Failed to re-fetch cover - ${error}`);
+      new import_obsidian8.Notice(`MoonSync: Failed to re-fetch cover - ${error}`);
     }
   }
   async handleCoverSelected(coverUrl, title, content, activeFile) {
-    const progressNotice = new import_obsidian7.Notice("MoonSync: Downloading cover...", 0);
+    const progressNotice = new import_obsidian8.Notice("MoonSync: Downloading cover...", 0);
     try {
-      const outputPath = (0, import_obsidian7.normalizePath)(this.settings.outputFolder);
-      const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
+      const outputPath = (0, import_obsidian8.normalizePath)(this.settings.outputFolder);
+      const coversFolder = (0, import_obsidian8.normalizePath)(`${outputPath}/moonsync-covers`);
       if (!await this.app.vault.adapter.exists(coversFolder)) {
         await this.app.vault.createFolder(coversFolder);
       }
       const filename = generateFilename(title);
       const coverFilename = `${filename}.jpg`;
-      const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
+      const coverFilePath = (0, import_obsidian8.normalizePath)(`${coversFolder}/${coverFilename}`);
       const imageData = await downloadAndResizeCover(coverUrl);
       if (!imageData) {
         progressNotice.hide();
-        new import_obsidian7.Notice("MoonSync: Failed to download cover image");
+        new import_obsidian8.Notice("MoonSync: Failed to download cover image");
         return;
       }
       const existingFile = this.app.vault.getAbstractFileByPath(coverFilePath);
-      if (existingFile instanceof import_obsidian7.TFile) {
+      if (existingFile instanceof import_obsidian8.TFile) {
         await this.app.vault.delete(existingFile);
       }
       await this.app.vault.createBinary(coverFilePath, imageData);
@@ -3923,11 +3939,11 @@ var MoonSyncPlugin = class extends import_obsidian7.Plugin {
       await this.app.vault.modify(activeFile, updatedContent);
       await refreshIndexNote(this.app, this.settings);
       progressNotice.hide();
-      new import_obsidian7.Notice("MoonSync: Cover updated successfully");
+      new import_obsidian8.Notice("MoonSync: Cover updated successfully");
     } catch (error) {
       progressNotice.hide();
       console.error("MoonSync: Failed to download cover", error);
-      new import_obsidian7.Notice(`MoonSync: Failed to download cover - ${error}`);
+      new import_obsidian8.Notice(`MoonSync: Failed to download cover - ${error}`);
     }
   }
   /**
@@ -3986,14 +4002,14 @@ ${coverEmbed}
   async fetchBookMetadata() {
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
-      new import_obsidian7.Notice("MoonSync: No active file");
+      new import_obsidian8.Notice("MoonSync: No active file");
       return;
     }
     try {
       const content = await this.app.vault.read(activeFile);
       const parsed = parseFrontmatter(content);
       if (!parsed.title) {
-        new import_obsidian7.Notice("MoonSync: No title found in frontmatter");
+        new import_obsidian8.Notice("MoonSync: No title found in frontmatter");
         return;
       }
       const title = parsed.title.replace(/\\"/g, '"');
@@ -4008,7 +4024,7 @@ ${coverEmbed}
       ).open();
     } catch (error) {
       console.error("MoonSync: Failed to fetch metadata", error);
-      new import_obsidian7.Notice(`MoonSync: Failed to fetch metadata - ${error}`);
+      new import_obsidian8.Notice(`MoonSync: Failed to fetch metadata - ${error}`);
     }
   }
   /**
@@ -4017,13 +4033,13 @@ ${coverEmbed}
   async updateHardcoverLink() {
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
-      new import_obsidian7.Notice("MoonSync: No active file");
+      new import_obsidian8.Notice("MoonSync: No active file");
       return;
     }
     const content = await this.app.vault.read(activeFile);
     const parsed = parseFrontmatter(content);
     if (!parsed.title) {
-      new import_obsidian7.Notice("MoonSync: No title found in frontmatter");
+      new import_obsidian8.Notice("MoonSync: No title found in frontmatter");
       return;
     }
     new UpdateHardcoverModal(this.app, (url) => {
@@ -4033,16 +4049,16 @@ ${coverEmbed}
   async handleHardcoverUrlSubmit(url, content, activeFile, progress) {
     const slugMatch = url.match(/hardcover\.app\/books\/([^/?#]+)/);
     if (!slugMatch) {
-      new import_obsidian7.Notice("MoonSync: Invalid Hardcover URL. Expected format: https://hardcover.app/books/...");
+      new import_obsidian8.Notice("MoonSync: Invalid Hardcover URL. Expected format: https://hardcover.app/books/...");
       return;
     }
     const slug = slugMatch[1];
-    const progressNotice = new import_obsidian7.Notice("MoonSync: Looking up book on Hardcover...", 0);
+    const progressNotice = new import_obsidian8.Notice("MoonSync: Looking up book on Hardcover...", 0);
     try {
       const book = await lookupBookBySlug(slug, this.settings.hardcoverToken);
       if (!book) {
         progressNotice.hide();
-        new import_obsidian7.Notice("MoonSync: Book not found on Hardcover");
+        new import_obsidian8.Notice("MoonSync: Book not found on Hardcover");
         return;
       }
       let updated = content;
@@ -4062,33 +4078,33 @@ ${fields}
         await updateHardcoverBook(book.id, statusId, progress, book.pages, this.settings.hardcoverToken);
       }
       progressNotice.hide();
-      new import_obsidian7.Notice(`MoonSync: Linked to "${book.title}" on Hardcover`);
+      new import_obsidian8.Notice(`MoonSync: Linked to "${book.title}" on Hardcover`);
     } catch (error) {
       progressNotice.hide();
       console.error("MoonSync: Failed to update Hardcover link", error);
-      new import_obsidian7.Notice(`MoonSync: Failed to update Hardcover link - ${error}`);
+      new import_obsidian8.Notice(`MoonSync: Failed to update Hardcover link - ${error}`);
     }
   }
   async handleMetadataSelected(bookInfo, title, content, activeFile) {
     var _a;
-    const progressNotice = new import_obsidian7.Notice("MoonSync: Updating metadata...", 0);
+    const progressNotice = new import_obsidian8.Notice("MoonSync: Updating metadata...", 0);
     try {
       const fileDir = ((_a = activeFile.parent) == null ? void 0 : _a.path) || "";
-      const coversFolder = (0, import_obsidian7.normalizePath)(`${fileDir}/moonsync-covers`);
+      const coversFolder = (0, import_obsidian8.normalizePath)(`${fileDir}/moonsync-covers`);
       let coverPath = null;
       const newTitle = bookInfo.title || title;
       const newFilename = generateFilename(newTitle);
-      const newFilePath = (0, import_obsidian7.normalizePath)(`${fileDir}/${newFilename}.md`);
+      const newFilePath = (0, import_obsidian8.normalizePath)(`${fileDir}/${newFilename}.md`);
       if (bookInfo.coverUrl) {
         if (!await this.app.vault.adapter.exists(coversFolder)) {
           await this.app.vault.createFolder(coversFolder);
         }
         const coverFilename = `${newFilename}.jpg`;
-        const coverFilePath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
+        const coverFilePath = (0, import_obsidian8.normalizePath)(`${coversFolder}/${coverFilename}`);
         const imageData = await downloadAndResizeCover(bookInfo.coverUrl);
         if (imageData) {
           const existingCover = this.app.vault.getAbstractFileByPath(coverFilePath);
-          if (existingCover instanceof import_obsidian7.TFile) {
+          if (existingCover instanceof import_obsidian8.TFile) {
             await this.app.vault.delete(existingCover);
           }
           await this.app.vault.createBinary(coverFilePath, imageData);
@@ -4105,11 +4121,11 @@ ${fields}
       }
       await refreshIndexNote(this.app, this.settings);
       progressNotice.hide();
-      new import_obsidian7.Notice("MoonSync: Metadata updated successfully");
+      new import_obsidian8.Notice("MoonSync: Metadata updated successfully");
     } catch (error) {
       progressNotice.hide();
       console.error("MoonSync: Failed to update metadata", error);
-      new import_obsidian7.Notice(`MoonSync: Failed to update metadata - ${error}`);
+      new import_obsidian8.Notice(`MoonSync: Failed to update metadata - ${error}`);
     }
   }
   /**

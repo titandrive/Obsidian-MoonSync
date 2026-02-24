@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { requestUrl } from "obsidian";
 
 const HARDCOVER_API = "https://api.hardcover.app/v1/graphql";
 
@@ -34,6 +34,18 @@ function escapeGraphQL(str: string): string {
 }
 
 /**
+ * Clean a title for external API searches by stripping filename artifacts.
+ * Keeps letters, numbers, spaces, single hyphens, and apostrophes.
+ */
+function cleanTitleForSearch(title: string): string {
+	return title
+		.replace(/-{2,}/g, " ")
+		.replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+/**
  * Rate limiter — ensures at least 1100ms between requests (under 60 req/min)
  */
 let lastRequestTime = 0;
@@ -47,7 +59,7 @@ async function rateLimitDelay(): Promise<void> {
 }
 
 /**
- * Send a GraphQL request to the Hardcover API via curl.
+ * Send a GraphQL request to the Hardcover API using Obsidian's requestUrl.
  * Supports proper GraphQL variables (preferred) or inline queries.
  */
 async function hardcoverGraphQL(
@@ -60,35 +72,23 @@ async function hardcoverGraphQL(
 	if (variables) {
 		payload.variables = variables;
 	}
-	const body = JSON.stringify(payload);
 
-	return new Promise((resolve, reject) => {
-		execFile("curl", [
-			"-s",
-			"-X", "POST",
-			HARDCOVER_API,
-			"-H", "Content-Type: application/json",
-			"-H", `Authorization: Bearer ${cleanToken}`,
-			"-d", body,
-		], { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-			if (error) {
-				reject(new Error(stderr || error.message));
-				return;
-			}
-			try {
-				const json = JSON.parse(stdout);
-				if (json.errors && json.errors.length > 0) {
-					console.log("MoonSync: Hardcover GraphQL errors:", JSON.stringify(json.errors));
-					reject(new Error(json.errors[0].message));
-					return;
-				}
-				resolve(json);
-			} catch {
-				console.log("MoonSync: Hardcover raw response:", stdout.slice(0, 500));
-				reject(new Error("Failed to parse Hardcover response"));
-			}
-		});
+	const response = await requestUrl({
+		url: HARDCOVER_API,
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"Authorization": `Bearer ${cleanToken}`,
+		},
+		body: JSON.stringify(payload),
 	});
+
+	const json = response.json;
+	if (json.errors && json.errors.length > 0) {
+		console.log("MoonSync: Hardcover GraphQL errors:", JSON.stringify(json.errors));
+		throw new Error(json.errors[0].message);
+	}
+	return json;
 }
 
 /**
@@ -199,51 +199,69 @@ async function searchHardcoverBook(
 		console.debug("MoonSync: Hardcover title-only search failed", error);
 	}
 
-	// Fallback to full-text search (returns less data, need to fetch pages separately)
-	try {
-		await rateLimitDelay();
-		const searchQuery = `{
-			search(
-				query: "${escapeGraphQL(title + " " + author)}",
-				query_type: "books",
-				per_page: 5
-			) {
-				results
-			}
-		}`;
-		const result = await hardcoverGraphQL(searchQuery, token);
-		const hits = result.data?.search?.results?.hits;
-		if (hits && Array.isArray(hits) && hits.length > 0) {
-			// Prefer a hit whose author matches
-			const authorLower = author.toLowerCase();
-			let bestHit = hits[0].document;
-			if (author) {
-				for (const h of hits) {
-					const names: string[] = h.document?.author_names || [];
-					if (names.some((n: string) => n.toLowerCase().includes(authorLower))) {
-						bestHit = h.document;
-						break;
-					}
+	// Fallback to full-text search with cleaned title (strip filename artifacts)
+	const cleanTitle = cleanTitleForSearch(title);
+
+	// Try full cleaned title first, then progressively shorter versions
+	const searchQueries = [cleanTitle];
+	const words = cleanTitle.split(" ");
+	if (words.length > 3) {
+		// Try first half of words (drops subtitles/series names)
+		searchQueries.push(words.slice(0, Math.ceil(words.length / 2)).join(" "));
+		// Try just the main title word(s) — skip leading articles
+		const skipArticles = ["a", "an", "the"];
+		const startIdx = skipArticles.includes(words[0].toLowerCase()) ? 1 : 0;
+		const mainWord = words[startIdx] || words[0];
+		if (!searchQueries.includes(mainWord)) {
+			searchQueries.push(mainWord);
+		}
+	}
+
+	for (const searchTitle of searchQueries) {
+		try {
+			await rateLimitDelay();
+			const searchQuery = `{
+				search(
+					query: "${escapeGraphQL(searchTitle)}",
+					query_type: "books",
+					per_page: 5
+				) {
+					results
+				}
+			}`;
+			const result = await hardcoverGraphQL(searchQuery, token);
+			const hits = result.data?.search?.results?.hits;
+			if (hits && Array.isArray(hits) && hits.length > 0) {
+				// Prefer the most popular result (most users)
+				const bestHit = hits.reduce((best: any, h: any) => {
+					const bestCount = best?.users_count || 0;
+					const hCount = h.document?.users_count || 0;
+					return hCount > bestCount ? h.document : best;
+				}, hits[0].document);
+				const doc = bestHit;
+				const docId = doc?.id ? parseInt(String(doc.id), 10) : null;
+				const docUsers = doc?.users_count || 0;
+				console.log(`MoonSync: Hardcover search "${searchTitle}" — best hit: id=${docId}, users=${docUsers}, title="${doc?.title}"`);
+				if (docId && (!excludeId || docId !== excludeId) && docUsers >= 10) {
+					// Good quality result — use it
+					let pages: number | null = null;
+					let slug = "";
+					try {
+						await rateLimitDelay();
+						const detailQuery = `{ books(where: { id: { _eq: ${docId} } }, limit: 1) { slug pages } }`;
+						const detailResult = await hardcoverGraphQL(detailQuery, token);
+						const detail = detailResult.data?.books?.[0];
+						pages = detail?.pages ?? null;
+						slug = detail?.slug ?? "";
+					} catch { /* ignore */ }
+					return { id: docId, title: doc.title || title, slug, pages };
+				} else {
+					console.log(`MoonSync: Hardcover search "${searchTitle}" — rejected (users=${docUsers}, need >= 10)`);
 				}
 			}
-			const doc = bestHit;
-			if (doc?.id && (!excludeId || doc.id !== excludeId)) {
-				// Fetch page count and slug for this book
-				let pages: number | null = null;
-				let slug = "";
-				try {
-					await rateLimitDelay();
-					const detailQuery = `{ books(where: { id: { _eq: ${doc.id} } }, limit: 1) { slug pages } }`;
-					const detailResult = await hardcoverGraphQL(detailQuery, token);
-					const detail = detailResult.data?.books?.[0];
-					pages = detail?.pages ?? null;
-					slug = detail?.slug ?? "";
-				} catch { /* ignore */ }
-				return { id: doc.id, title: doc.title || title, slug, pages };
-			}
+		} catch (error) {
+			console.debug("MoonSync: Hardcover text search failed", error);
 		}
-	} catch (error) {
-		console.debug("MoonSync: Hardcover text search failed", error);
 	}
 
 	return null;
@@ -379,8 +397,23 @@ export async function updateHardcoverBook(
 
 		console.log(`MoonSync: Hardcover book ${bookId} — existing user_book:`, JSON.stringify(myUserBook));
 
-		// Only call insert_user_book if book isn't in library or status needs changing
-		const needsStatusChange = !myUserBook || myUserBook.status_id !== statusId;
+		// Check if progress has actually increased compared to what Hardcover knows.
+		// This prevents overriding a manual status change (e.g. "Did Not Finish") when
+		// the frontmatter cache is lost but the user hasn't actually read further.
+		let progressIncreased = true;
+		if (myUserBook) {
+			const allReads: any[] = myUserBook.user_book_reads ?? [];
+			const unfinished = allReads.filter((r: any) => !r.finished_at);
+			const lastRead = unfinished.length > 0 ? unfinished[unfinished.length - 1] : null;
+			const existingPages = lastRead?.progress_pages ?? 0;
+			const edPages = myUserBook.edition?.pages ?? pages;
+			const incomingPages = edPages && edPages > 0 ? Math.round((progress / 100) * edPages) : 0;
+			progressIncreased = incomingPages > existingPages;
+			console.log(`MoonSync: Hardcover book ${bookId} — existing progress: ${existingPages} pages, incoming: ${incomingPages} pages, increased: ${progressIncreased}`);
+		}
+
+		// Only call insert_user_book if book isn't in library or status needs changing AND progress increased
+		const needsStatusChange = !myUserBook || (myUserBook.status_id !== statusId && progressIncreased);
 
 		if (needsStatusChange) {
 			await rateLimitDelay();

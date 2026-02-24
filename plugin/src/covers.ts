@@ -79,10 +79,14 @@ export async function fetchBookInfo(
 	title: string,
 	author: string
 ): Promise<BookInfoResult> {
+	// Clean title/author for API searches — strip filename artifacts
+	const cleanTitle = title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+	const cleanAuthor = author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+
 	// Fetch from both sources in parallel
 	const [openLibraryResult, googleBooksResult] = await Promise.all([
-		fetchFromOpenLibrary(title, author),
-		fetchFromGoogleBooks(title, author),
+		fetchFromOpenLibrary(cleanTitle, cleanAuthor),
+		fetchFromGoogleBooks(cleanTitle, cleanAuthor),
 	]);
 
 	// Prefer Open Library for covers (higher resolution)

@@ -164,6 +164,15 @@ function parseProgressFile(data: Buffer): ProgressData | null {
 /**
  * Read all annotation files from the Cache folder
  */
+/**
+ * Normalize a book title into a stable map key by lowercasing and stripping punctuation.
+ * This ensures .an titles (e.g. "Frankenstein; Or, The Modern Prometheus") and
+ * .po filenames (e.g. "Frankenstein Or The Modern Prometheus") produce the same key.
+ */
+function normalizeKey(title: string): string {
+	return title.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
 export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHighlights: boolean = false): Promise<BookData[]> {
 	const cacheDir = join(syncPath, ".Moon+", "Cache");
 	const bookDataMap = new Map<string, BookData>();
@@ -182,7 +191,7 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 					// Use the title from inside the annotation data when available (more reliable),
 					// fall back to filename-derived title when there are no highlights
 					const actualTitle = (parsed.highlights.length > 0 ? parsed.highlights[0]?.book : null) || parsed.bookTitle;
-					const key = actualTitle.toLowerCase();
+					const key = normalizeKey(actualTitle);
 
 					if (!bookDataMap.has(key)) {
 						const book: MoonReaderBook = {
@@ -242,7 +251,7 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 				if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
 					bookTitle = bookTitle.replace(/_/g, " ");
 				}
-				const key = bookTitle.toLowerCase();
+				const key = normalizeKey(bookTitle);
 
 				const filePath = join(cacheDir, poFile);
 				const data = await readFile(filePath);
