@@ -149,6 +149,23 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(container)
+			.setName("Watch for changes")
+			.setDesc("Automatically sync when Moon Reader cache files are updated")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.watchForChanges)
+					.onChange(async (value) => {
+						this.plugin.settings.watchForChanges = value;
+						await this.plugin.saveSettings();
+						if (value) {
+							this.plugin.startFileWatcher();
+						} else {
+							this.plugin.stopFileWatcher();
+						}
+					})
+			);
+
+		new Setting(container)
 			.setName("Show ribbon icon")
 			.setDesc("Show sync button in ribbon menu")
 			.addToggle((toggle) =>

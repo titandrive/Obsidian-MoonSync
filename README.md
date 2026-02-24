@@ -11,6 +11,7 @@ Sync your reading highlights, notes, and progress from Moon+ Reader to **Obsidia
 - **Rich Metadata** — Book covers, descriptions, genres, series info, and ratings pulled from Google Books and Open Library
 - **Library Index** — Auto-generated index with cover collage, stats, and an Obsidian Bases database view
 - **Highlight Colors** — Preserve Moon Reader highlight colors as styled callouts
+- **File Watcher** — Automatically sync when Moon Reader cache files change (ideal for always-on servers)
 - **Smart Updates** — Only syncs when highlights or progress actually change
 
 ## How It Works
@@ -167,6 +168,7 @@ These settings configure how MoonSync works.
 #### Sync Options
 - **Sync Now** - Trigger manual sync
 - **Sync on Startup** - Automatically sync when Obsidian starts
+- **Watch for Changes** - Automatically sync when Moon Reader cache files are updated. Best suited for setups where the sync folder is on a local filesystem (e.g. a WebDAV server running on the same machine as Obsidian). Uses a 3-second debounce to batch rapid file writes.
 - **Show Ribbon Icon** - Show sync button in the ribbon menu
 - **Track Books Without Highlights** - Track books that do not currently have highlights. If enabled, MoonSync will create notes for books you are currently reading but have not created highlights in. Useful if you want to track reading progress but you don't make a lot of highlights.
 

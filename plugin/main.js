@@ -551,6 +551,7 @@ var DEFAULT_SETTINGS = {
   syncPath: "",
   outputFolder: "Books",
   syncOnStartup: true,
+  watchForChanges: false,
   showRibbonIcon: true,
   showDescription: true,
   showReadingProgress: true,
@@ -695,6 +696,17 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       (toggle) => toggle.setValue(this.plugin.settings.syncOnStartup).onChange(async (value) => {
         this.plugin.settings.syncOnStartup = value;
         await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian2.Setting(container).setName("Watch for changes").setDesc("Automatically sync when Moon Reader cache files are updated").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.watchForChanges).onChange(async (value) => {
+        this.plugin.settings.watchForChanges = value;
+        await this.plugin.saveSettings();
+        if (value) {
+          this.plugin.startFileWatcher();
+        } else {
+          this.plugin.stopFileWatcher();
+        }
       })
     );
     new import_obsidian2.Setting(container).setName("Show ribbon icon").setDesc("Show sync button in ribbon menu").addToggle(
@@ -3510,11 +3522,15 @@ function parseManualExport(content) {
 // main.ts
 init_hardcover();
 var import_path3 = require("path");
+var import_fs2 = require("fs");
 var MoonSyncPlugin = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
     this.ribbonIconEl = null;
+    this.fileWatcher = null;
+    this.watchDebounceTimer = null;
+    this.isSyncing = false;
   }
   async onload() {
     console.log("MoonSync: BUILD 2026-02-23-A loaded");
@@ -3574,8 +3590,12 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
         }, 2e3);
       });
     }
+    if (this.settings.watchForChanges) {
+      this.startFileWatcher();
+    }
   }
   onunload() {
+    this.stopFileWatcher();
     document.body.classList.remove(
       "moonsync-hide-covers",
       "moonsync-hide-reading-progress",
@@ -3609,6 +3629,11 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
       new import_obsidian8.Notice("MoonSync: Please configure the sync path in settings");
       return;
     }
+    if (this.isSyncing) {
+      console.log("MoonSync: Sync already in progress, skipping");
+      return;
+    }
+    this.isSyncing = true;
     try {
       const wasmPath = this.getWasmPath();
       const result = await syncFromMoonReader(
@@ -3620,6 +3645,47 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
     } catch (error) {
       console.error("MoonSync sync error:", error);
       new import_obsidian8.Notice(`MoonSync: Sync failed - ${error}`);
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+  startFileWatcher() {
+    this.stopFileWatcher();
+    if (!this.settings.syncPath)
+      return;
+    const cachePath = (0, import_path3.join)(this.settings.syncPath, ".Moon+", "Cache");
+    try {
+      this.fileWatcher = (0, import_fs2.watch)(cachePath, { persistent: false }, (_event, filename) => {
+        if (!filename)
+          return;
+        const name = filename.toString();
+        if (!name.endsWith(".po") && !name.endsWith(".an"))
+          return;
+        if (this.watchDebounceTimer)
+          clearTimeout(this.watchDebounceTimer);
+        this.watchDebounceTimer = setTimeout(() => {
+          console.log("MoonSync: File change detected, syncing...");
+          void this.runSync();
+        }, 3e3);
+      });
+      this.fileWatcher.on("error", (err) => {
+        console.error("MoonSync: File watcher error", err);
+        this.stopFileWatcher();
+      });
+      console.log("MoonSync: Watching for changes in", cachePath);
+    } catch (err) {
+      console.error("MoonSync: Failed to start file watcher", err);
+    }
+  }
+  stopFileWatcher() {
+    if (this.watchDebounceTimer) {
+      clearTimeout(this.watchDebounceTimer);
+      this.watchDebounceTimer = null;
+    }
+    if (this.fileWatcher) {
+      this.fileWatcher.close();
+      this.fileWatcher = null;
+      console.log("MoonSync: File watcher stopped");
     }
   }
   /**

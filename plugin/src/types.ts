@@ -58,6 +58,7 @@ export interface MoonSyncSettings {
 	syncPath: string;
 	outputFolder: string;
 	syncOnStartup: boolean;
+	watchForChanges: boolean;
 	showRibbonIcon: boolean;
 	showDescription: boolean;
 	showReadingProgress: boolean;
@@ -79,6 +80,7 @@ export const DEFAULT_SETTINGS: MoonSyncSettings = {
 	syncPath: "",
 	outputFolder: "Books",
 	syncOnStartup: true,
+	watchForChanges: false,
 	showRibbonIcon: true,
 	showDescription: true,
 	showReadingProgress: true,

@@ -9,10 +9,14 @@ import { parseManualExport } from "./src/parser/manual-export";
 import { parseFrontmatter, extractFrontmatter, parseFrontmatterField } from "./src/utils";
 import { lookupBookBySlug, updateHardcoverBook } from "./src/hardcover";
 import { join } from "path";
+import { watch, FSWatcher } from "fs";
 
 export default class MoonSyncPlugin extends Plugin {
 	settings: MoonSyncSettings = DEFAULT_SETTINGS;
 	ribbonIconEl: HTMLElement | null = null;
+	private fileWatcher: FSWatcher | null = null;
+	private watchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private isSyncing = false;
 
 	async onload() {
 		console.log("MoonSync: BUILD 2026-02-23-A loaded");
@@ -80,10 +84,15 @@ export default class MoonSyncPlugin extends Plugin {
 				setTimeout(() => { void this.runSync(); }, 2000);
 			});
 		}
+
+		// Start file watcher if enabled
+		if (this.settings.watchForChanges) {
+			this.startFileWatcher();
+		}
 	}
 
 	onunload() {
-		// Clean up body classes
+		this.stopFileWatcher();
 		document.body.classList.remove(
 			"moonsync-hide-covers",
 			"moonsync-hide-reading-progress",
@@ -122,8 +131,13 @@ export default class MoonSyncPlugin extends Plugin {
 			return;
 		}
 
+		if (this.isSyncing) {
+			console.log("MoonSync: Sync already in progress, skipping");
+			return;
+		}
+
+		this.isSyncing = true;
 		try {
-			// Get the path to the WASM file
 			const wasmPath = this.getWasmPath();
 
 			const result = await syncFromMoonReader(
@@ -135,6 +149,52 @@ export default class MoonSyncPlugin extends Plugin {
 		} catch (error) {
 			console.error("MoonSync sync error:", error);
 			new Notice(`MoonSync: Sync failed - ${error}`);
+		} finally {
+			this.isSyncing = false;
+		}
+	}
+
+	startFileWatcher(): void {
+		this.stopFileWatcher();
+
+		if (!this.settings.syncPath) return;
+
+		const cachePath = join(this.settings.syncPath, ".Moon+", "Cache");
+
+		try {
+			this.fileWatcher = watch(cachePath, { persistent: false }, (_event, filename) => {
+				if (!filename) return;
+				const name = filename.toString();
+				if (!name.endsWith(".po") && !name.endsWith(".an")) return;
+
+				// Debounce: wait 3 seconds after last change before syncing
+				if (this.watchDebounceTimer) clearTimeout(this.watchDebounceTimer);
+				this.watchDebounceTimer = setTimeout(() => {
+					console.log("MoonSync: File change detected, syncing...");
+					void this.runSync();
+				}, 3000);
+			});
+
+			this.fileWatcher.on("error", (err) => {
+				console.error("MoonSync: File watcher error", err);
+				this.stopFileWatcher();
+			});
+
+			console.log("MoonSync: Watching for changes in", cachePath);
+		} catch (err) {
+			console.error("MoonSync: Failed to start file watcher", err);
+		}
+	}
+
+	stopFileWatcher(): void {
+		if (this.watchDebounceTimer) {
+			clearTimeout(this.watchDebounceTimer);
+			this.watchDebounceTimer = null;
+		}
+		if (this.fileWatcher) {
+			this.fileWatcher.close();
+			this.fileWatcher = null;
+			console.log("MoonSync: File watcher stopped");
 		}
 	}
 
