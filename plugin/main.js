@@ -1842,21 +1842,15 @@ var UpdateHardcoverModal = class extends import_obsidian4.Modal {
 var import_promises = require("fs/promises");
 var import_path2 = require("path");
 var import_zlib = require("zlib");
-function normalizeBookTitle(title, author) {
-  let normalized = title.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "");
-  if (author && normalized.endsWith(` - ${author}`)) {
-    normalized = normalized.slice(0, -` - ${author}`.length);
-  }
-  return normalized.trim();
+function normalizeBookTitle(title) {
+  return title.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
 }
 function parseAnnotationFile(data, filename) {
   try {
     const decompressed = (0, import_zlib.inflateSync)(data).toString("utf-8");
     const lines = decompressed.split("\n");
-    const baseName = filename.replace(/\.epub\.an$/, "").replace(/\.pdf\.an$/, "");
-    const parts = baseName.split(" - ");
-    const bookTitle = normalizeBookTitle(parts[0] || baseName);
-    const author = parts.length > 1 ? parts.slice(1).join(" - ") : "";
+    const baseName = filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)\.an$/i, "");
+    const bookTitle = normalizeBookTitle(baseName);
     const highlights = [];
     let i = 0;
     while (i < lines.length && lines[i] !== "#") {
@@ -1899,7 +1893,7 @@ function parseAnnotationFile(data, filename) {
         if (text) {
           highlights.push({
             id,
-            book: normalizeBookTitle(title, author),
+            book: normalizeBookTitle(title),
             filename: fullPath,
             chapter,
             position,
@@ -1920,7 +1914,6 @@ function parseAnnotationFile(data, filename) {
     return {
       filename,
       bookTitle,
-      author,
       highlights
     };
   } catch (error) {
@@ -1966,7 +1959,7 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
               id: 0,
               title: actualTitle,
               filename: (parsed.highlights.length > 0 ? (_b = parsed.highlights[0]) == null ? void 0 : _b.filename : null) || "",
-              author: parsed.author,
+              author: "",
               description: "",
               category: "",
               thumbFile: "",
@@ -2005,10 +1998,8 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
     const poFiles = files.filter((f) => f.endsWith(".po"));
     for (const poFile of poFiles) {
       try {
-        const baseName = poFile.replace(/\.epub\.po$/, "").replace(/\.pdf\.po$/, "");
-        const parts = baseName.split(" - ");
-        let bookTitle = parts[0] || baseName;
-        const author = parts.length > 1 ? parts.slice(1).join(" - ") : "";
+        const baseName = poFile.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)\.po$/i, "");
+        let bookTitle = baseName;
         if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
           bookTitle = bookTitle.replace(/_/g, " ");
         }
@@ -2033,7 +2024,7 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
             id: 0,
             title: bookTitle,
             filename: baseName,
-            author,
+            author: "",
             description: "",
             category: "",
             thumbFile: "",

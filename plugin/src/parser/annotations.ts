@@ -6,22 +6,14 @@ import { MoonReaderHighlight, BookData, MoonReaderBook } from "../types";
 interface AnnotationFile {
 	filename: string;
 	bookTitle: string;
-	author: string;
 	highlights: MoonReaderHighlight[];
 }
 
 /**
- * Normalize book title by removing file extensions and known author suffix
+ * Normalize book title by removing file extensions
  */
-function normalizeBookTitle(title: string, author?: string): string {
-	let normalized = title.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "");
-
-	// Only strip author if we know what it is and the title ends with it
-	if (author && normalized.endsWith(` - ${author}`)) {
-		normalized = normalized.slice(0, -(` - ${author}`.length));
-	}
-
-	return normalized.trim();
+function normalizeBookTitle(title: string): string {
+	return title.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
 }
 
 /**
@@ -33,12 +25,9 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 		const decompressed = inflateSync(data).toString("utf-8");
 		const lines = decompressed.split("\n");
 
-		// Extract book title and author from filename (fallback if not in annotation data)
-		// Format: "Book Title - Author Name.epub.an"
-		const baseName = filename.replace(/\.epub\.an$/, "").replace(/\.pdf\.an$/, "");
-		const parts = baseName.split(" - ");
-		const bookTitle = normalizeBookTitle(parts[0] || baseName);
-		const author = parts.length > 1 ? parts.slice(1).join(" - ") : "";
+		// Extract book title from filename (author comes from metadata APIs)
+		const baseName = filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)\.an$/i, "");
+		const bookTitle = normalizeBookTitle(baseName);
 
 		const highlights: MoonReaderHighlight[] = [];
 		let i = 0;
@@ -101,7 +90,7 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 				if (text) {
 					highlights.push({
 						id,
-						book: normalizeBookTitle(title, author),
+						book: normalizeBookTitle(title),
 						filename: fullPath,
 						chapter,
 						position,
@@ -123,7 +112,6 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 		return {
 			filename,
 			bookTitle,
-			author,
 			highlights,
 		};
 	} catch (error) {
@@ -198,7 +186,7 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 							id: 0,
 							title: actualTitle,
 							filename: (parsed.highlights.length > 0 ? parsed.highlights[0]?.filename : null) || "",
-							author: parsed.author,
+							author: "",
 							description: "",
 							category: "",
 							thumbFile: "",
@@ -242,11 +230,9 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 		const poFiles = files.filter((f) => f.endsWith(".po"));
 		for (const poFile of poFiles) {
 			try {
-				// Extract book title from .po filename (same format as .an files)
-				const baseName = poFile.replace(/\.epub\.po$/, "").replace(/\.pdf\.po$/, "");
-				const parts = baseName.split(" - ");
-				let bookTitle = parts[0] || baseName;
-				const author = parts.length > 1 ? parts.slice(1).join(" - ") : "";
+				// Extract book title from .po filename (author comes from metadata APIs)
+				const baseName = poFile.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)\.po$/i, "");
+				let bookTitle = baseName;
 				// Convert underscores to spaces to match the title from inside .an files
 				if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
 					bookTitle = bookTitle.replace(/_/g, " ");
@@ -281,7 +267,7 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 						id: 0,
 						title: bookTitle,
 						filename: baseName,
-						author: author,
+						author: "",
 						description: "",
 						category: "",
 						thumbFile: "",
