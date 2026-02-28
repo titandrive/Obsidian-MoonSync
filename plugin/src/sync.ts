@@ -8,6 +8,8 @@ import { loadCache, saveCache, getCachedInfo, setCachedInfo, BookInfoCache } fro
 import { scanAllBookNotes, mergeBookLists } from "./scanner";
 import { computeHighlightsHash, parseFrontmatter, parseFrontmatterField, extractFrontmatter } from "./utils";
 import { syncBooksToHardcover, HardcoverSyncItem } from "./hardcover";
+import { enrichBooksWithSyncData } from "./enrichment";
+import { getLocalCover } from "./parser/local-covers";
 
 export interface SyncResult {
 	success: boolean;
@@ -68,6 +70,18 @@ export async function syncFromMoonReader(
 			return result;
 		}
 
+		// Enrich books with data from books.sync, local covers, and backup statistics
+		progressNotice.setMessage("MoonSync: Enriching book metadata...");
+		const { enrichmentResult, booksWithSufficientMetadata } =
+			await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath);
+
+		if (enrichmentResult.booksEnriched > 0) {
+			console.log(
+				`MoonSync: Enriched ${enrichmentResult.booksEnriched} books from sync data ` +
+				`(${enrichmentResult.coversFound} covers, ${enrichmentResult.statisticsFound} statistics)`
+			);
+		}
+
 		// Check if output folder exists (for first sync detection)
 		const outputPath = normalizePath(settings.outputFolder);
 		const outputFolderExisted = await app.vault.adapter.exists(outputPath);
@@ -108,7 +122,16 @@ export async function syncFromMoonReader(
 
 		// Determine which books need API fetching
 		const booksToFetch: Array<{ title: string; author: string }> = [];
-		for (const bookData of booksWithHighlights) {
+		for (let i = 0; i < booksWithHighlights.length; i++) {
+			const bookData = booksWithHighlights[i];
+
+			// Skip API fetch if enrichment provided sufficient metadata and cover is available
+			if (booksWithSufficientMetadata.has(i)) {
+				const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
+				const hasCover = existingCoversSet.has(coverFilename) || !!bookData.book.coverFile;
+				if (hasCover) continue;
+			}
+
 			const cachedInfo = getCachedInfo(cache, bookData.book.title, bookData.book.author);
 			const hasAttemptedFetch = cachedInfo && (
 				cachedInfo.publishedDate !== undefined &&
@@ -828,7 +851,20 @@ async function processBook(
 		const coversFolder = normalizePath(`${outputPath}/moonsync-covers`);
 		const coverPath = normalizePath(`${coversFolder}/${coverFilename}`);
 
-		const coverExists = await app.vault.adapter.exists(coverPath);
+		let coverExists = await app.vault.adapter.exists(coverPath);
+
+		// Always prefer local Moon Reader cover (extracted from epub, usually higher quality)
+		if (bookData.book.coverFile) {
+			const localCoverData = await getLocalCover(settings.syncPath, bookData.book.coverFile);
+			if (localCoverData) {
+				if (!(await app.vault.adapter.exists(coversFolder))) {
+					await app.vault.createFolder(coversFolder);
+				}
+				await app.vault.adapter.writeBinary(coverPath, localCoverData);
+				bookData.coverPath = `moonsync-covers/${coverFilename}`;
+				coverExists = true;
+			}
+		}
 
 		if (cachedInfo) {
 			// Use cached data

@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, TextComponent } from "obsidian";
+import { App, PluginSettingTab, Setting, TextComponent, normalizePath, Notice } from "obsidian";
 import type MoonSyncPlugin from "../main";
 import { existsSync } from "fs";
 import { join } from "path";
@@ -133,6 +133,24 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			.addButton((button) =>
 				button.setButtonText("Sync").onClick(async () => {
 					await this.plugin.runSync();
+				})
+			);
+
+		new Setting(container)
+			.setName("Force reprocess all books")
+			.setDesc("Clears the metadata cache so all books are fully reprocessed on the next sync")
+			.addButton((button) =>
+				button.setButtonText("Clear cache").onClick(async () => {
+					const outputPath = normalizePath(this.plugin.settings.outputFolder);
+					const cachePath = normalizePath(`${outputPath}/.moonsync-cache.json`);
+					try {
+						if (await this.app.vault.adapter.exists(cachePath)) {
+							await this.app.vault.adapter.remove(cachePath);
+						}
+						new Notice("MoonSync: Cache cleared — next sync will reprocess all books");
+					} catch {
+						new Notice("MoonSync: Failed to clear cache");
+					}
 				})
 			);
 

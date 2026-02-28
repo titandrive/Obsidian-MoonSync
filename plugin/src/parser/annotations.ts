@@ -185,7 +185,7 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 						const book: MoonReaderBook = {
 							id: 0,
 							title: actualTitle,
-							filename: (parsed.highlights.length > 0 ? parsed.highlights[0]?.filename : null) || "",
+							filename: anFile.replace(/\.an$/, ""),
 							author: "",
 							description: "",
 							category: "",
@@ -266,7 +266,7 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 					const book: MoonReaderBook = {
 						id: 0,
 						title: bookTitle,
-						filename: baseName,
+						filename: poFile.replace(/\.po$/, ""),
 						author: "",
 						description: "",
 						category: "",
