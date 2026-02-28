@@ -64,22 +64,23 @@ export async function syncFromMoonReader(
 		// Parse annotation files from Cache folder (real-time sync)
 		const booksWithHighlights = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
 
-		if (booksWithHighlights.length === 0) {
-			result.errors.push("No annotation files found in .Moon+/Cache folder");
-			progressNotice.hide();
-			return result;
-		}
-
-		// Enrich books with data from books.sync, local covers, and backup statistics
+		// Enrich books with data from books.sync, local covers, and backup statistics.
+		// This may also discover new books from books.sync when trackBooksWithoutHighlights is on.
 		progressNotice.setMessage("MoonSync: Enriching book metadata...");
 		const { enrichmentResult, booksWithSufficientMetadata } =
-			await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath);
+			await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath, settings.trackBooksWithoutHighlights);
 
 		if (enrichmentResult.booksEnriched > 0) {
 			console.log(
 				`MoonSync: Enriched ${enrichmentResult.booksEnriched} books from sync data ` +
 				`(${enrichmentResult.coversFound} covers, ${enrichmentResult.statisticsFound} statistics)`
 			);
+		}
+
+		if (booksWithHighlights.length === 0) {
+			result.errors.push("No books found in .Moon+/Cache folder or books.sync");
+			progressNotice.hide();
+			return result;
 		}
 
 		// Check if output folder exists (for first sync detection)

@@ -125,7 +125,8 @@ function enrichFromSyncEntry(bookData: BookData, entry: BooksSyncEntry): void {
 export async function enrichBooksWithSyncData(
 	books: BookData[],
 	syncPath: string,
-	wasmPath: string
+	wasmPath: string,
+	trackBooksWithoutHighlights: boolean = false
 ): Promise<{
 	enrichmentResult: EnrichmentResult;
 	booksWithSufficientMetadata: Set<number>;
@@ -144,6 +145,9 @@ export async function enrichBooksWithSyncData(
 		extractBackupStatistics(syncPath, wasmPath),
 	]);
 
+	// Track which books.sync entries were matched so we can discover unmatched ones
+	const matchedSyncKeys = new Set<string>();
+
 	for (let i = 0; i < books.length; i++) {
 		const bookData = books[i];
 		const epubFilename = bookData.book.filename;
@@ -155,6 +159,7 @@ export async function enrichBooksWithSyncData(
 		if (booksSyncMap) {
 			const syncEntry = booksSyncMap.get(key);
 			if (syncEntry) {
+				matchedSyncKeys.add(key);
 				enrichFromSyncEntry(bookData, syncEntry);
 				result.booksEnriched++;
 
@@ -177,6 +182,59 @@ export async function enrichBooksWithSyncData(
 			if (stats && !bookData.statistics) {
 				bookData.statistics = stats;
 				result.statisticsFound++;
+			}
+		}
+	}
+
+	// Discover books from books.sync that weren't found via .an/.po files
+	if (trackBooksWithoutHighlights && booksSyncMap) {
+		for (const [key, entry] of booksSyncMap) {
+			if (matchedSyncKeys.has(key)) continue;
+
+			const parsed = entry.category ? parseCategoryField(entry.category) : null;
+			const title = entry.bookName || entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
+
+			const bookData: BookData = {
+				book: {
+					id: 0,
+					title,
+					filename: entry.filename,
+					author: entry.author || "",
+					description: entry.description || "",
+					category: entry.category || "",
+					thumbFile: "",
+					coverFile: localCovers.has(key) ? entry.filename : "",
+					addTime: entry.addTime || "",
+					favorite: entry.favorite || "",
+				},
+				highlights: [],
+				statistics: backupStats?.get(key) || null,
+				progress: null,
+				currentChapter: null,
+				lastReadTimestamp: null,
+				coverPath: null,
+				fetchedDescription: null,
+				publishedDate: null,
+				publisher: null,
+				pageCount: null,
+				genres: parsed?.genres.length ? parsed.genres : null,
+				series: parsed?.series
+					? (parsed.seriesNumber ? `${parsed.series} #${parsed.seriesNumber}` : parsed.series)
+					: null,
+				isbn10: null,
+				isbn13: null,
+				language: null,
+			};
+
+			const idx = books.length;
+			books.push(bookData);
+			result.booksEnriched++;
+
+			if (localCovers.has(key)) result.coversFound++;
+			if (bookData.statistics) result.statisticsFound++;
+
+			if (bookData.book.title && bookData.book.author && bookData.book.description) {
+				sufficientMetadata.add(idx);
 			}
 		}
 	}

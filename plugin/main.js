@@ -7886,7 +7886,7 @@ function enrichFromSyncEntry(bookData, entry) {
     bookData.book.favorite = entry.favorite;
   }
 }
-async function enrichBooksWithSyncData(books, syncPath, wasmPath) {
+async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWithoutHighlights = false) {
   const result = {
     booksEnriched: 0,
     coversFound: 0,
@@ -7898,6 +7898,7 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath) {
     scanLocalCovers(syncPath),
     extractBackupStatistics(syncPath, wasmPath)
   ]);
+  const matchedSyncKeys = /* @__PURE__ */ new Set();
   for (let i = 0; i < books.length; i++) {
     const bookData = books[i];
     const epubFilename = bookData.book.filename;
@@ -7907,6 +7908,7 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath) {
     if (booksSyncMap) {
       const syncEntry = booksSyncMap.get(key);
       if (syncEntry) {
+        matchedSyncKeys.add(key);
         enrichFromSyncEntry(bookData, syncEntry);
         result.booksEnriched++;
         if (bookData.book.title && bookData.book.author && bookData.book.description) {
@@ -7923,6 +7925,53 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath) {
       if (stats && !bookData.statistics) {
         bookData.statistics = stats;
         result.statisticsFound++;
+      }
+    }
+  }
+  if (trackBooksWithoutHighlights && booksSyncMap) {
+    for (const [key, entry] of booksSyncMap) {
+      if (matchedSyncKeys.has(key))
+        continue;
+      const parsed = entry.category ? parseCategoryField(entry.category) : null;
+      const title = entry.bookName || entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
+      const bookData = {
+        book: {
+          id: 0,
+          title,
+          filename: entry.filename,
+          author: entry.author || "",
+          description: entry.description || "",
+          category: entry.category || "",
+          thumbFile: "",
+          coverFile: localCovers.has(key) ? entry.filename : "",
+          addTime: entry.addTime || "",
+          favorite: entry.favorite || ""
+        },
+        highlights: [],
+        statistics: (backupStats == null ? void 0 : backupStats.get(key)) || null,
+        progress: null,
+        currentChapter: null,
+        lastReadTimestamp: null,
+        coverPath: null,
+        fetchedDescription: null,
+        publishedDate: null,
+        publisher: null,
+        pageCount: null,
+        genres: (parsed == null ? void 0 : parsed.genres.length) ? parsed.genres : null,
+        series: (parsed == null ? void 0 : parsed.series) ? parsed.seriesNumber ? `${parsed.series} #${parsed.seriesNumber}` : parsed.series : null,
+        isbn10: null,
+        isbn13: null,
+        language: null
+      };
+      const idx = books.length;
+      books.push(bookData);
+      result.booksEnriched++;
+      if (localCovers.has(key))
+        result.coversFound++;
+      if (bookData.statistics)
+        result.statisticsFound++;
+      if (bookData.book.title && bookData.book.author && bookData.book.description) {
+        sufficientMetadata.add(idx);
       }
     }
   }
@@ -7953,17 +8002,17 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       return result;
     }
     const booksWithHighlights = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
-    if (booksWithHighlights.length === 0) {
-      result.errors.push("No annotation files found in .Moon+/Cache folder");
-      progressNotice.hide();
-      return result;
-    }
     progressNotice.setMessage("MoonSync: Enriching book metadata...");
-    const { enrichmentResult, booksWithSufficientMetadata } = await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath);
+    const { enrichmentResult, booksWithSufficientMetadata } = await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath, settings.trackBooksWithoutHighlights);
     if (enrichmentResult.booksEnriched > 0) {
       console.log(
         `MoonSync: Enriched ${enrichmentResult.booksEnriched} books from sync data (${enrichmentResult.coversFound} covers, ${enrichmentResult.statisticsFound} statistics)`
       );
+    }
+    if (booksWithHighlights.length === 0) {
+      result.errors.push("No books found in .Moon+/Cache folder or books.sync");
+      progressNotice.hide();
+      return result;
     }
     const outputPath = (0, import_obsidian7.normalizePath)(settings.outputFolder);
     const outputFolderExisted = await app.vault.adapter.exists(outputPath);
