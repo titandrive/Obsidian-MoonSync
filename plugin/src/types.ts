@@ -94,7 +94,7 @@ export const DEFAULT_SETTINGS: MoonSyncSettings = {
 	showCoverCollage: true,
 	coverCollageLimit: 0, // 0 = show all
 	coverCollageSort: "alpha",
-	trackBooksWithoutHighlights: false,
+	trackBooksWithoutHighlights: true,
 	hardcoverEnabled: false,
 	hardcoverToken: "",
 };

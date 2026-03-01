@@ -803,25 +803,19 @@ async function processBook(
 	const fileExists = existingData !== null;
 
 	// Handle books with 0 highlights
-	console.log(`[${bookData.book.title}] processBook: highlights=${bookData.highlights.length}, fileExists=${fileExists}, highlightsCount=${existingData?.highlightsCount}`);
-
 	if (bookData.highlights.length === 0) {
 		if (!fileExists) {
 			// No file and no highlights — nothing to do unless tracking is on
 			if (!settings.trackBooksWithoutHighlights) {
-				console.log(`[${bookData.book.title}] SKIP: no file, no highlights, tracking off`);
 				result.booksSkipped++;
 				return false;
 			}
-			console.log(`[${bookData.book.title}] FALL-THROUGH: no file, tracking on — will create`);
 		} else if (settings.trackBooksWithoutHighlights) {
 			// Keep note — skip if already cleaned up, otherwise fall through to update
 			if (existingData.highlightsCount === 0) {
-				console.log(`[${bookData.book.title}] SKIP: file exists, 0 highlights, tracking on`);
 				result.booksSkipped++;
 				return false;
 			}
-			console.log(`[${bookData.book.title}] FALL-THROUGH: file exists but highlightsCount=${existingData.highlightsCount}`);
 		} else if (hasUserNotes(existingData.fullContent!)) {
 			// User has custom My Notes content — skip if already cleaned up, otherwise update
 			if (existingData.highlightsCount === 0) {

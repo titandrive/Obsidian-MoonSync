@@ -5619,7 +5619,7 @@ var DEFAULT_SETTINGS = {
   coverCollageLimit: 0,
   // 0 = show all
   coverCollageSort: "alpha",
-  trackBooksWithoutHighlights: false,
+  trackBooksWithoutHighlights: true,
   hardcoverEnabled: false,
   hardcoverToken: ""
 };
@@ -5746,27 +5746,26 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.runSync();
       })
     );
-    new import_obsidian2.Setting(container).setName("Force reprocess all books").setDesc("Clears the metadata cache so all books are fully reprocessed on the next sync").addButton(
-      (button) => button.setButtonText("Clear cache").onClick(async () => {
-        const outputPath = (0, import_obsidian2.normalizePath)(this.plugin.settings.outputFolder);
-        const cachePath = (0, import_obsidian2.normalizePath)(`${outputPath}/.moonsync-cache.json`);
-        try {
-          if (await this.app.vault.adapter.exists(cachePath)) {
-            await this.app.vault.adapter.remove(cachePath);
-          }
-          new import_obsidian2.Notice("MoonSync: Cache cleared \u2014 next sync will reprocess all books");
-        } catch (e) {
-          new import_obsidian2.Notice("MoonSync: Failed to clear cache");
-        }
-      })
-    );
     new import_obsidian2.Setting(container).setName("Sync on startup").setDesc("Automatically sync when Obsidian starts").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.syncOnStartup).onChange(async (value) => {
         this.plugin.settings.syncOnStartup = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(container).setName("Watch for changes").setDesc("Automatically sync when Moon Reader cache files are updated").addToggle(
+    new import_obsidian2.Setting(container).setName("Show ribbon icon").setDesc("Show sync button in ribbon menu").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.showRibbonIcon).onChange(async (value) => {
+        this.plugin.settings.showRibbonIcon = value;
+        await this.plugin.saveSettings();
+        this.plugin.updateRibbonIcon();
+      })
+    );
+    new import_obsidian2.Setting(container).setName("Track books without highlights").setDesc("Track all books in your Moon Reader library, not just ones with highlights").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.trackBooksWithoutHighlights).onChange(async (value) => {
+        this.plugin.settings.trackBooksWithoutHighlights = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian2.Setting(container).setName("Automatic sync").setDesc("Automatically sync when Moon Reader cache files are updated. Best suited for setups where the sync folder is on a local filesystem.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.watchForChanges).onChange(async (value) => {
         this.plugin.settings.watchForChanges = value;
         await this.plugin.saveSettings();
@@ -5777,17 +5776,19 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         }
       })
     );
-    new import_obsidian2.Setting(container).setName("Show ribbon icon").setDesc("Show sync button in ribbon menu").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.showRibbonIcon).onChange(async (value) => {
-        this.plugin.settings.showRibbonIcon = value;
-        await this.plugin.saveSettings();
-        this.plugin.updateRibbonIcon();
-      })
-    );
-    new import_obsidian2.Setting(container).setName("Track books without highlights").setDesc("Track books you have started reading but have no existing highlights or notes").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.trackBooksWithoutHighlights).onChange(async (value) => {
-        this.plugin.settings.trackBooksWithoutHighlights = value;
-        await this.plugin.saveSettings();
+    new import_obsidian2.Setting(container).setName("Maintenance").setHeading();
+    new import_obsidian2.Setting(container).setName("Force resync all books").setDesc("Clears the metadata cache and resyncs all books with the latest data").addButton(
+      (button) => button.setButtonText("Resync").onClick(async () => {
+        const outputPath = (0, import_obsidian2.normalizePath)(this.plugin.settings.outputFolder);
+        const cachePath = (0, import_obsidian2.normalizePath)(`${outputPath}/.moonsync-cache.json`);
+        try {
+          if (await this.app.vault.adapter.exists(cachePath)) {
+            await this.app.vault.adapter.remove(cachePath);
+          }
+          await this.plugin.runSync();
+        } catch (e) {
+          new import_obsidian2.Notice("MoonSync: Failed to resync");
+        }
       })
     );
   }
@@ -7915,11 +7916,9 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
     if (!epubFilename)
       continue;
     const key = epubFilename.toLowerCase().normalize("NFC");
-    console.log(`[enrichment] Book "${bookData.book.title}" key="${key}" (len=${key.length})`);
     if (booksSyncMap) {
       const syncEntry = booksSyncMap.get(key);
       if (syncEntry) {
-        console.log(`[enrichment]   MATCHED books.sync entry`);
         matchedSyncKeys.add(key);
         enrichFromSyncEntry(bookData, syncEntry);
         result.booksEnriched++;
@@ -7941,13 +7940,9 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
     }
   }
   if (trackBooksWithoutHighlights && booksSyncMap) {
-    console.log(`[enrichment] matchedSyncKeys: ${[...matchedSyncKeys].join(", ")}`);
     for (const [key, entry] of booksSyncMap) {
-      if (matchedSyncKeys.has(key)) {
-        console.log(`[enrichment] books.sync "${entry.filename}" already matched, skipping`);
+      if (matchedSyncKeys.has(key))
         continue;
-      }
-      console.log(`[enrichment] books.sync "${entry.filename}" UNMATCHED key="${key}" \u2014 creating new BookData`);
       const parsed = entry.category ? parseCategoryField(entry.category) : null;
       const hasValidBookName = entry.bookName && entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName);
       const title = hasValidBookName ? entry.bookName : entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
@@ -8518,22 +8513,17 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
   const hasAttemptedFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0);
   const existingData = await getExistingBookData(app, filePath);
   const fileExists = existingData !== null;
-  console.log(`[${bookData.book.title}] processBook: highlights=${bookData.highlights.length}, fileExists=${fileExists}, highlightsCount=${existingData == null ? void 0 : existingData.highlightsCount}`);
   if (bookData.highlights.length === 0) {
     if (!fileExists) {
       if (!settings.trackBooksWithoutHighlights) {
-        console.log(`[${bookData.book.title}] SKIP: no file, no highlights, tracking off`);
         result.booksSkipped++;
         return false;
       }
-      console.log(`[${bookData.book.title}] FALL-THROUGH: no file, tracking on \u2014 will create`);
     } else if (settings.trackBooksWithoutHighlights) {
       if (existingData.highlightsCount === 0) {
-        console.log(`[${bookData.book.title}] SKIP: file exists, 0 highlights, tracking on`);
         result.booksSkipped++;
         return false;
       }
-      console.log(`[${bookData.book.title}] FALL-THROUGH: file exists but highlightsCount=${existingData.highlightsCount}`);
     } else if (hasUserNotes(existingData.fullContent)) {
       if (existingData.highlightsCount === 0) {
         result.booksSkipped++;

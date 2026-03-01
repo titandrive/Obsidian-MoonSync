@@ -137,24 +137,6 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(container)
-			.setName("Force reprocess all books")
-			.setDesc("Clears the metadata cache so all books are fully reprocessed on the next sync")
-			.addButton((button) =>
-				button.setButtonText("Clear cache").onClick(async () => {
-					const outputPath = normalizePath(this.plugin.settings.outputFolder);
-					const cachePath = normalizePath(`${outputPath}/.moonsync-cache.json`);
-					try {
-						if (await this.app.vault.adapter.exists(cachePath)) {
-							await this.app.vault.adapter.remove(cachePath);
-						}
-						new Notice("MoonSync: Cache cleared — next sync will reprocess all books");
-					} catch {
-						new Notice("MoonSync: Failed to clear cache");
-					}
-				})
-			);
-
-		new Setting(container)
 			.setName("Sync on startup")
 			.setDesc("Automatically sync when Obsidian starts")
 			.addToggle((toggle) =>
@@ -163,23 +145,6 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.syncOnStartup = value;
 						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(container)
-			.setName("Watch for changes")
-			.setDesc("Automatically sync when Moon Reader cache files are updated")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.watchForChanges)
-					.onChange(async (value) => {
-						this.plugin.settings.watchForChanges = value;
-						await this.plugin.saveSettings();
-						if (value) {
-							this.plugin.startFileWatcher();
-						} else {
-							this.plugin.stopFileWatcher();
-						}
 					})
 			);
 
@@ -198,7 +163,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 
 		new Setting(container)
 			.setName("Track books without highlights")
-			.setDesc("Track books you have started reading but have no existing highlights or notes")
+			.setDesc("Track all books in your Moon Reader library, not just ones with highlights")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.trackBooksWithoutHighlights)
@@ -206,6 +171,43 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 						this.plugin.settings.trackBooksWithoutHighlights = value;
 						await this.plugin.saveSettings();
 					})
+			);
+
+		new Setting(container)
+			.setName("Automatic sync")
+			.setDesc("Automatically sync when Moon Reader cache files are updated. Best suited for setups where the sync folder is on a local filesystem.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.watchForChanges)
+					.onChange(async (value) => {
+						this.plugin.settings.watchForChanges = value;
+						await this.plugin.saveSettings();
+						if (value) {
+							this.plugin.startFileWatcher();
+						} else {
+							this.plugin.stopFileWatcher();
+						}
+					})
+			);
+
+		new Setting(container).setName("Maintenance").setHeading();
+
+		new Setting(container)
+			.setName("Force resync all books")
+			.setDesc("Clears the metadata cache and resyncs all books with the latest data")
+			.addButton((button) =>
+				button.setButtonText("Resync").onClick(async () => {
+					const outputPath = normalizePath(this.plugin.settings.outputFolder);
+					const cachePath = normalizePath(`${outputPath}/.moonsync-cache.json`);
+					try {
+						if (await this.app.vault.adapter.exists(cachePath)) {
+							await this.app.vault.adapter.remove(cachePath);
+						}
+						await this.plugin.runSync();
+					} catch {
+						new Notice("MoonSync: Failed to resync");
+					}
+				})
 			);
 	}
 

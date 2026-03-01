@@ -158,13 +158,11 @@ export async function enrichBooksWithSyncData(
 		if (!epubFilename) continue;
 
 		const key = epubFilename.toLowerCase().normalize("NFC");
-		console.log(`[enrichment] Book "${bookData.book.title}" key="${key}" (len=${key.length})`);
 
 		// 1. Enrich from books.sync
 		if (booksSyncMap) {
 			const syncEntry = booksSyncMap.get(key);
 			if (syncEntry) {
-				console.log(`[enrichment]   MATCHED books.sync entry`);
 				matchedSyncKeys.add(key);
 				enrichFromSyncEntry(bookData, syncEntry);
 				result.booksEnriched++;
@@ -194,13 +192,8 @@ export async function enrichBooksWithSyncData(
 
 	// Discover books from books.sync that weren't found via .an/.po files
 	if (trackBooksWithoutHighlights && booksSyncMap) {
-		console.log(`[enrichment] matchedSyncKeys: ${[...matchedSyncKeys].join(', ')}`);
 		for (const [key, entry] of booksSyncMap) {
-			if (matchedSyncKeys.has(key)) {
-				console.log(`[enrichment] books.sync "${entry.filename}" already matched, skipping`);
-				continue;
-			}
-			console.log(`[enrichment] books.sync "${entry.filename}" UNMATCHED key="${key}" — creating new BookData`);
+			if (matchedSyncKeys.has(key)) continue;
 
 			const parsed = entry.category ? parseCategoryField(entry.category) : null;
 			const hasValidBookName = entry.bookName && entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName);
