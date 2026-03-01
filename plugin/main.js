@@ -7080,7 +7080,15 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
           bookTitle = bookTitle.replace(/_/g, " ");
         }
         const epubFilename = poFile.replace(/\.po$/, "").toLowerCase().normalize("NFC");
-        const key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
+        let key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
+        if (!bookDataMap.has(key)) {
+          const dashIdx = bookTitle.indexOf(" - ");
+          if (dashIdx > 0) {
+            const titleOnlyKey = normalizeKey(bookTitle.substring(0, dashIdx).trim());
+            if (bookDataMap.has(titleOnlyKey))
+              key = titleOnlyKey;
+          }
+        }
         const filePath = (0, import_path2.join)(cacheDir, poFile);
         const data = await (0, import_promises.readFile)(filePath);
         const progressData = parseProgressFile(data);
