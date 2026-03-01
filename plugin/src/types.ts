@@ -52,6 +52,7 @@ export interface BookData {
 	isbn10: string | null; // ISBN-10
 	isbn13: string | null; // ISBN-13
 	language: string | null; // language code (e.g., "en")
+	previousTitle: string | null; // title before enrichment (for finding old notes to rename)
 }
 
 export interface MoonSyncSettings {

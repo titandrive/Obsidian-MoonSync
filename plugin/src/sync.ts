@@ -704,13 +704,29 @@ async function findExistingFile(
 	outputPath: string,
 	preferredFilename: string,
 	bookTitle: string,
-	titleCache: TitleCacheEntry[]
+	titleCache: TitleCacheEntry[],
+	previousTitle: string | null = null
 ): Promise<string> {
 	const preferredPath = normalizePath(`${outputPath}/${preferredFilename}.md`);
 
 	// Check if preferred path exists (fast path)
 	if (await app.vault.adapter.exists(preferredPath)) {
 		return preferredPath;
+	}
+
+	// Check if a note exists at the old (pre-enrichment) title and rename it
+	if (previousTitle) {
+		const oldFilename = generateFilename(previousTitle);
+		const oldPath = normalizePath(`${outputPath}/${oldFilename}.md`);
+		if (oldPath !== preferredPath && await app.vault.adapter.exists(oldPath)) {
+			try {
+				await app.vault.adapter.rename(oldPath, preferredPath);
+				console.log(`MoonSync: Renamed "${oldFilename}.md" → "${preferredFilename}.md"`);
+				return preferredPath;
+			} catch {
+				return oldPath;
+			}
+		}
 	}
 
 	// Normalize the book title for comparison
@@ -766,7 +782,7 @@ async function processBook(
 	const originalAuthor = bookData.book.author;
 
 	const filename = generateFilename(bookData.book.title);
-	const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title, titleCache);
+	const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title, titleCache, bookData.previousTitle);
 	let cacheModified = false;
 
 	// Check cache first to determine if we need to fetch metadata
@@ -868,29 +884,29 @@ async function processBook(
 		}
 
 		if (cachedInfo) {
-			// Use cached data
-			if (cachedInfo.description) {
+			// Use cached data — only fill fields not already set by enrichment
+			if (cachedInfo.description && !bookData.fetchedDescription) {
 				bookData.fetchedDescription = cachedInfo.description;
 			}
 			if (!bookData.book.author && cachedInfo.author) {
 				bookData.book.author = cachedInfo.author;
 			}
-			if (cachedInfo.publishedDate) {
+			if (cachedInfo.publishedDate && !bookData.publishedDate) {
 				bookData.publishedDate = cachedInfo.publishedDate;
 			}
-			if (cachedInfo.publisher) {
+			if (cachedInfo.publisher && !bookData.publisher) {
 				bookData.publisher = cachedInfo.publisher;
 			}
-			if (cachedInfo.pageCount !== null) {
+			if (cachedInfo.pageCount !== null && bookData.pageCount === null) {
 				bookData.pageCount = cachedInfo.pageCount;
 			}
-			if (cachedInfo.genres) {
+			if (cachedInfo.genres && !bookData.genres) {
 				bookData.genres = cachedInfo.genres;
 			}
-			if (cachedInfo.series) {
+			if (cachedInfo.series && !bookData.series) {
 				bookData.series = cachedInfo.series;
 			}
-			if (cachedInfo.language) {
+			if (cachedInfo.language && !bookData.language) {
 				bookData.language = cachedInfo.language;
 			}
 		}
@@ -915,33 +931,31 @@ async function processBook(
 				}
 			}
 
-			// Use fetched description if available
-			if (bookInfo.description) {
+			// Use fetched data — only fill fields not already set by enrichment
+			if (bookInfo.description && !bookData.fetchedDescription) {
 				bookData.fetchedDescription = bookInfo.description;
 			}
 
-			// Use fetched author if book has no author from filename
 			if (!bookData.book.author && bookInfo.author) {
 				bookData.book.author = bookInfo.author;
 			}
 
-			// Use fetched metadata
-			if (bookInfo.publishedDate) {
+			if (bookInfo.publishedDate && !bookData.publishedDate) {
 				bookData.publishedDate = bookInfo.publishedDate;
 			}
-			if (bookInfo.publisher) {
+			if (bookInfo.publisher && !bookData.publisher) {
 				bookData.publisher = bookInfo.publisher;
 			}
-			if (bookInfo.pageCount !== null) {
+			if (bookInfo.pageCount !== null && bookData.pageCount === null) {
 				bookData.pageCount = bookInfo.pageCount;
 			}
-			if (bookInfo.genres) {
+			if (bookInfo.genres && !bookData.genres) {
 				bookData.genres = bookInfo.genres;
 			}
-			if (bookInfo.series) {
+			if (bookInfo.series && !bookData.series) {
 				bookData.series = bookInfo.series;
 			}
-			if (bookInfo.language) {
+			if (bookInfo.language && !bookData.language) {
 				bookData.language = bookInfo.language;
 			}
 

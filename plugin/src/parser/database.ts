@@ -91,6 +91,7 @@ export async function parseDatabase(
 				isbn10: null,
 				isbn13: null,
 				language: null,
+				previousTitle: null,
 			});
 		}
 

@@ -75,8 +75,11 @@ async function extractBackupStatistics(
  * Only fills in fields that are currently empty/null.
  */
 function enrichFromSyncEntry(bookData: BookData, entry: BooksSyncEntry): void {
-	// Title: always prefer books.sync (it's the proper display title)
-	if (entry.bookName) {
+	// Title: prefer books.sync if it looks like a real title
+	// Skip if bookName is a hash, UUID, or shorter than 3 chars (bad epub metadata)
+	if (entry.bookName && entry.bookName !== bookData.book.title &&
+		entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName)) {
+		bookData.previousTitle = bookData.book.title;
 		bookData.book.title = entry.bookName;
 	}
 
@@ -224,6 +227,7 @@ export async function enrichBooksWithSyncData(
 				isbn10: null,
 				isbn13: null,
 				language: null,
+				previousTitle: null,
 			};
 
 			const idx = books.length;

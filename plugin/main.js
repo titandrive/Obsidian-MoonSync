@@ -7051,7 +7051,8 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
               series: null,
               isbn10: null,
               isbn13: null,
-              language: null
+              language: null,
+              previousTitle: null
             });
           }
           if (parsed.highlights.length > 0) {
@@ -7628,7 +7629,8 @@ function scannedBookToBookData(scanned) {
     series: null,
     isbn10: null,
     isbn13: null,
-    language: null
+    language: null,
+    previousTitle: null
   };
 }
 function mergeBookLists(moonReaderBooks, scannedBooks) {
@@ -7861,7 +7863,8 @@ async function extractBackupStatistics(syncPath, wasmPath) {
   }
 }
 function enrichFromSyncEntry(bookData, entry) {
-  if (entry.bookName) {
+  if (entry.bookName && entry.bookName !== bookData.book.title && entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName)) {
+    bookData.previousTitle = bookData.book.title;
     bookData.book.title = entry.bookName;
   }
   if (!bookData.book.author && entry.author) {
@@ -7961,7 +7964,8 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
         series: (parsed == null ? void 0 : parsed.series) ? parsed.seriesNumber ? `${parsed.series} #${parsed.seriesNumber}` : parsed.series : null,
         isbn10: null,
         isbn13: null,
-        language: null
+        language: null,
+        previousTitle: null
       };
       const idx = books.length;
       books.push(bookData);
@@ -8448,10 +8452,23 @@ async function buildTitleCache(app, outputPath) {
   return cache;
 }
 var SIMILARITY_THRESHOLD = 0.8;
-async function findExistingFile(app, outputPath, preferredFilename, bookTitle, titleCache) {
+async function findExistingFile(app, outputPath, preferredFilename, bookTitle, titleCache, previousTitle = null) {
   const preferredPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${preferredFilename}.md`);
   if (await app.vault.adapter.exists(preferredPath)) {
     return preferredPath;
+  }
+  if (previousTitle) {
+    const oldFilename = generateFilename(previousTitle);
+    const oldPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${oldFilename}.md`);
+    if (oldPath !== preferredPath && await app.vault.adapter.exists(oldPath)) {
+      try {
+        await app.vault.adapter.rename(oldPath, preferredPath);
+        console.log(`MoonSync: Renamed "${oldFilename}.md" \u2192 "${preferredFilename}.md"`);
+        return preferredPath;
+      } catch (e) {
+        return oldPath;
+      }
+    }
   }
   const normalizedBookTitle = normalizeBookTitle2(bookTitle);
   let bestMatch = null;
@@ -8481,7 +8498,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
   const originalTitle = bookData.book.title;
   const originalAuthor = bookData.book.author;
   const filename = generateFilename(bookData.book.title);
-  const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title, titleCache);
+  const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title, titleCache, bookData.previousTitle);
   let cacheModified = false;
   const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
   const hasAttemptedFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0 && cachedInfo.genres !== void 0 && cachedInfo.series !== void 0 && cachedInfo.language !== void 0);
@@ -8543,28 +8560,28 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       }
     }
     if (cachedInfo) {
-      if (cachedInfo.description) {
+      if (cachedInfo.description && !bookData.fetchedDescription) {
         bookData.fetchedDescription = cachedInfo.description;
       }
       if (!bookData.book.author && cachedInfo.author) {
         bookData.book.author = cachedInfo.author;
       }
-      if (cachedInfo.publishedDate) {
+      if (cachedInfo.publishedDate && !bookData.publishedDate) {
         bookData.publishedDate = cachedInfo.publishedDate;
       }
-      if (cachedInfo.publisher) {
+      if (cachedInfo.publisher && !bookData.publisher) {
         bookData.publisher = cachedInfo.publisher;
       }
-      if (cachedInfo.pageCount !== null) {
+      if (cachedInfo.pageCount !== null && bookData.pageCount === null) {
         bookData.pageCount = cachedInfo.pageCount;
       }
-      if (cachedInfo.genres) {
+      if (cachedInfo.genres && !bookData.genres) {
         bookData.genres = cachedInfo.genres;
       }
-      if (cachedInfo.series) {
+      if (cachedInfo.series && !bookData.series) {
         bookData.series = cachedInfo.series;
       }
-      if (cachedInfo.language) {
+      if (cachedInfo.language && !bookData.language) {
         bookData.language = cachedInfo.language;
       }
     }
@@ -8581,28 +8598,28 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
           bookData.coverPath = `moonsync-covers/${coverFilename}`;
         }
       }
-      if (bookInfo.description) {
+      if (bookInfo.description && !bookData.fetchedDescription) {
         bookData.fetchedDescription = bookInfo.description;
       }
       if (!bookData.book.author && bookInfo.author) {
         bookData.book.author = bookInfo.author;
       }
-      if (bookInfo.publishedDate) {
+      if (bookInfo.publishedDate && !bookData.publishedDate) {
         bookData.publishedDate = bookInfo.publishedDate;
       }
-      if (bookInfo.publisher) {
+      if (bookInfo.publisher && !bookData.publisher) {
         bookData.publisher = bookInfo.publisher;
       }
-      if (bookInfo.pageCount !== null) {
+      if (bookInfo.pageCount !== null && bookData.pageCount === null) {
         bookData.pageCount = bookInfo.pageCount;
       }
-      if (bookInfo.genres) {
+      if (bookInfo.genres && !bookData.genres) {
         bookData.genres = bookInfo.genres;
       }
-      if (bookInfo.series) {
+      if (bookInfo.series && !bookData.series) {
         bookData.series = bookInfo.series;
       }
-      if (bookInfo.language) {
+      if (bookInfo.language && !bookData.language) {
         bookData.language = bookInfo.language;
       }
       setCachedInfo(cache, originalTitle, originalAuthor, {

@@ -212,6 +212,7 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 							isbn10: null,
 							isbn13: null,
 							language: null,
+							previousTitle: null,
 						});
 					}
 
