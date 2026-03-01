@@ -93,6 +93,30 @@ export async function syncFromMoonReader(
 			await app.vault.createFolder(outputPath);
 		}
 
+		// Deduplicate books that would write to the same output file
+		// (e.g. same book under different filenames in Moon Reader)
+		const seenFiles = new Map<string, number>();
+		for (let i = booksWithHighlights.length - 1; i >= 0; i--) {
+			const fname = generateFilename(booksWithHighlights[i].book.title).toLowerCase();
+			if (seenFiles.has(fname)) {
+				const keepIdx = seenFiles.get(fname)!;
+				const keep = booksWithHighlights[keepIdx];
+				const dupe = booksWithHighlights[i];
+				// Merge: prefer the entry with highlights; take higher progress
+				if (dupe.highlights.length > keep.highlights.length) {
+					keep.highlights = dupe.highlights;
+				}
+				if ((dupe.progress || 0) > (keep.progress || 0)) {
+					keep.progress = dupe.progress;
+					keep.currentChapter = dupe.currentChapter;
+					keep.lastReadTimestamp = dupe.lastReadTimestamp;
+				}
+				booksWithHighlights.splice(i, 1);
+			} else {
+				seenFiles.set(fname, i);
+			}
+		}
+
 		// Calculate total highlights and notes
 		result.totalHighlights = booksWithHighlights.reduce((sum, b) => sum + b.highlights.length, 0);
 		result.totalNotes = booksWithHighlights.reduce(
@@ -847,8 +871,6 @@ async function processBook(
 			: null;
 		const lastReadUnchanged = existingData.lastRead === newLastRead;
 
-		console.debug(`[${bookData.book.title}] Existing hash: ${existingData.highlightsHash || 'none'} | New hash: ${currentHash}`);
-		console.debug(`[${bookData.book.title}] Unchanged: highlights=${highlightsUnchanged}, progress=${progressUnchanged}, lastRead=${lastReadUnchanged}, hasAttemptedFetch=${hasAttemptedFetch}`);
 
 		// Only skip if: nothing changed AND we've already attempted to fetch metadata
 		// Once we've tried fetching once, don't keep retrying if data isn't available

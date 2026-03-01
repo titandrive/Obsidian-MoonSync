@@ -7080,15 +7080,7 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
           bookTitle = bookTitle.replace(/_/g, " ");
         }
         const epubFilename = poFile.replace(/\.po$/, "").toLowerCase().normalize("NFC");
-        let key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
-        if (!bookDataMap.has(key)) {
-          const dashIdx = bookTitle.indexOf(" - ");
-          if (dashIdx > 0) {
-            const titleOnlyKey = normalizeKey(bookTitle.substring(0, dashIdx).trim());
-            if (bookDataMap.has(titleOnlyKey))
-              key = titleOnlyKey;
-          }
-        }
+        const key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
         const filePath = (0, import_path2.join)(cacheDir, poFile);
         const data = await (0, import_promises.readFile)(filePath);
         const progressData = parseProgressFile(data);
@@ -8041,6 +8033,26 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     if (!outputFolderExisted) {
       await app.vault.createFolder(outputPath);
     }
+    const seenFiles = /* @__PURE__ */ new Map();
+    for (let i = booksWithHighlights.length - 1; i >= 0; i--) {
+      const fname = generateFilename(booksWithHighlights[i].book.title).toLowerCase();
+      if (seenFiles.has(fname)) {
+        const keepIdx = seenFiles.get(fname);
+        const keep = booksWithHighlights[keepIdx];
+        const dupe = booksWithHighlights[i];
+        if (dupe.highlights.length > keep.highlights.length) {
+          keep.highlights = dupe.highlights;
+        }
+        if ((dupe.progress || 0) > (keep.progress || 0)) {
+          keep.progress = dupe.progress;
+          keep.currentChapter = dupe.currentChapter;
+          keep.lastReadTimestamp = dupe.lastReadTimestamp;
+        }
+        booksWithHighlights.splice(i, 1);
+      } else {
+        seenFiles.set(fname, i);
+      }
+    }
     result.totalHighlights = booksWithHighlights.reduce((sum, b) => sum + b.highlights.length, 0);
     result.totalNotes = booksWithHighlights.reduce(
       (sum, b) => sum + b.highlights.filter((h) => h.note && h.note.trim()).length,
@@ -8552,8 +8564,6 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
     const progressUnchanged = existingData.progress === bookData.progress;
     const newLastRead = bookData.lastReadTimestamp !== null ? new Date(bookData.lastReadTimestamp).toISOString().split("T")[0] : null;
     const lastReadUnchanged = existingData.lastRead === newLastRead;
-    console.debug(`[${bookData.book.title}] Existing hash: ${existingData.highlightsHash || "none"} | New hash: ${currentHash}`);
-    console.debug(`[${bookData.book.title}] Unchanged: highlights=${highlightsUnchanged}, progress=${progressUnchanged}, lastRead=${lastReadUnchanged}, hasAttemptedFetch=${hasAttemptedFetch}`);
     if (highlightsUnchanged && progressUnchanged && lastReadUnchanged && hasAttemptedFetch) {
       result.booksSkipped++;
       return false;
