@@ -5765,7 +5765,7 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(container).setName("Automatic sync").setDesc("Automatically sync when Moon Reader cache files are updated. Best suited for setups where the sync folder is on a local filesystem.").addToggle(
+    new import_obsidian2.Setting(container).setName("Automatic sync").setDesc("Automatically sync when Moon Reader cache files are updated. Best suited when Obsidian is hosted on an always-on server.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.watchForChanges).onChange(async (value) => {
         this.plugin.settings.watchForChanges = value;
         await this.plugin.saveSettings();

@@ -209,7 +209,7 @@ These settings configure how MoonSync works.
 - **Sync on Startup** - Automatically sync when Obsidian starts
 - **Show Ribbon Icon** - Show sync button in the ribbon menu
 - **Track Books Without Highlights** - Track all books in your Moon Reader library, not just ones with highlights. When "Sync my shelf" is enabled in Moon Reader, this discovers your entire library from the sync data. Otherwise, it tracks books that have reading progress but no highlights yet.
-- **Automatic Sync** - Automatically sync when Moon Reader cache files are updated. Best suited for setups where the sync folder is on a local filesystem (e.g. a WebDAV server running on the same machine as Obsidian). Uses a 3-second debounce to batch rapid file writes.
+- **Automatic Sync** - Automatically sync when Moon Reader cache files are updated. Best suited when Obsidian is hosted on an always-on server. Uses a 3-second debounce to batch rapid file writes.
 
 #### Maintenance
 - **Force Resync All Books** - Clears the metadata cache and resyncs all books with the latest data. Useful after plugin updates or if you want to regenerate all notes with the latest enrichment data.

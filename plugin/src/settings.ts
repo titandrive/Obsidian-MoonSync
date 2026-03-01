@@ -175,7 +175,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 
 		new Setting(container)
 			.setName("Automatic sync")
-			.setDesc("Automatically sync when Moon Reader cache files are updated. Best suited for setups where the sync folder is on a local filesystem.")
+			.setDesc("Automatically sync when Moon Reader cache files are updated. Best suited when Obsidian is hosted on an always-on server.")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.watchForChanges)
