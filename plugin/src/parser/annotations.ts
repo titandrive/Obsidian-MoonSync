@@ -227,6 +227,16 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 			}
 		}
 
+		// Build a secondary index: lowercase filename → bookDataMap key
+		// This lets .po files find their .an entry even when titles differ
+		// (e.g. .an title "Dune" vs .po filename "Dune - Frank Herbert")
+		const filenameToKey = new Map<string, string>();
+		for (const [mapKey, bookData] of bookDataMap) {
+			if (bookData.book.filename) {
+				filenameToKey.set(bookData.book.filename.toLowerCase().normalize("NFC"), mapKey);
+			}
+		}
+
 		// Read .po files for reading progress
 		const poFiles = files.filter((f) => f.endsWith(".po"));
 		for (const poFile of poFiles) {
@@ -238,7 +248,8 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 				if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
 					bookTitle = bookTitle.replace(/_/g, " ");
 				}
-				const key = normalizeKey(bookTitle);
+				const epubFilename = poFile.replace(/\.po$/, "").toLowerCase().normalize("NFC");
+				const key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
 
 				const filePath = join(cacheDir, poFile);
 				const data = await readFile(filePath);

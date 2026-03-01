@@ -78,7 +78,7 @@ export function parseFrontmatter(content: string): ParsedFrontmatter {
 		title: parseFrontmatterField(frontmatter, "title"),
 		author: parseFrontmatterField(frontmatter, "author"),
 		progress: progressStr ? parseFloat(progressStr) : null,
-		highlightsCount: highlightsCountStr ? parseInt(highlightsCountStr, 10) : null,
+		highlightsCount: highlightsCountStr !== null ? parseInt(highlightsCountStr, 10) : null,
 		highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
 		coverPath: parseFrontmatterField(frontmatter, "cover"),
 		moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),

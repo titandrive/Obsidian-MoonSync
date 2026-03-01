@@ -45,9 +45,10 @@ async function extractBackupStatistics(
 			for (const row of results[0].values) {
 				const fullPath = (row[1] as string) || "";
 				// Extract basename for matching (e.g. "/sdcard/Books/MoonReader/Dune.epub" → "dune.epub")
-				const basename = fullPath.includes("/")
+				const basename = (fullPath.includes("/")
 					? (fullPath.split("/").pop() || "").toLowerCase()
-					: fullPath.toLowerCase();
+					: fullPath.toLowerCase()
+				).normalize("NFC");
 
 				if (basename) {
 					statsMap.set(basename, {
@@ -156,12 +157,14 @@ export async function enrichBooksWithSyncData(
 		const epubFilename = bookData.book.filename;
 		if (!epubFilename) continue;
 
-		const key = epubFilename.toLowerCase();
+		const key = epubFilename.toLowerCase().normalize("NFC");
+		console.log(`[enrichment] Book "${bookData.book.title}" key="${key}" (len=${key.length})`);
 
 		// 1. Enrich from books.sync
 		if (booksSyncMap) {
 			const syncEntry = booksSyncMap.get(key);
 			if (syncEntry) {
+				console.log(`[enrichment]   MATCHED books.sync entry`);
 				matchedSyncKeys.add(key);
 				enrichFromSyncEntry(bookData, syncEntry);
 				result.booksEnriched++;
@@ -191,11 +194,17 @@ export async function enrichBooksWithSyncData(
 
 	// Discover books from books.sync that weren't found via .an/.po files
 	if (trackBooksWithoutHighlights && booksSyncMap) {
+		console.log(`[enrichment] matchedSyncKeys: ${[...matchedSyncKeys].join(', ')}`);
 		for (const [key, entry] of booksSyncMap) {
-			if (matchedSyncKeys.has(key)) continue;
+			if (matchedSyncKeys.has(key)) {
+				console.log(`[enrichment] books.sync "${entry.filename}" already matched, skipping`);
+				continue;
+			}
+			console.log(`[enrichment] books.sync "${entry.filename}" UNMATCHED key="${key}" — creating new BookData`);
 
 			const parsed = entry.category ? parseCategoryField(entry.category) : null;
-			const title = entry.bookName || entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
+			const hasValidBookName = entry.bookName && entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName);
+		const title = hasValidBookName ? entry.bookName : entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
 
 			const bookData: BookData = {
 				book: {

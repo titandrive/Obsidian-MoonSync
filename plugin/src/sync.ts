@@ -789,14 +789,13 @@ async function processBook(
 	const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
 
 	// Check if we've already attempted to fetch metadata
-	// Once we've tried fetching (fields are !== undefined), don't keep trying
+	// Once we've tried fetching (core fields are !== undefined), don't keep trying
+	// Only check the original 3 fields — genres/series/language were added later
+	// and may be missing from older cache entries
 	const hasAttemptedFetch = cachedInfo && (
 		cachedInfo.publishedDate !== undefined &&
 		cachedInfo.publisher !== undefined &&
-		cachedInfo.pageCount !== undefined &&
-		cachedInfo.genres !== undefined &&
-		cachedInfo.series !== undefined &&
-		cachedInfo.language !== undefined
+		cachedInfo.pageCount !== undefined
 	);
 
 	// Check if book has changed (compare highlights hash and progress)
@@ -804,19 +803,25 @@ async function processBook(
 	const fileExists = existingData !== null;
 
 	// Handle books with 0 highlights
+	console.log(`[${bookData.book.title}] processBook: highlights=${bookData.highlights.length}, fileExists=${fileExists}, highlightsCount=${existingData?.highlightsCount}`);
+
 	if (bookData.highlights.length === 0) {
 		if (!fileExists) {
 			// No file and no highlights — nothing to do unless tracking is on
 			if (!settings.trackBooksWithoutHighlights) {
+				console.log(`[${bookData.book.title}] SKIP: no file, no highlights, tracking off`);
 				result.booksSkipped++;
 				return false;
 			}
+			console.log(`[${bookData.book.title}] FALL-THROUGH: no file, tracking on — will create`);
 		} else if (settings.trackBooksWithoutHighlights) {
 			// Keep note — skip if already cleaned up, otherwise fall through to update
 			if (existingData.highlightsCount === 0) {
+				console.log(`[${bookData.book.title}] SKIP: file exists, 0 highlights, tracking on`);
 				result.booksSkipped++;
 				return false;
 			}
+			console.log(`[${bookData.book.title}] FALL-THROUGH: file exists but highlightsCount=${existingData.highlightsCount}`);
 		} else if (hasUserNotes(existingData.fullContent!)) {
 			// User has custom My Notes content — skip if already cleaned up, otherwise update
 			if (existingData.highlightsCount === 0) {
@@ -974,6 +979,23 @@ async function processBook(
 			cacheModified = true;
 		}
 
+		// Write a cache entry for books that skipped the API fetch (had sufficient metadata)
+		// so they don't get reprocessed every sync
+		if (!cachedInfo && !bookInfo) {
+			setCachedInfo(cache, originalTitle, originalAuthor, {
+				title: originalTitle,
+				description: bookData.book.description || null,
+				author: bookData.book.author || null,
+				publishedDate: bookData.publishedDate,
+				publisher: bookData.publisher,
+				pageCount: bookData.pageCount,
+				genres: bookData.genres,
+				series: bookData.series,
+				language: bookData.language,
+			});
+			cacheModified = true;
+		}
+
 		// Set cover path if cover already exists
 		if (coverExists) {
 			bookData.coverPath = `moonsync-covers/${coverFilename}`;
@@ -1035,14 +1057,11 @@ async function processCustomBook(
 	const cachedInfo = getCachedInfo(cache, scannedBook.title, scannedBook.author || "");
 
 	// Skip if we've already attempted to fetch metadata
-	// Once we've tried (fields are !== undefined), don't keep trying
+	// Once we've tried (core fields are !== undefined), don't keep trying
 	if (cachedInfo &&
 	    cachedInfo.publishedDate !== undefined &&
 	    cachedInfo.publisher !== undefined &&
-	    cachedInfo.pageCount !== undefined &&
-	    cachedInfo.genres !== undefined &&
-	    cachedInfo.series !== undefined &&
-	    cachedInfo.language !== undefined) {
+	    cachedInfo.pageCount !== undefined) {
 		// Already attempted fetch, skip API calls
 		return false;
 	}

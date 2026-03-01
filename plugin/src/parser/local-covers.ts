@@ -16,7 +16,7 @@ export async function scanLocalCovers(syncPath: string): Promise<Set<string>> {
 			if (f.endsWith("_2.png")) {
 				// Strip "_2.png" suffix to get the original epub filename
 				const bookFilename = f.slice(0, -6);
-				available.add(bookFilename.toLowerCase());
+				available.add(bookFilename.toLowerCase().normalize("NFC"));
 			}
 		}
 	} catch {

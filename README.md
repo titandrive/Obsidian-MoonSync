@@ -8,17 +8,45 @@ Sync your reading highlights, notes, and progress from Moon+ Reader to **Obsidia
 
 - **Obsidian Sync** — Automatically create and update book notes with highlights, reading progress, covers, and metadata
 - **Hardcover Sync** — Push reading status and progress to [Hardcover.app](https://hardcover.app) so your library stays up to date across platforms
-- **Rich Metadata** — Book covers, descriptions, genres, series info, and ratings pulled from Google Books and Open Library
+- **Rich Metadata** — Book covers, descriptions, genres, series info, reading time, and ratings — sourced directly from Moon Reader's sync data or from Google Books and Open Library as a fallback
 - **Library Index** — Auto-generated index with cover collage, stats, and an Obsidian Bases database view
 - **Highlight Colors** — Preserve Moon Reader highlight colors as styled callouts
 - **File Watcher** — Automatically sync when Moon Reader cache files change (ideal for always-on servers)
 - **Smart Updates** — Only syncs when highlights or progress actually change
+- **Offline First** — When Moon Reader's "Sync my shelf" is enabled, all book metadata is sourced locally from your sync data — no internet required
 
 ## How It Works
 
 Moon Reader syncs your reading data to the cloud (Dropbox, WebDAV, or FTP). MoonSync reads that data and creates rich book notes in Obsidian. If Hardcover sync is enabled, it also updates your reading status there.
 
 **Data flow:** Moon Reader → Cloud Sync → MoonSync → Obsidian + Hardcover
+
+### Sync My Shelf (Recommended)
+
+For the best experience, enable **"Sync books across devices"** (also called "Sync my shelf") in Moon Reader's sync settings. This creates a `books.sync` file that contains your full Moon Reader library with rich metadata.
+
+When enabled, MoonSync gets the following data **entirely offline**, without any API calls:
+
+| Data | Source |
+|---|---|
+| Book title | Epub/PDF internal metadata (more accurate than filename) |
+| Author | Epub/PDF internal metadata |
+| Description | Epub/PDF internal metadata |
+| Genres | Moon Reader category tags |
+| Series & series number | Moon Reader category tags |
+| Reading time | Moon Reader backup statistics |
+| Words read | Moon Reader backup statistics |
+| Book covers | Moon Reader extracted covers |
+| Reading progress | Moon Reader cache files |
+| Highlights & notes | Moon Reader cache files |
+| Favorite status | Moon Reader shelf data |
+| Date added | Moon Reader shelf data |
+
+This is the preferred way to use MoonSync — the data is more accurate than what online metadata providers return (correct titles, proper author names, genre tags you've set yourself) and syncing is faster since no network requests are needed.
+
+### Without Sync My Shelf
+
+If "Sync my shelf" is not enabled, MoonSync falls back to discovering books from Moon Reader's cache files (`.an` and `.po` files). Metadata like descriptions, genres, covers, and author names are fetched from **Google Books** and **Open Library**. This works well but depends on an internet connection and the accuracy of those services.
 
 ### What Gets Synced
 
@@ -28,6 +56,7 @@ Moon Reader syncs your reading data to the cloud (Dropbox, WebDAV, or FTP). Moon
 | Reading progress (percentage and chapter) | Reading progress (page count) |
 | Book metadata (title, author, publisher, genres, series) | Book matched by title/author |
 | Book covers and descriptions | |
+| Reading time and statistics | |
 
 ### Requirements
 
@@ -73,6 +102,16 @@ Once MoonSync is installed, you will need to configure it before it can complete
 <img src="assets/validate.png" alt="Validate" width="500">
 
 By default, MoonSync will now Sync your books anytime you open Obsidian. You can also trigger a manual sync at anytime via the ribbon menu shortcut or Command Palette (see below).
+
+### Setting Up Moon Reader for Best Results
+
+For the richest and most accurate metadata, configure Moon Reader as follows:
+
+1. **Enable cloud sync** — In Moon Reader, go to Misc → Sync to cloud and configure your sync provider (Dropbox, WebDAV, or FTP)
+2. **Enable "Sync books across devices"** — This is the key setting. It creates the `books.sync` file that MoonSync uses for offline metadata. Found in Misc → Sync to cloud → Sync books across devices.
+3. **Enable "Track books without highlights"** in MoonSync settings — This allows MoonSync to discover all books in your library, not just ones with highlights.
+
+With all three enabled, every book in your Moon Reader library will appear in Obsidian with full metadata, even if you haven't made any highlights yet.
 
 ### Setting Up Hardcover Sync
 
@@ -170,13 +209,14 @@ These settings configure how MoonSync works.
 - **Sync on Startup** - Automatically sync when Obsidian starts
 - **Watch for Changes** - Automatically sync when Moon Reader cache files are updated. Best suited for setups where the sync folder is on a local filesystem (e.g. a WebDAV server running on the same machine as Obsidian). Uses a 3-second debounce to batch rapid file writes.
 - **Show Ribbon Icon** - Show sync button in the ribbon menu
-- **Track Books Without Highlights** - Track books that do not currently have highlights. If enabled, MoonSync will create notes for books you are currently reading but have not created highlights in. Useful if you want to track reading progress but you don't make a lot of highlights.
+- **Track Books Without Highlights** - Track all books in your Moon Reader library, not just ones with highlights. When "Sync my shelf" is enabled in Moon Reader, this discovers your entire library from the sync data. Otherwise, it tracks books that have reading progress but no highlights yet.
+- **Force Reprocess All Books** - Clears the skip cache and reprocesses every book on the next sync. Useful after plugin updates or if you want to regenerate all notes with the latest enrichment data.
 
 ### Content Tab
 These settings configure what information is shown in your book notes.
 
 #### Note Content
-- **Show Description** - Include book description (from Google Books/Open Library)
+- **Show Description** - Include book description (from sync data or Google Books/Open Library)
 - **Show Reading Progress** - Include progress percentage, current chapter, and date last read
 - **Show Highlight Colors** - Use different callout styles based on highlight color
 - **Show Book Covers** - Include book covers
@@ -232,6 +272,8 @@ It also provides a library view that shows a breakdown of the following statisti
 - Last read date
 - Last synced date
 - Genres
+- Series
+- Reading time
 - Page count
 - Publisher
 - Published date
@@ -244,7 +286,7 @@ It also provides a library view that shows a breakdown of the following statisti
 ## Privacy & Security
 
 - **Read-only access**: MoonSync only reads from your sync folder. It never modifies your Moon Reader data.
-- **Local processing**: All data stays on your machine. External APIs are only contacted for book metadata (Google Books, Open Library) and optionally for Hardcover sync (if enabled).
+- **Local processing**: All data stays on your machine. When "Sync my shelf" is enabled, metadata is sourced entirely from your local sync data with no external API calls needed. External APIs (Google Books, Open Library) are only contacted as a fallback for missing metadata, and optionally for Hardcover sync (if enabled).
 - **Caching**: API responses are cached locally to minimize external requests.
 
 ## Troubleshooting
@@ -255,12 +297,17 @@ It also provides a library view that shows a breakdown of the following statisti
 - Depending on your device, and settings, you may have to trigger a manual sync in Moon Reader (Sync to Cloud)
 - Verify the path points to the folder containing `.Moon+` (e.g. `Dropbox/Apps/Books` or your mounted WebDAV/FTP server)
 
+### Books not appearing
+- Enable "Track books without highlights" in MoonSync settings
+- Enable "Sync books across devices" in Moon Reader's sync settings for full library discovery
+- If using "Sync my shelf", make sure you've synced at least once from Moon Reader after enabling it
+
 ### Progress not showing
 - Progress requires a `.po` file for the book
 - Open the book in Moon Reader and let it sync
 
 ### Covers/descriptions not loading
-- Check your internet connection
+- Check your internet connection (only needed if "Sync my shelf" is not enabled)
 - Some books (especially new releases) may not be in Google Books/Open Library
 - Use "Fetch Book Cover" or "Fetch Book Metadata" to manually search for the correct edition
 

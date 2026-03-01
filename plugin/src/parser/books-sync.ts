@@ -33,7 +33,7 @@ export async function parseBooksSyncFile(
 		const map = new Map<string, BooksSyncEntry>();
 		for (const entry of entries) {
 			if (entry.filename) {
-				map.set(entry.filename.toLowerCase(), entry);
+				map.set(entry.filename.toLowerCase().normalize("NFC"), entry);
 			}
 		}
 		return map;

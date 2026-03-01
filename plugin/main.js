@@ -7064,6 +7064,12 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
         console.debug(`MoonSync: Error reading ${anFile}`, error);
       }
     }
+    const filenameToKey = /* @__PURE__ */ new Map();
+    for (const [mapKey, bookData] of bookDataMap) {
+      if (bookData.book.filename) {
+        filenameToKey.set(bookData.book.filename.toLowerCase().normalize("NFC"), mapKey);
+      }
+    }
     const poFiles = files.filter((f) => f.endsWith(".po"));
     for (const poFile of poFiles) {
       try {
@@ -7072,7 +7078,8 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
         if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
           bookTitle = bookTitle.replace(/_/g, " ");
         }
-        const key = normalizeKey(bookTitle);
+        const epubFilename = poFile.replace(/\.po$/, "").toLowerCase().normalize("NFC");
+        const key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
         const filePath = (0, import_path2.join)(cacheDir, poFile);
         const data = await (0, import_promises.readFile)(filePath);
         const progressData = parseProgressFile(data);
@@ -7176,7 +7183,7 @@ function parseFrontmatter(content) {
     title: parseFrontmatterField(frontmatter, "title"),
     author: parseFrontmatterField(frontmatter, "author"),
     progress: progressStr ? parseFloat(progressStr) : null,
-    highlightsCount: highlightsCountStr ? parseInt(highlightsCountStr, 10) : null,
+    highlightsCount: highlightsCountStr !== null ? parseInt(highlightsCountStr, 10) : null,
     highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
     coverPath: parseFrontmatterField(frontmatter, "cover"),
     moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
@@ -7684,7 +7691,7 @@ async function parseBooksSyncFile(syncPath) {
     const map = /* @__PURE__ */ new Map();
     for (const entry of entries) {
       if (entry.filename) {
-        map.set(entry.filename.toLowerCase(), entry);
+        map.set(entry.filename.toLowerCase().normalize("NFC"), entry);
       }
     }
     return map;
@@ -7723,7 +7730,7 @@ async function scanLocalCovers(syncPath) {
     for (const f of files) {
       if (f.endsWith("_2.png")) {
         const bookFilename = f.slice(0, -6);
-        available.add(bookFilename.toLowerCase());
+        available.add(bookFilename.toLowerCase().normalize("NFC"));
       }
     }
   } catch (e) {
@@ -7842,7 +7849,7 @@ async function extractBackupStatistics(syncPath, wasmPath) {
       const statsMap = /* @__PURE__ */ new Map();
       for (const row of results[0].values) {
         const fullPath = row[1] || "";
-        const basename = fullPath.includes("/") ? (fullPath.split("/").pop() || "").toLowerCase() : fullPath.toLowerCase();
+        const basename = (fullPath.includes("/") ? (fullPath.split("/").pop() || "").toLowerCase() : fullPath.toLowerCase()).normalize("NFC");
         if (basename) {
           statsMap.set(basename, {
             id: row[0],
@@ -7907,10 +7914,12 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
     const epubFilename = bookData.book.filename;
     if (!epubFilename)
       continue;
-    const key = epubFilename.toLowerCase();
+    const key = epubFilename.toLowerCase().normalize("NFC");
+    console.log(`[enrichment] Book "${bookData.book.title}" key="${key}" (len=${key.length})`);
     if (booksSyncMap) {
       const syncEntry = booksSyncMap.get(key);
       if (syncEntry) {
+        console.log(`[enrichment]   MATCHED books.sync entry`);
         matchedSyncKeys.add(key);
         enrichFromSyncEntry(bookData, syncEntry);
         result.booksEnriched++;
@@ -7932,11 +7941,16 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
     }
   }
   if (trackBooksWithoutHighlights && booksSyncMap) {
+    console.log(`[enrichment] matchedSyncKeys: ${[...matchedSyncKeys].join(", ")}`);
     for (const [key, entry] of booksSyncMap) {
-      if (matchedSyncKeys.has(key))
+      if (matchedSyncKeys.has(key)) {
+        console.log(`[enrichment] books.sync "${entry.filename}" already matched, skipping`);
         continue;
+      }
+      console.log(`[enrichment] books.sync "${entry.filename}" UNMATCHED key="${key}" \u2014 creating new BookData`);
       const parsed = entry.category ? parseCategoryField(entry.category) : null;
-      const title = entry.bookName || entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
+      const hasValidBookName = entry.bookName && entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName);
+      const title = hasValidBookName ? entry.bookName : entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
       const bookData = {
         book: {
           id: 0,
@@ -8501,20 +8515,25 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
   const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title, titleCache, bookData.previousTitle);
   let cacheModified = false;
   const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
-  const hasAttemptedFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0 && cachedInfo.genres !== void 0 && cachedInfo.series !== void 0 && cachedInfo.language !== void 0);
+  const hasAttemptedFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0);
   const existingData = await getExistingBookData(app, filePath);
   const fileExists = existingData !== null;
+  console.log(`[${bookData.book.title}] processBook: highlights=${bookData.highlights.length}, fileExists=${fileExists}, highlightsCount=${existingData == null ? void 0 : existingData.highlightsCount}`);
   if (bookData.highlights.length === 0) {
     if (!fileExists) {
       if (!settings.trackBooksWithoutHighlights) {
+        console.log(`[${bookData.book.title}] SKIP: no file, no highlights, tracking off`);
         result.booksSkipped++;
         return false;
       }
+      console.log(`[${bookData.book.title}] FALL-THROUGH: no file, tracking on \u2014 will create`);
     } else if (settings.trackBooksWithoutHighlights) {
       if (existingData.highlightsCount === 0) {
+        console.log(`[${bookData.book.title}] SKIP: file exists, 0 highlights, tracking on`);
         result.booksSkipped++;
         return false;
       }
+      console.log(`[${bookData.book.title}] FALL-THROUGH: file exists but highlightsCount=${existingData.highlightsCount}`);
     } else if (hasUserNotes(existingData.fullContent)) {
       if (existingData.highlightsCount === 0) {
         result.booksSkipped++;
@@ -8635,6 +8654,20 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       });
       cacheModified = true;
     }
+    if (!cachedInfo && !bookInfo) {
+      setCachedInfo(cache, originalTitle, originalAuthor, {
+        title: originalTitle,
+        description: bookData.book.description || null,
+        author: bookData.book.author || null,
+        publishedDate: bookData.publishedDate,
+        publisher: bookData.publisher,
+        pageCount: bookData.pageCount,
+        genres: bookData.genres,
+        series: bookData.series,
+        language: bookData.language
+      });
+      cacheModified = true;
+    }
     if (coverExists) {
       bookData.coverPath = `moonsync-covers/${coverFilename}`;
     }
@@ -8666,7 +8699,7 @@ async function processCustomBook(app, outputPath, scannedBook, settings, result,
   } catch (e) {
   }
   const cachedInfo = getCachedInfo(cache, scannedBook.title, scannedBook.author || "");
-  if (cachedInfo && cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0 && cachedInfo.genres !== void 0 && cachedInfo.series !== void 0 && cachedInfo.language !== void 0) {
+  if (cachedInfo && cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0) {
     return false;
   }
   const author = scannedBook.author || "Unknown";
