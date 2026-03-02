@@ -93,14 +93,15 @@ export function parseFrontmatter(content: string): ParsedFrontmatter {
  * Generate a hash/fingerprint of highlights for change detection
  * Uses position + timestamp + text length to create a unique signature
  */
-export function computeHighlightsHash(highlights: MoonReaderHighlight[]): string {
+export function computeHighlightsHash(highlights: MoonReaderHighlight[], highlightSort: string = "position"): string {
 	if (highlights.length === 0) return "";
 
 	// Sort by position to ensure consistent ordering
 	const sorted = [...highlights].sort((a, b) => a.position - b.position);
 
 	// Create a fingerprint from key properties that would change if highlights change
-	const fingerprint = sorted
+	// Include sort setting so changing sort order invalidates the hash
+	const fingerprint = `sort:${highlightSort}|` + sorted
 		.map(h => `${h.position}:${h.timestamp}:${h.originalText.length}`)
 		.join("|");
 

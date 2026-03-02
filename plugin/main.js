@@ -5620,6 +5620,7 @@ var DEFAULT_SETTINGS = {
   // 0 = show all
   coverCollageSort: "alpha",
   trackBooksWithoutHighlights: true,
+  highlightSort: "position",
   hardcoverEnabled: false,
   hardcoverToken: ""
 };
@@ -5820,6 +5821,25 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         this.plugin.settings.showCovers = value;
         await this.plugin.saveSettings();
         this.plugin.updateContentVisibility();
+      })
+    );
+    new import_obsidian2.Setting(container).setName("Highlight sorting").setDesc("Control the order of highlights in your book notes.").setHeading();
+    new import_obsidian2.Setting(container).setName("Sort order").setDesc("How to order highlights in book notes. Changes take effect on next sync or when you regenerate.").addDropdown(
+      (dropdown) => dropdown.addOption("position", "Position in book (first to last)").addOption("position-reverse", "Position in book (last to first)").addOption("date", "Date added (oldest first)").addOption("date-reverse", "Date added (newest first)").setValue(this.plugin.settings.highlightSort).onChange(async (value) => {
+        this.plugin.settings.highlightSort = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian2.Setting(container).setName("Regenerate all notes").setDesc("Force all book notes to be rewritten with the current settings").addButton(
+      (button) => button.setButtonText("Regenerate").onClick(async () => {
+        button.setDisabled(true);
+        button.setButtonText("Regenerating...");
+        await this.plugin.forceResync();
+        button.setButtonText("Done!");
+        setTimeout(() => {
+          button.setDisabled(false);
+          button.setButtonText("Regenerate");
+        }, 2e3);
       })
     );
   }
@@ -7212,11 +7232,11 @@ function parseFrontmatter(content) {
     hasCustomMetadata: /^custom_metadata:\s*true/m.test(frontmatter)
   };
 }
-function computeHighlightsHash(highlights) {
+function computeHighlightsHash(highlights, highlightSort = "position") {
   if (highlights.length === 0)
     return "";
   const sorted = [...highlights].sort((a, b) => a.position - b.position);
-  const fingerprint = sorted.map((h) => `${h.position}:${h.timestamp}:${h.originalText.length}`).join("|");
+  const fingerprint = `sort:${highlightSort}|` + sorted.map((h) => `${h.position}:${h.timestamp}:${h.originalText.length}`).join("|");
   let hash = 5381;
   for (let i = 0; i < fingerprint.length; i++) {
     hash = (hash << 5) + hash + fingerprint.charCodeAt(i);
@@ -7323,7 +7343,13 @@ function generateBookNote(bookData, settings) {
   if (highlights.length > 0) {
     lines.push("## Moon Reader highlights");
     lines.push("");
-    for (const highlight of highlights) {
+    const reverse = settings.highlightSort.endsWith("-reverse");
+    const sortByDate = settings.highlightSort.startsWith("date");
+    const sorted = [...highlights].sort((a, b) => {
+      const cmp = sortByDate ? a.timestamp - b.timestamp : a.chapter - b.chapter || a.position - b.position;
+      return reverse ? -cmp : cmp;
+    });
+    for (const highlight of sorted) {
       lines.push(formatHighlight(highlight, settings.showHighlightColors));
       lines.push("");
     }
@@ -8582,7 +8608,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
     }
   }
   if (fileExists) {
-    const currentHash = computeHighlightsHash(bookData.highlights);
+    const currentHash = computeHighlightsHash(bookData.highlights, settings.highlightSort);
     const highlightsUnchanged = existingData.highlightsHash ? existingData.highlightsHash === currentHash : existingData.highlightsCount === bookData.highlights.length;
     const progressUnchanged = existingData.progress === bookData.progress;
     const newLastRead = bookData.lastReadTimestamp !== null ? new Date(bookData.lastReadTimestamp).toISOString().split("T")[0] : null;
@@ -9262,6 +9288,14 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
       console.error("MoonSync: Failed to create book note", error);
       new import_obsidian8.Notice(`MoonSync: Failed to create book note - ${error}`);
     }
+  }
+  async forceResync() {
+    const outputPath = (0, import_obsidian8.normalizePath)(this.settings.outputFolder);
+    const cachePath = (0, import_obsidian8.normalizePath)(`${outputPath}/.moonsync-cache.json`);
+    if (await this.app.vault.adapter.exists(cachePath)) {
+      await this.app.vault.adapter.remove(cachePath);
+    }
+    await this.runSync();
   }
   async refreshIndex() {
     await refreshIndexNote(this.app, this.settings);

@@ -265,6 +265,42 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 						this.plugin.updateContentVisibility();
 					})
 			);
+
+		new Setting(container).setName("Highlight sorting").setDesc("Control the order of highlights in your book notes.").setHeading();
+
+		new Setting(container)
+			.setName("Sort order")
+			.setDesc("How to order highlights in book notes. Changes take effect on next sync or when you regenerate.")
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption("position", "Position in book (first to last)")
+					.addOption("position-reverse", "Position in book (last to first)")
+					.addOption("date", "Date added (oldest first)")
+					.addOption("date-reverse", "Date added (newest first)")
+					.setValue(this.plugin.settings.highlightSort)
+					.onChange(async (value: "position" | "position-reverse" | "date" | "date-reverse") => {
+						this.plugin.settings.highlightSort = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(container)
+			.setName("Regenerate all notes")
+			.setDesc("Force all book notes to be rewritten with the current settings")
+			.addButton((button) =>
+				button
+					.setButtonText("Regenerate")
+					.onClick(async () => {
+						button.setDisabled(true);
+						button.setButtonText("Regenerating...");
+						await this.plugin.forceResync();
+						button.setButtonText("Done!");
+						setTimeout(() => {
+							button.setDisabled(false);
+							button.setButtonText("Regenerate");
+						}, 2000);
+					})
+			);
 	}
 
 	private displayIndexBaseTab(container: HTMLElement): void {

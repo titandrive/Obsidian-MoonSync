@@ -320,6 +320,16 @@ export default class MoonSyncPlugin extends Plugin {
 		}
 	}
 
+	async forceResync(): Promise<void> {
+		// Delete the cache so all notes get regenerated
+		const outputPath = normalizePath(this.settings.outputFolder);
+		const cachePath = normalizePath(`${outputPath}/.moonsync-cache.json`);
+		if (await this.app.vault.adapter.exists(cachePath)) {
+			await this.app.vault.adapter.remove(cachePath);
+		}
+		await this.runSync();
+	}
+
 	async refreshIndex(): Promise<void> {
 		await refreshIndexNote(this.app, this.settings);
 	}

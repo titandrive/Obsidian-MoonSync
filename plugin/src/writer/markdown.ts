@@ -125,7 +125,16 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 		lines.push("## Moon Reader highlights");
 		lines.push("");
 
-		for (const highlight of highlights) {
+		const reverse = settings.highlightSort.endsWith("-reverse");
+		const sortByDate = settings.highlightSort.startsWith("date");
+		const sorted = [...highlights].sort((a, b) => {
+			const cmp = sortByDate
+				? a.timestamp - b.timestamp
+				: a.chapter - b.chapter || a.position - b.position;
+			return reverse ? -cmp : cmp;
+		});
+
+		for (const highlight of sorted) {
 			lines.push(formatHighlight(highlight, settings.showHighlightColors));
 			lines.push("");
 		}

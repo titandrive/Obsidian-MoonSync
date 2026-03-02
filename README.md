@@ -13,7 +13,7 @@ Sync your reading highlights, notes, and progress from Moon+ Reader to **Obsidia
 - **Highlight Colors** — Preserve Moon Reader highlight colors as styled callouts
 - **File Watcher** — Automatically sync when Moon Reader cache files change (ideal for always-on servers)
 - **Smart Updates** — Only syncs when highlights or progress actually change
-- **Offline First** — When Moon Reader's "Sync my shelf" is enabled, all book metadata is sourced locally from your sync data — no internet required
+- **Offline First** — When Moon Reader's "Sync my shelf" is enabled, book metadata (title, author, description, genres, series) is sourced locally from your sync data. Cover images and supplemental metadata (publisher, page count, etc.) may still be fetched from Google Books and Open Library if not available locally
 
 ## How It Works
 
@@ -224,6 +224,10 @@ These settings configure what information is shown in your book notes.
 - **Show Book Covers** - Include book covers
 
 Note: Enabling/disabling these options will show/hide the feature in real time.
+
+#### Highlight Sorting
+- **Sort Order** - Control how highlights are ordered in your book notes: by position in book (first to last or last to first) or by date added (oldest first or newest first). Default: Position in book (first to last).
+- **Regenerate All Notes** - Force all book notes to be rewritten with the current settings. Useful after changing the sort order.
 
 ### Index & Base Tab
 MoonSync automatically generates an index and base note to give you different way to visualize your data. These settings allow you to customize your index and base.

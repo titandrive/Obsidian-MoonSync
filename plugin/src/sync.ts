@@ -864,7 +864,7 @@ async function processBook(
 
 	if (fileExists) {
 		// Compute hash of current highlights for comparison
-		const currentHash = computeHighlightsHash(bookData.highlights);
+		const currentHash = computeHighlightsHash(bookData.highlights, settings.highlightSort);
 
 		// Use hash comparison if available, fall back to count comparison for older notes
 		const highlightsUnchanged = existingData.highlightsHash
