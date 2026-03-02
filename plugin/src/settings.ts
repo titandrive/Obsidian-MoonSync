@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, TextComponent, normalizePath, Notice } from "obsidian";
+import { App, PluginSettingTab, Setting, TextComponent, normalizePath, Notice, requestUrl } from "obsidian";
 import type MoonSyncPlugin from "../main";
 import { existsSync } from "fs";
 import { join } from "path";
@@ -266,11 +266,11 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
-		new Setting(container).setName("Highlight sorting").setDesc("Control the order of highlights in your book notes.").setHeading();
+		new Setting(container).setName("Moon Reader highlight order").setDesc("Control the order of highlights in your book notes.").setHeading();
 
 		new Setting(container)
 			.setName("Sort order")
-			.setDesc("How to order highlights in book notes. Changes take effect on next sync or when you regenerate.")
+			.setDesc("How Moon Reader highlights and notes are sorted. Change takes effect on next sync or when you regenerate.")
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOption("position", "Position in book (first to last)")
@@ -511,8 +511,8 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 		new Setting(container).setName("About").setHeading();
 
 		new Setting(container)
-			.setName("Sync your Moon Reader highlights to Obsidian")
-			.setDesc("Book covers, descriptions, and metadata from Google Books/Open Library")
+			.setName("MoonSync")
+			.setDesc("Sync your Moon Reader highlights, notes, and progress to Obsidian")
 			.addButton((button) =>
 				button.setButtonText("GitHub").onClick(() => {
 					window.open("https://github.com/titandrive/Obsidian-MoonSync");
@@ -529,6 +529,44 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					window.open("https://ko-fi.com/titandrive");
 				})
 			);
+
+		new Setting(container).setName(`Version: ${this.plugin.manifest.version}`).setHeading();
+
+		const releaseNotesSetting = new Setting(container)
+			.setName("What's new")
+			.setDesc("Loading...");
+		this.fetchChangelog(releaseNotesSetting);
+	}
+
+	private async fetchChangelog(setting: Setting): Promise<void> {
+		try {
+			const response = await requestUrl({
+				url: `https://api.github.com/repos/titandrive/Obsidian-MoonSync/releases/tags/${this.plugin.manifest.version}`,
+				headers: { "Accept": "application/vnd.github.v3+json" },
+			});
+			const release = response.json;
+
+			if (release.body) {
+				const lines = release.body.split("\n")
+					.filter((line: string) => line.startsWith("- "))
+					.map((line: string) => line
+						.replace(/^- /, "")
+						.replace(/\*\*/g, "")
+						.replace(/`/g, "")
+					);
+
+				const descEl = setting.descEl;
+				descEl.empty();
+				const ul = descEl.createEl("ul", { attr: { style: "margin: 0; padding-left: 1.5em;" } });
+				for (const line of lines) {
+					ul.createEl("li", { text: line });
+				}
+			} else {
+				setting.setDesc("No release notes available");
+			}
+		} catch {
+			setting.setDesc("Could not load release notes");
+		}
 	}
 
 	private validateSyncPath(path: string, validationEl: HTMLElement): void {

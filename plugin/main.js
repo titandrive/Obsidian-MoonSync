@@ -5823,8 +5823,8 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         this.plugin.updateContentVisibility();
       })
     );
-    new import_obsidian2.Setting(container).setName("Highlight sorting").setDesc("Control the order of highlights in your book notes.").setHeading();
-    new import_obsidian2.Setting(container).setName("Sort order").setDesc("How to order highlights in book notes. Changes take effect on next sync or when you regenerate.").addDropdown(
+    new import_obsidian2.Setting(container).setName("Moon Reader highlight order").setDesc("Control the order of highlights in your book notes.").setHeading();
+    new import_obsidian2.Setting(container).setName("Sort order").setDesc("How Moon Reader highlights and notes are sorted. Change takes effect on next sync or when you regenerate.").addDropdown(
       (dropdown) => dropdown.addOption("position", "Position in book (first to last)").addOption("position-reverse", "Position in book (last to first)").addOption("date", "Date added (oldest first)").addOption("date-reverse", "Date added (newest first)").setValue(this.plugin.settings.highlightSort).onChange(async (value) => {
         this.plugin.settings.highlightSort = value;
         await this.plugin.saveSettings();
@@ -5972,7 +5972,7 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
   }
   displayAboutTab(container) {
     new import_obsidian2.Setting(container).setName("About").setHeading();
-    new import_obsidian2.Setting(container).setName("Sync your Moon Reader highlights to Obsidian").setDesc("Book covers, descriptions, and metadata from Google Books/Open Library").addButton(
+    new import_obsidian2.Setting(container).setName("MoonSync").setDesc("Sync your Moon Reader highlights, notes, and progress to Obsidian").addButton(
       (button) => button.setButtonText("GitHub").onClick(() => {
         window.open("https://github.com/titandrive/Obsidian-MoonSync");
       })
@@ -5983,6 +5983,33 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         window.open("https://ko-fi.com/titandrive");
       })
     );
+    new import_obsidian2.Setting(container).setName(`Version: ${this.plugin.manifest.version}`).setHeading();
+    const releaseNotesSetting = new import_obsidian2.Setting(container).setName("What's new").setDesc("Loading...");
+    this.fetchChangelog(releaseNotesSetting);
+  }
+  async fetchChangelog(setting) {
+    try {
+      const response = await (0, import_obsidian2.requestUrl)({
+        url: `https://api.github.com/repos/titandrive/Obsidian-MoonSync/releases/tags/${this.plugin.manifest.version}`,
+        headers: { "Accept": "application/vnd.github.v3+json" }
+      });
+      const release = response.json;
+      if (release.body) {
+        const lines = release.body.split("\n").filter((line) => line.startsWith("- ")).map(
+          (line) => line.replace(/^- /, "").replace(/\*\*/g, "").replace(/`/g, "")
+        );
+        const descEl = setting.descEl;
+        descEl.empty();
+        const ul = descEl.createEl("ul", { attr: { style: "margin: 0; padding-left: 1.5em;" } });
+        for (const line of lines) {
+          ul.createEl("li", { text: line });
+        }
+      } else {
+        setting.setDesc("No release notes available");
+      }
+    } catch (e) {
+      setting.setDesc("Could not load release notes");
+    }
   }
   validateSyncPath(path, validationEl) {
     validationEl.empty();
