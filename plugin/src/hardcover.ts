@@ -53,8 +53,8 @@ let lastRequestTime = 0;
 async function rateLimitDelay(): Promise<void> {
 	const now = Date.now();
 	const elapsed = now - lastRequestTime;
-	if (elapsed < 1100) {
-		await new Promise((resolve) => setTimeout(resolve, 1100 - elapsed));
+	if (elapsed < 500) {
+		await new Promise((resolve) => setTimeout(resolve, 500 - elapsed));
 	}
 	lastRequestTime = Date.now();
 }
@@ -135,6 +135,110 @@ export async function lookupBookBySlug(
 }
 
 /**
+ * Hydrate Hardcover book IDs into full BookInfoResult[].
+ * Single GraphQL query for all IDs.
+ */
+async function hydrateHardcoverBooks(
+	ids: number[],
+	token: string
+): Promise<BookInfoResult[]> {
+	if (ids.length === 0) return [];
+
+	await rateLimitDelay();
+	const hydrateQuery = `{
+		books(where: { id: { _in: [${ids.join(",")}] } }) {
+			id
+			title
+			slug
+			description
+			release_date
+			pages
+			rating
+			ratings_count
+			image { url }
+			cached_image
+			contributions(order_by: { id: asc }, limit: 3) {
+				author { name }
+			}
+			taggings(limit: 10) {
+				tag { tag }
+			}
+			book_series {
+				position
+				series { name }
+			}
+			default_physical_edition {
+				isbn_13
+				pages
+				publisher { name }
+				language { language }
+			}
+			default_ebook_edition {
+				isbn_13
+				pages
+				publisher { name }
+				language { language }
+			}
+		}
+	}`;
+	const hydrateResult = await hardcoverGraphQL(hydrateQuery, token);
+	const books = hydrateResult.data?.books;
+	if (!books || !Array.isArray(books)) return [];
+
+	// Sort results to match the original ID order
+	const idOrder = new Map(ids.map((id, i) => [id, i]));
+	books.sort((a: any, b: any) => (idOrder.get(a.id) ?? 999) - (idOrder.get(b.id) ?? 999));
+
+	return books.map((book: any): BookInfoResult => {
+		let coverUrl: string | null = book.image?.url || null;
+		if (!coverUrl && book.cached_image) {
+			const cached = typeof book.cached_image === "string"
+				? JSON.parse(book.cached_image)
+				: book.cached_image;
+			coverUrl = cached?.url || null;
+		}
+
+		const authors = (book.contributions || [])
+			.map((c: any) => c.author?.name)
+			.filter(Boolean);
+		const authorStr = authors.length > 0 ? authors.join(", ") : null;
+
+		const genres = (book.taggings || [])
+			.map((t: any) => t.tag?.tag)
+			.filter(Boolean);
+
+		const seriesEntry = book.book_series?.[0];
+		let series: string | null = null;
+		if (seriesEntry?.series?.name) {
+			series = seriesEntry.position
+				? `${seriesEntry.series.name} #${seriesEntry.position}`
+				: seriesEntry.series.name;
+		}
+
+		const edition = book.default_physical_edition || book.default_ebook_edition;
+		const pageCount = book.pages || edition?.pages || null;
+		const publisher = edition?.publisher?.name || null;
+		const language = edition?.language?.language || null;
+
+		return {
+			title: book.title || null,
+			coverUrl,
+			description: book.description || null,
+			author: authorStr,
+			source: "hardcover",
+			publishedDate: book.release_date || null,
+			publisher,
+			pageCount,
+			genres: genres.length > 0 ? genres : null,
+			series,
+			language,
+			hardcoverId: book.id,
+			hardcoverSlug: book.slug || undefined,
+		};
+	});
+}
+
+/**
  * Search Hardcover for books and return full metadata as BookInfoResult[].
  * Used by the metadata modal's Hardcover tab.
  * Two-step: search for IDs, then hydrate with full book data.
@@ -148,7 +252,6 @@ export async function searchHardcoverBooks(
 	const query = author ? `${title} ${author}` : title;
 
 	try {
-		// Step 1: Search for book IDs
 		await rateLimitDelay();
 		const searchQuery = `{
 			search(
@@ -163,108 +266,78 @@ export async function searchHardcoverBooks(
 		const ids: number[] = searchResult.data?.search?.ids;
 		if (!ids || ids.length === 0) return [];
 
-		// Step 2: Hydrate with full metadata
-		await rateLimitDelay();
-		const hydrateQuery = `{
-			books(where: { id: { _in: [${ids.join(",")}] } }) {
-				id
-				title
-				slug
-				description
-				release_date
-				pages
-				rating
-				ratings_count
-				image { url }
-				cached_image
-				contributions(order_by: { id: asc }, limit: 3) {
-					author { name }
-				}
-				taggings(limit: 10) {
-					tag { tag }
-				}
-				book_series {
-					position
-					series { name }
-				}
-				default_physical_edition {
-					isbn_13
-					pages
-					publisher { name }
-					language { language }
-				}
-				default_ebook_edition {
-					isbn_13
-					pages
-					publisher { name }
-					language { language }
-				}
-			}
-		}`;
-		const hydrateResult = await hardcoverGraphQL(hydrateQuery, token);
-		const books = hydrateResult.data?.books;
-		if (!books || !Array.isArray(books)) return [];
-
-		// Sort results to match the original search order
-		const idOrder = new Map(ids.map((id, i) => [id, i]));
-		books.sort((a: any, b: any) => (idOrder.get(a.id) ?? 999) - (idOrder.get(b.id) ?? 999));
-
-		return books.map((book: any): BookInfoResult => {
-			// Cover URL: prefer image.url, fall back to cached_image
-			let coverUrl: string | null = book.image?.url || null;
-			if (!coverUrl && book.cached_image) {
-				const cached = typeof book.cached_image === "string"
-					? JSON.parse(book.cached_image)
-					: book.cached_image;
-				coverUrl = cached?.url || null;
-			}
-
-			// Author: join contributions
-			const authors = (book.contributions || [])
-				.map((c: any) => c.author?.name)
-				.filter(Boolean);
-			const authorStr = authors.length > 0 ? authors.join(", ") : null;
-
-			// Genres from taggings
-			const genres = (book.taggings || [])
-				.map((t: any) => t.tag?.tag)
-				.filter(Boolean);
-
-			// Series
-			const seriesEntry = book.book_series?.[0];
-			let series: string | null = null;
-			if (seriesEntry?.series?.name) {
-				series = seriesEntry.position
-					? `${seriesEntry.series.name} #${seriesEntry.position}`
-					: seriesEntry.series.name;
-			}
-
-			// Edition-level metadata (prefer physical, fall back to ebook)
-			const edition = book.default_physical_edition || book.default_ebook_edition;
-			const pageCount = book.pages || edition?.pages || null;
-			const publisher = edition?.publisher?.name || null;
-			const language = edition?.language?.language || null;
-
-			return {
-				title: book.title || null,
-				coverUrl,
-				description: book.description || null,
-				author: authorStr,
-				source: "hardcover",
-				publishedDate: book.release_date || null,
-				publisher,
-				pageCount,
-				genres: genres.length > 0 ? genres : null,
-				series,
-				language,
-				hardcoverId: book.id,
-				hardcoverSlug: book.slug || undefined,
-			};
-		});
+		return await hydrateHardcoverBooks(ids, token);
 	} catch (error) {
 		console.error("MoonSync: Hardcover search failed", error);
 		return [];
 	}
+}
+
+/**
+ * Batch search multiple books on Hardcover, then hydrate all results in one query.
+ * Returns a Map of "title|author" -> BookInfoResult.
+ * Much faster than searching+hydrating each book individually (N+1 calls instead of 2N).
+ */
+export async function batchSearchHardcover(
+	books: Array<{ title: string; author: string }>,
+	token: string,
+	onProgress?: (completed: number, total: number) => void
+): Promise<Map<string, BookInfoResult>> {
+	const results = new Map<string, BookInfoResult>();
+	// Map from book ID to the key(s) that searched for it
+	const idToKeys = new Map<number, string>();
+
+	// Step 1: Search for each book's top ID
+	for (let i = 0; i < books.length; i++) {
+		const book = books[i];
+		const cleanTitle = book.title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+		const cleanAuthor = book.author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+		const query = cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle;
+		const key = `${book.title}|${book.author}`;
+
+		try {
+			await rateLimitDelay();
+			const searchQuery = `{
+				search(
+					query: "${escapeGraphQL(query)}",
+					query_type: "Book",
+					per_page: 1
+				) {
+					ids
+				}
+			}`;
+			const searchResult = await hardcoverGraphQL(searchQuery, token);
+			const ids: number[] = searchResult.data?.search?.ids;
+			if (ids && ids.length > 0) {
+				idToKeys.set(ids[0], key);
+			}
+		} catch {
+			// Skip this book on search failure
+		}
+
+		onProgress?.(i + 1, books.length);
+	}
+
+	if (idToKeys.size === 0) return results;
+
+	// Step 2: Hydrate all found IDs in one query
+	try {
+		const allIds = Array.from(idToKeys.keys());
+		const hydrated = await hydrateHardcoverBooks(allIds, token);
+
+		for (const info of hydrated) {
+			if (info.hardcoverId) {
+				const key = idToKeys.get(info.hardcoverId);
+				if (key) {
+					results.set(key, info);
+				}
+			}
+		}
+	} catch (error) {
+		console.debug("MoonSync: Hardcover batch hydration failed", error);
+	}
+
+	return results;
 }
 
 /**

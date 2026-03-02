@@ -145,6 +145,8 @@ export function scannedBookToBookData(scanned: ScannedBook): BookData {
 		isbn13: null,
 		language: null,
 		previousTitle: null,
+		hardcoverId: null,
+		hardcoverSlug: null,
 	};
 }
 

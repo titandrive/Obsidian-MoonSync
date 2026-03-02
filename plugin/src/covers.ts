@@ -79,11 +79,25 @@ function pickBestTitleMatch<T>(items: T[], targetTitle: string, getTitle: (item:
  */
 export async function fetchBookInfo(
 	title: string,
-	author: string
+	author: string,
+	hardcoverToken?: string
 ): Promise<BookInfoResult> {
 	// Clean title/author for API searches — strip filename artifacts
 	const cleanTitle = title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
 	const cleanAuthor = author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+
+	// Try Hardcover first when enabled (richer metadata and covers)
+	if (hardcoverToken) {
+		try {
+			const { searchHardcoverBooks } = await import("./hardcover");
+			const results = await searchHardcoverBooks(cleanTitle, cleanAuthor, hardcoverToken, 1);
+			if (results.length > 0 && results[0].coverUrl) {
+				return results[0];
+			}
+		} catch (error) {
+			console.debug("MoonSync: Hardcover fetch failed, falling back to Google/OpenLibrary", error);
+		}
+	}
 
 	// Fetch from both sources in parallel
 	const [openLibraryResult, googleBooksResult] = await Promise.all([
@@ -163,17 +177,40 @@ export async function fetchBookCover(
 export async function batchFetchBookInfo(
 	books: Array<{ title: string; author: string }>,
 	concurrency: number = 5,
-	onProgress?: (completed: number, total: number) => void
+	onProgress?: (completed: number, total: number) => void,
+	hardcoverToken?: string
 ): Promise<Map<string, BookInfoResult>> {
 	const results = new Map<string, BookInfoResult>();
+
+	// Batch search on Hardcover first (N searches + 1 hydration instead of 2N calls)
+	let booksToFallback = books;
+	if (hardcoverToken) {
+		try {
+			const { batchSearchHardcover } = await import("./hardcover");
+			const hcResults = await batchSearchHardcover(books, hardcoverToken, onProgress);
+			for (const [key, info] of hcResults) {
+				if (info.coverUrl) {
+					results.set(key, info);
+				}
+			}
+			// Only fall back to Google/OL for books Hardcover didn't find
+			booksToFallback = books.filter(b => !results.has(`${b.title}|${b.author}`));
+		} catch (error) {
+			console.debug("MoonSync: Hardcover batch search failed, falling back", error);
+		}
+	}
+
+	if (booksToFallback.length === 0) return results;
+
 	let completed = 0;
 	let running = 0;
 	let nextIndex = 0;
+	const fallbackTotal = booksToFallback.length;
 
 	return new Promise((resolve) => {
 		function startNext() {
-			while (running < concurrency && nextIndex < books.length) {
-				const book = books[nextIndex++];
+			while (running < concurrency && nextIndex < fallbackTotal) {
+				const book = booksToFallback[nextIndex++];
 				running++;
 				const key = `${book.title}|${book.author}`;
 				fetchBookInfo(book.title, book.author)
@@ -186,8 +223,8 @@ export async function batchFetchBookInfo(
 					.finally(() => {
 						running--;
 						completed++;
-						onProgress?.(completed, books.length);
-						if (completed === books.length) {
+						onProgress?.(results.size, books.length);
+						if (completed === fallbackTotal) {
 							resolve(results);
 						} else {
 							startNext();
@@ -195,7 +232,7 @@ export async function batchFetchBookInfo(
 					});
 			}
 		}
-		if (books.length === 0) {
+		if (fallbackTotal === 0) {
 			resolve(results);
 		} else {
 			startNext();

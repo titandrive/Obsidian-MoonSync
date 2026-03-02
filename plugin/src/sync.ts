@@ -175,10 +175,11 @@ export async function syncFromMoonReader(
 		if (booksToFetch.length > 0) {
 			progressNotice.setMessage(`MoonSync: Fetching metadata (0/${booksToFetch.length})...`);
 		}
+		const hardcoverToken = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : undefined;
 		const prefetchedInfo = booksToFetch.length > 0
 			? await batchFetchBookInfo(booksToFetch, 5, (done, total) => {
 				progressNotice.setMessage(`MoonSync: Fetching metadata (${done}/${total})...`);
-			})
+			}, hardcoverToken)
 			: new Map<string, BookInfoResult>();
 
 		// Process each book
@@ -945,7 +946,8 @@ async function processBook(
 
 		// If book wasn't pre-fetched (e.g. local cover was expected but failed), fetch now
 		if (!bookInfo && !coverExists) {
-			bookInfo = await fetchBookInfo(bookData.book.title, bookData.book.author);
+			const hcToken = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : undefined;
+			bookInfo = await fetchBookInfo(bookData.book.title, bookData.book.author, hcToken);
 		}
 
 		if (bookInfo) {
@@ -990,6 +992,12 @@ async function processBook(
 			}
 			if (bookInfo.language && !bookData.language) {
 				bookData.language = bookInfo.language;
+			}
+			if (bookInfo.hardcoverId && !bookData.hardcoverId) {
+				bookData.hardcoverId = bookInfo.hardcoverId;
+			}
+			if (bookInfo.hardcoverSlug && !bookData.hardcoverSlug) {
+				bookData.hardcoverSlug = bookInfo.hardcoverSlug;
 			}
 
 			// Update cache
@@ -1096,7 +1104,8 @@ async function processCustomBook(
 
 	// Fetch metadata from APIs
 	const author = scannedBook.author || "Unknown";
-	const bookInfo = await fetchBookInfo(scannedBook.title, author);
+	const hcToken = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : undefined;
+	const bookInfo = await fetchBookInfo(scannedBook.title, author, hcToken);
 
 	// Only update if we got new information
 		if (bookInfo.coverUrl || bookInfo.description ||

@@ -77,6 +77,12 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	if (coverPath) {
 		lines.push(`cover: "${coverPath}"`);
 	}
+	if (bookData.hardcoverId) {
+		lines.push(`hardcover_id: ${bookData.hardcoverId}`);
+	}
+	if (bookData.hardcoverSlug) {
+		lines.push(`hardcover_url: "https://hardcover.app/books/${bookData.hardcoverSlug}"`);
+	}
 	lines.push("---");
 
 	// Title and author

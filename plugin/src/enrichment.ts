@@ -231,6 +231,8 @@ export async function enrichBooksWithSyncData(
 				isbn13: null,
 				language: null,
 				previousTitle: null,
+				hardcoverId: null,
+				hardcoverSlug: null,
 			};
 
 			const idx = books.length;

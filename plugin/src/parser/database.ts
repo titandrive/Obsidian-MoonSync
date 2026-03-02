@@ -92,6 +92,8 @@ export async function parseDatabase(
 				isbn13: null,
 				language: null,
 				previousTitle: null,
+				hardcoverId: null,
+				hardcoverSlug: null,
 			});
 		}
 

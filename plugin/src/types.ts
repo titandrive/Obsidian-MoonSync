@@ -53,6 +53,8 @@ export interface BookData {
 	isbn13: string | null; // ISBN-13
 	language: string | null; // language code (e.g., "en")
 	previousTitle: string | null; // title before enrichment (for finding old notes to rename)
+	hardcoverId: number | null; // Hardcover book ID (from metadata fetch)
+	hardcoverSlug: string | null; // Hardcover URL slug
 }
 
 export interface MoonSyncSettings {
