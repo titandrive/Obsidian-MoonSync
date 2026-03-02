@@ -8148,15 +8148,15 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       const bookData = booksWithHighlights[i];
       if (booksWithSufficientMetadata.has(i)) {
         const coverFilename2 = `${generateFilename(bookData.book.title)}.jpg`;
-        const hasCover = existingCoversSet.has(coverFilename2) || !!bookData.book.coverFile;
-        if (hasCover)
+        const hasCover2 = existingCoversSet.has(coverFilename2) || !!bookData.book.coverFile;
+        if (hasCover2)
           continue;
       }
       const cachedInfo = getCachedInfo(cache, bookData.book.title, bookData.book.author);
       const hasAttemptedFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0);
       const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-      const coverExists = existingCoversSet.has(coverFilename);
-      if (!coverExists || !hasAttemptedFetch) {
+      const hasCover = existingCoversSet.has(coverFilename) || !!bookData.book.coverFile;
+      if (!hasCover && !hasAttemptedFetch) {
         booksToFetch.push({ title: bookData.book.title, author: bookData.book.author });
       }
     }
@@ -8166,16 +8166,18 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     const prefetchedInfo = booksToFetch.length > 0 ? await batchFetchBookInfo(booksToFetch, 5, (done, total) => {
       progressNotice.setMessage(`MoonSync: Fetching metadata (${done}/${total})...`);
     }) : /* @__PURE__ */ new Map();
-    const totalBooks = booksWithHighlights.length;
     const changedBookTitles = /* @__PURE__ */ new Set();
+    let processedCount = 0;
+    progressNotice.setMessage("MoonSync: Processing books...");
     for (let i = 0; i < booksWithHighlights.length; i++) {
       const bookData = booksWithHighlights[i];
-      progressNotice.setMessage(`MoonSync: ${bookData.book.title} (${i + 1}/${totalBooks})`);
       try {
         const prevCreated = result.booksCreated;
         const prevUpdated = result.booksUpdated;
         const processed = await processBook(app, outputPath, bookData, settings, result, cache, prefetchedInfo, titleCache);
         if (processed) {
+          processedCount++;
+          progressNotice.setMessage(`MoonSync: ${bookData.book.title} (${processedCount} updated)`);
           cacheModified = true;
         }
         if (result.booksCreated > prevCreated || result.booksUpdated > prevUpdated) {
@@ -8689,7 +8691,10 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       }
     }
     const prefetchKey = `${bookData.book.title}|${bookData.book.author}`;
-    const bookInfo = prefetchedInfo.get(prefetchKey);
+    let bookInfo = prefetchedInfo.get(prefetchKey);
+    if (!bookInfo && !coverExists) {
+      bookInfo = await fetchBookInfo(bookData.book.title, bookData.book.author);
+    }
     if (bookInfo) {
       if (bookInfo.coverUrl && !coverExists) {
         if (!await app.vault.adapter.exists(coversFolder)) {

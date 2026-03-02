@@ -164,9 +164,9 @@ export async function syncFromMoonReader(
 				cachedInfo.pageCount !== undefined
 			);
 			const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-			const coverExists = existingCoversSet.has(coverFilename);
+			const hasCover = existingCoversSet.has(coverFilename) || !!bookData.book.coverFile;
 
-			if (!coverExists || !hasAttemptedFetch) {
+			if (!hasCover && !hasAttemptedFetch) {
 				booksToFetch.push({ title: bookData.book.title, author: bookData.book.author });
 			}
 		}
@@ -182,16 +182,18 @@ export async function syncFromMoonReader(
 			: new Map<string, BookInfoResult>();
 
 		// Process each book
-		const totalBooks = booksWithHighlights.length;
 		const changedBookTitles = new Set<string>();
+		let processedCount = 0;
+		progressNotice.setMessage("MoonSync: Processing books...");
 		for (let i = 0; i < booksWithHighlights.length; i++) {
 			const bookData = booksWithHighlights[i];
-			progressNotice.setMessage(`MoonSync: ${bookData.book.title} (${i + 1}/${totalBooks})`);
 			try {
 				const prevCreated = result.booksCreated;
 				const prevUpdated = result.booksUpdated;
 				const processed = await processBook(app, outputPath, bookData, settings, result, cache, prefetchedInfo, titleCache);
 				if (processed) {
+					processedCount++;
+					progressNotice.setMessage(`MoonSync: ${bookData.book.title} (${processedCount} updated)`);
 					cacheModified = true;
 				}
 				if (result.booksCreated > prevCreated || result.booksUpdated > prevUpdated) {
@@ -937,9 +939,14 @@ async function processBook(
 			}
 		}
 
-		// Use pre-fetched info if available, otherwise skip API call (was already batched)
+		// Use pre-fetched info if available; if not pre-fetched and still no cover, fetch now
 		const prefetchKey = `${bookData.book.title}|${bookData.book.author}`;
-		const bookInfo = prefetchedInfo.get(prefetchKey);
+		let bookInfo = prefetchedInfo.get(prefetchKey);
+
+		// If book wasn't pre-fetched (e.g. local cover was expected but failed), fetch now
+		if (!bookInfo && !coverExists) {
+			bookInfo = await fetchBookInfo(bookData.book.title, bookData.book.author);
+		}
 
 		if (bookInfo) {
 			// Save cover if fetched (covers are always downloaded)
