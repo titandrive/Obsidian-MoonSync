@@ -6092,29 +6092,39 @@ async function fetchBookInfo(title, author) {
     language
   };
 }
-async function batchFetchBookInfo(books, concurrency = 5) {
+async function batchFetchBookInfo(books, concurrency = 5, onProgress) {
   const results = /* @__PURE__ */ new Map();
-  for (let i = 0; i < books.length; i += concurrency) {
-    const chunk = books.slice(i, i + concurrency);
-    const chunkResults = await Promise.all(
-      chunk.map(async (book) => {
+  let completed = 0;
+  let running = 0;
+  let nextIndex = 0;
+  return new Promise((resolve) => {
+    function startNext() {
+      while (running < concurrency && nextIndex < books.length) {
+        const book = books[nextIndex++];
+        running++;
         const key = `${book.title}|${book.author}`;
-        try {
-          const info = await fetchBookInfo(book.title, book.author);
-          return { key, info };
-        } catch (error) {
+        fetchBookInfo(book.title, book.author).then((info) => {
+          results.set(key, info);
+        }).catch((error) => {
           console.debug(`MoonSync: Failed to fetch info for "${book.title}"`, error);
-          return { key, info: null };
-        }
-      })
-    );
-    for (const { key, info } of chunkResults) {
-      if (info) {
-        results.set(key, info);
+        }).finally(() => {
+          running--;
+          completed++;
+          onProgress == null ? void 0 : onProgress(completed, books.length);
+          if (completed === books.length) {
+            resolve(results);
+          } else {
+            startNext();
+          }
+        });
       }
     }
-  }
-  return results;
+    if (books.length === 0) {
+      resolve(results);
+    } else {
+      startNext();
+    }
+  });
 }
 async function fetchFromOpenLibrary(title, author) {
   const result = {
@@ -7080,7 +7090,15 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
           bookTitle = bookTitle.replace(/_/g, " ");
         }
         const epubFilename = poFile.replace(/\.po$/, "").toLowerCase().normalize("NFC");
-        const key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
+        let key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
+        if (!bookDataMap.has(key)) {
+          for (const existingKey of bookDataMap.keys()) {
+            if (key.startsWith(existingKey + " ")) {
+              key = existingKey;
+              break;
+            }
+          }
+        }
         const filePath = (0, import_path2.join)(cacheDir, poFile);
         const data = await (0, import_promises.readFile)(filePath);
         const progressData = parseProgressFile(data);
@@ -8089,7 +8107,12 @@ async function syncFromMoonReader(app, settings, wasmPath) {
         booksToFetch.push({ title: bookData.book.title, author: bookData.book.author });
       }
     }
-    const prefetchedInfo = booksToFetch.length > 0 ? await batchFetchBookInfo(booksToFetch, 5) : /* @__PURE__ */ new Map();
+    if (booksToFetch.length > 0) {
+      progressNotice.setMessage(`MoonSync: Fetching metadata (0/${booksToFetch.length})...`);
+    }
+    const prefetchedInfo = booksToFetch.length > 0 ? await batchFetchBookInfo(booksToFetch, 5, (done, total) => {
+      progressNotice.setMessage(`MoonSync: Fetching metadata (${done}/${total})...`);
+    }) : /* @__PURE__ */ new Map();
     const totalBooks = booksWithHighlights.length;
     const changedBookTitles = /* @__PURE__ */ new Set();
     for (let i = 0; i < booksWithHighlights.length; i++) {

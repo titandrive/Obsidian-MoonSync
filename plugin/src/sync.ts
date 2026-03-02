@@ -172,8 +172,13 @@ export async function syncFromMoonReader(
 		}
 
 		// Batch fetch all needed book info
+		if (booksToFetch.length > 0) {
+			progressNotice.setMessage(`MoonSync: Fetching metadata (0/${booksToFetch.length})...`);
+		}
 		const prefetchedInfo = booksToFetch.length > 0
-			? await batchFetchBookInfo(booksToFetch, 5)
+			? await batchFetchBookInfo(booksToFetch, 5, (done, total) => {
+				progressNotice.setMessage(`MoonSync: Fetching metadata (${done}/${total})...`);
+			})
 			: new Map<string, BookInfoResult>();
 
 		// Process each book

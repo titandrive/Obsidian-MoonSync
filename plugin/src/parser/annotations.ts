@@ -249,7 +249,19 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 					bookTitle = bookTitle.replace(/_/g, " ");
 				}
 				const epubFilename = poFile.replace(/\.po$/, "").toLowerCase().normalize("NFC");
-				const key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
+				let key = filenameToKey.get(epubFilename) || normalizeKey(bookTitle);
+
+				// If no match yet, check if any existing book's key is a prefix of
+				// this .po title (e.g. .an title "Night" matching .po filename
+				// "Night - Elie Wiesel Marion Wiesel").
+				if (!bookDataMap.has(key)) {
+					for (const existingKey of bookDataMap.keys()) {
+						if (key.startsWith(existingKey + " ")) {
+							key = existingKey;
+							break;
+						}
+					}
+				}
 
 				const filePath = join(cacheDir, poFile);
 				const data = await readFile(filePath);

@@ -160,34 +160,45 @@ export async function fetchBookCover(
  */
 export async function batchFetchBookInfo(
 	books: Array<{ title: string; author: string }>,
-	concurrency: number = 5
+	concurrency: number = 5,
+	onProgress?: (completed: number, total: number) => void
 ): Promise<Map<string, BookInfoResult>> {
 	const results = new Map<string, BookInfoResult>();
+	let completed = 0;
+	let running = 0;
+	let nextIndex = 0;
 
-	// Process in chunks to avoid rate limiting
-	for (let i = 0; i < books.length; i += concurrency) {
-		const chunk = books.slice(i, i + concurrency);
-		const chunkResults = await Promise.all(
-			chunk.map(async (book) => {
+	return new Promise((resolve) => {
+		function startNext() {
+			while (running < concurrency && nextIndex < books.length) {
+				const book = books[nextIndex++];
+				running++;
 				const key = `${book.title}|${book.author}`;
-				try {
-					const info = await fetchBookInfo(book.title, book.author);
-					return { key, info };
-				} catch (error) {
-					console.debug(`MoonSync: Failed to fetch info for "${book.title}"`, error);
-					return { key, info: null };
-				}
-			})
-		);
-
-		for (const { key, info } of chunkResults) {
-			if (info) {
-				results.set(key, info);
+				fetchBookInfo(book.title, book.author)
+					.then((info) => {
+						results.set(key, info);
+					})
+					.catch((error) => {
+						console.debug(`MoonSync: Failed to fetch info for "${book.title}"`, error);
+					})
+					.finally(() => {
+						running--;
+						completed++;
+						onProgress?.(completed, books.length);
+						if (completed === books.length) {
+							resolve(results);
+						} else {
+							startNext();
+						}
+					});
 			}
 		}
-	}
-
-	return results;
+		if (books.length === 0) {
+			resolve(results);
+		} else {
+			startNext();
+		}
+	});
 }
 
 /**
