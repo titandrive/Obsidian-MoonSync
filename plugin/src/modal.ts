@@ -2,6 +2,7 @@ import { App, Modal, Setting, normalizePath } from "obsidian";
 import { SyncResult } from "./sync";
 import { MoonSyncSettings } from "./types";
 import { fetchMultipleBookCovers, BookInfoResult } from "./covers";
+import { escapeYaml } from "./utils";
 
 export class SyncSummaryModal extends Modal {
 	private result: SyncResult;
@@ -304,11 +305,21 @@ export class SelectCoverModal extends Modal {
 		loadingEl.setText("Searching for covers...");
 
 		let covers: BookInfoResult[];
-		if (this.activeSearchTab === "hardcover") {
-			const { searchHardcoverBooks } = await import("./hardcover");
-			covers = await searchHardcoverBooks(this.title, this.author, this.hardcoverToken, 10);
-		} else {
-			covers = await fetchMultipleBookCovers(this.title, this.author, 10);
+		try {
+			if (this.activeSearchTab === "hardcover") {
+				const { searchHardcoverBooks } = await import("./hardcover");
+				covers = await searchHardcoverBooks(this.title, this.author, this.hardcoverToken, 10);
+			} else {
+				covers = await fetchMultipleBookCovers(this.title, this.author, 10);
+			}
+		} catch (error) {
+			loadingEl.remove();
+			container.createEl("p", {
+				text: "Search failed. Please try again.",
+				cls: "setting-item-description"
+			});
+			console.debug("MoonSync: Cover search failed", error);
+			return;
 		}
 
 		loadingEl.remove();
@@ -519,11 +530,21 @@ export class SelectBookMetadataModal extends Modal {
 		loadingEl.setText("Searching for books...");
 
 		let books: BookInfoResult[];
-		if (this.activeTab === "hardcover") {
-			const { searchHardcoverBooks } = await import("./hardcover");
-			books = await searchHardcoverBooks(this.title, this.author, this.hardcoverToken, 10);
-		} else {
-			books = await fetchMultipleBookCovers(this.title, this.author, 10);
+		try {
+			if (this.activeTab === "hardcover") {
+				const { searchHardcoverBooks } = await import("./hardcover");
+				books = await searchHardcoverBooks(this.title, this.author, this.hardcoverToken, 10);
+			} else {
+				books = await fetchMultipleBookCovers(this.title, this.author, 10);
+			}
+		} catch (error) {
+			loadingEl.remove();
+			container.createEl("p", {
+				text: "Search failed. Please try again.",
+				cls: "setting-item-description"
+			});
+			console.debug("MoonSync: Metadata search failed", error);
+			return;
 		}
 
 		loadingEl.remove();
@@ -769,7 +790,7 @@ export function generateBookTemplate(
 	language: string | null = null
 ): string {
 	const lines: string[] = [];
-	const escapeYaml = (str: string) => str.replace(/"/g, '\\"').replace(/\n/g, " ");
+
 
 	// Frontmatter
 	lines.push("---");

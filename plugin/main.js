@@ -53,7 +53,7 @@ __export(hardcover_exports, {
   validateHardcoverToken: () => validateHardcoverToken
 });
 function escapeGraphQL(str) {
-  return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
 }
 function cleanTitleForSearch(title) {
   return title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
@@ -83,7 +83,7 @@ async function hardcoverGraphQL(query, token, variables) {
   });
   const json = response.json;
   if (json.errors && json.errors.length > 0) {
-    console.log("MoonSync: Hardcover GraphQL errors:", JSON.stringify(json.errors));
+    console.debug("MoonSync: Hardcover GraphQL errors:", JSON.stringify(json.errors));
     throw new Error(json.errors[0].message);
   }
   return json;
@@ -364,16 +364,14 @@ async function searchHardcoverBook(title, author, token, excludeId) {
       const result = await hardcoverGraphQL(searchQuery, token);
       const hits = (_i = (_h = (_g = result.data) == null ? void 0 : _g.search) == null ? void 0 : _h.results) == null ? void 0 : _i.hits;
       if (hits && Array.isArray(hits) && hits.length > 0) {
-        const bestHit = hits.reduce((best, h) => {
+        const validHits = hits.filter((h) => h.document);
+        const doc = validHits.length > 0 ? validHits.reduce((best, h) => {
           var _a2;
-          const bestCount = (best == null ? void 0 : best.users_count) || 0;
-          const hCount = ((_a2 = h.document) == null ? void 0 : _a2.users_count) || 0;
-          return hCount > bestCount ? h.document : best;
-        }, hits[0].document);
-        const doc = bestHit;
+          return (((_a2 = h.document) == null ? void 0 : _a2.users_count) || 0) > ((best == null ? void 0 : best.users_count) || 0) ? h.document : best;
+        }, validHits[0].document) : null;
         const docId = (doc == null ? void 0 : doc.id) ? parseInt(String(doc.id), 10) : null;
         const docUsers = (doc == null ? void 0 : doc.users_count) || 0;
-        console.log(`MoonSync: Hardcover search "${searchTitle}" \u2014 best hit: id=${docId}, users=${docUsers}, title="${doc == null ? void 0 : doc.title}"`);
+        console.debug(`MoonSync: Hardcover search "${searchTitle}" \u2014 best hit: id=${docId}, users=${docUsers}, title="${doc == null ? void 0 : doc.title}"`);
         if (docId && (!excludeId || docId !== excludeId) && docUsers >= 10) {
           let pages = null;
           let slug = "";
@@ -388,7 +386,7 @@ async function searchHardcoverBook(title, author, token, excludeId) {
           }
           return { id: docId, title: doc.title || title, slug, pages };
         } else {
-          console.log(`MoonSync: Hardcover search "${searchTitle}" \u2014 rejected (users=${docUsers}, need >= 10)`);
+          console.debug(`MoonSync: Hardcover search "${searchTitle}" \u2014 rejected (users=${docUsers}, need >= 10)`);
         }
       }
     } catch (error) {
@@ -406,7 +404,7 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
     const meData = (_b = (_a = meResult.data) == null ? void 0 : _a.me) == null ? void 0 : _b[0];
     const privacySettingId = (_c = meData == null ? void 0 : meData.account_privacy_setting_id) != null ? _c : 1;
     let myUserBook = (_d = meData == null ? void 0 : meData.user_books) == null ? void 0 : _d[0];
-    console.log(`MoonSync: Hardcover book ${bookId} \u2014 existing user_book:`, JSON.stringify(myUserBook));
+    console.debug(`MoonSync: Hardcover book ${bookId} \u2014 existing user_book:`, JSON.stringify(myUserBook));
     let progressIncreased = true;
     if (myUserBook) {
       const allReads = (_e = myUserBook.user_book_reads) != null ? _e : [];
@@ -416,7 +414,7 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
       const edPages = (_h = (_g = myUserBook.edition) == null ? void 0 : _g.pages) != null ? _h : pages;
       const incomingPages = edPages && edPages > 0 ? Math.round(progress / 100 * edPages) : 0;
       progressIncreased = incomingPages > existingPages;
-      console.log(`MoonSync: Hardcover book ${bookId} \u2014 existing progress: ${existingPages} pages, incoming: ${incomingPages} pages, increased: ${progressIncreased}`);
+      console.debug(`MoonSync: Hardcover book ${bookId} \u2014 existing progress: ${existingPages} pages, incoming: ${incomingPages} pages, increased: ${progressIncreased}`);
     }
     const needsStatusChange = !myUserBook || myUserBook.status_id !== statusId && progressIncreased;
     if (needsStatusChange) {
@@ -431,13 +429,13 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
       if (myUserBook == null ? void 0 : myUserBook.edition_id) {
         insertVars.object.edition_id = myUserBook.edition_id;
       }
-      console.log(`MoonSync: Hardcover book ${bookId} \u2014 insert_user_book vars:`, JSON.stringify(insertVars));
+      console.debug(`MoonSync: Hardcover book ${bookId} \u2014 insert_user_book vars:`, JSON.stringify(insertVars));
       const statusResult = await hardcoverGraphQL(INSERT_USER_BOOK, token, insertVars);
       const insertResult = (_i = statusResult.data) == null ? void 0 : _i.insert_user_book;
       if (insertResult == null ? void 0 : insertResult.error) {
-        console.log(`MoonSync: Hardcover insert_user_book error for book ${bookId}: ${insertResult.error}`);
+        console.debug(`MoonSync: Hardcover insert_user_book error for book ${bookId}: ${insertResult.error}`);
       }
-      console.log(`MoonSync: Hardcover insert_user_book response:`, JSON.stringify(insertResult == null ? void 0 : insertResult.user_book));
+      console.debug(`MoonSync: Hardcover insert_user_book response:`, JSON.stringify(insertResult == null ? void 0 : insertResult.user_book));
       if (insertResult == null ? void 0 : insertResult.user_book) {
         myUserBook = insertResult.user_book;
         if (!myUserBook.edition) {
@@ -449,19 +447,19 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
           }
         }
       } else if (!myUserBook) {
-        console.log(`MoonSync: Hardcover book ${bookId} \u2014 no user_book found after insert (bad edition)`);
+        console.debug(`MoonSync: Hardcover book ${bookId} \u2014 no user_book found after insert (bad edition)`);
         return { success: false, badEdition: true };
       }
     } else {
-      console.log(`MoonSync: Hardcover book ${bookId} \u2014 status already ${statusId}, skipping insert_user_book`);
+      console.debug(`MoonSync: Hardcover book ${bookId} \u2014 status already ${statusId}, skipping insert_user_book`);
     }
     if (!myUserBook) {
-      console.log(`MoonSync: Hardcover book ${bookId} \u2014 no user_book found (bad edition)`);
+      console.debug(`MoonSync: Hardcover book ${bookId} \u2014 no user_book found (bad edition)`);
       return { success: false, badEdition: true };
     }
     return await updateProgressForBook(bookId, myUserBook, progress, pages, today, token);
   } catch (error) {
-    console.log(`MoonSync: Hardcover update failed for book ${bookId}`, error);
+    console.debug(`MoonSync: Hardcover update failed for book ${bookId}`, error);
     return { success: false, badEdition: false };
   }
 }
@@ -472,25 +470,25 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
   }
   const editionId = (_c = (_b = (_a = myUserBook.edition) == null ? void 0 : _a.id) != null ? _b : myUserBook.edition_id) != null ? _c : null;
   const editionPages = (_e = (_d = myUserBook.edition) == null ? void 0 : _d.pages) != null ? _e : pages;
-  console.log(`MoonSync: Hardcover book ${bookId} \u2014 editionId: ${editionId}, edition pages: ${(_f = myUserBook.edition) == null ? void 0 : _f.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
+  console.debug(`MoonSync: Hardcover book ${bookId} \u2014 editionId: ${editionId}, edition pages: ${(_f = myUserBook.edition) == null ? void 0 : _f.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
   if (!editionPages || editionPages <= 0) {
-    console.log(`MoonSync: Hardcover book ${bookId} \u2014 no page count, skipping progress`);
+    console.debug(`MoonSync: Hardcover book ${bookId} \u2014 no page count, skipping progress`);
     return { success: true, badEdition: false };
   }
   const progressPages = Math.round(progress / 100 * editionPages);
   const allReads = (_g = myUserBook.user_book_reads) != null ? _g : [];
   const unfinishedReads = allReads.filter((r) => !r.finished_at);
   const finishedReads = allReads.filter((r) => r.finished_at);
-  console.log(`MoonSync: Hardcover book ${bookId} \u2014 ${allReads.length} total reads, ${unfinishedReads.length} unfinished, ${finishedReads.length} finished`);
+  console.debug(`MoonSync: Hardcover book ${bookId} \u2014 ${allReads.length} total reads, ${unfinishedReads.length} unfinished, ${finishedReads.length} finished`);
   if (unfinishedReads.length > 1) {
-    console.log(`MoonSync: Hardcover book ${bookId} \u2014 cleaning up ${unfinishedReads.length - 1} duplicate unfinished reads`);
+    console.debug(`MoonSync: Hardcover book ${bookId} \u2014 cleaning up ${unfinishedReads.length - 1} duplicate unfinished reads`);
     for (const dup of unfinishedReads.slice(0, -1)) {
       try {
         await rateLimitDelay();
         await hardcoverGraphQL(DELETE_USER_BOOK_READ, token, { id: dup.id });
-        console.log(`MoonSync: Hardcover book ${bookId} \u2014 deleted duplicate read ${dup.id}`);
+        console.debug(`MoonSync: Hardcover book ${bookId} \u2014 deleted duplicate read ${dup.id}`);
       } catch (err) {
-        console.log(`MoonSync: Hardcover book ${bookId} \u2014 failed to delete read ${dup.id}:`, err);
+        console.debug(`MoonSync: Hardcover book ${bookId} \u2014 failed to delete read ${dup.id}:`, err);
       }
     }
   }
@@ -498,7 +496,7 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
   const existingReadId = (_h = currentRead == null ? void 0 : currentRead.id) != null ? _h : null;
   const existingStartedAt = (_i = currentRead == null ? void 0 : currentRead.started_at) != null ? _i : null;
   const existingEditionId = (_j = currentRead == null ? void 0 : currentRead.edition_id) != null ? _j : null;
-  console.log(`MoonSync: Hardcover book ${bookId} \u2014 target: ${progressPages}/${editionPages} pages, currentRead: id=${existingReadId}, started=${existingStartedAt}, edition=${existingEditionId}`);
+  console.debug(`MoonSync: Hardcover book ${bookId} \u2014 target: ${progressPages}/${editionPages} pages, currentRead: id=${existingReadId}, started=${existingStartedAt}, edition=${existingEditionId}`);
   if (existingReadId) {
     await rateLimitDelay();
     const vars = {
@@ -507,13 +505,13 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
       editionId: editionId != null ? editionId : existingEditionId,
       startedAt: existingStartedAt != null ? existingStartedAt : today
     };
-    console.log(`MoonSync: Hardcover update_user_book_read vars:`, JSON.stringify(vars));
+    console.debug(`MoonSync: Hardcover update_user_book_read vars:`, JSON.stringify(vars));
     const updateResult = await hardcoverGraphQL(UPDATE_USER_BOOK_READ, token, vars);
     const updateData = (_k = updateResult.data) == null ? void 0 : _k.update_user_book_read;
     if (updateData == null ? void 0 : updateData.error) {
-      console.log(`MoonSync: Hardcover update_user_book_read error for book ${bookId}: ${updateData.error}`);
+      console.debug(`MoonSync: Hardcover update_user_book_read error for book ${bookId}: ${updateData.error}`);
     }
-    console.log(`MoonSync: Hardcover update_user_book_read response:`, JSON.stringify(updateData == null ? void 0 : updateData.user_book_read));
+    console.debug(`MoonSync: Hardcover update_user_book_read response:`, JSON.stringify(updateData == null ? void 0 : updateData.user_book_read));
   } else {
     const userBookId = myUserBook.id;
     await rateLimitDelay();
@@ -523,13 +521,13 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
       editionId,
       startedAt: today
     };
-    console.log(`MoonSync: Hardcover insert_user_book_read vars:`, JSON.stringify(vars));
+    console.debug(`MoonSync: Hardcover insert_user_book_read vars:`, JSON.stringify(vars));
     const insertResult = await hardcoverGraphQL(INSERT_USER_BOOK_READ, token, vars);
     const insertData = (_l = insertResult.data) == null ? void 0 : _l.insert_user_book_read;
     if (insertData == null ? void 0 : insertData.error) {
-      console.log(`MoonSync: Hardcover insert_user_book_read error for book ${bookId}: ${insertData.error}`);
+      console.debug(`MoonSync: Hardcover insert_user_book_read error for book ${bookId}: ${insertData.error}`);
     }
-    console.log(`MoonSync: Hardcover insert_user_book_read response:`, JSON.stringify(insertData == null ? void 0 : insertData.user_book_read));
+    console.debug(`MoonSync: Hardcover insert_user_book_read response:`, JSON.stringify(insertData == null ? void 0 : insertData.user_book_read));
   }
   return { success: true, badEdition: false };
 }
@@ -547,10 +545,10 @@ async function syncBooksToHardcover(books, token, onProgress) {
   if (booksToSync.length === 0) {
     return result;
   }
-  console.log(`MoonSync: Hardcover syncing ${booksToSync.length} books (of ${books.length} total)`);
+  console.debug(`MoonSync: Hardcover syncing ${booksToSync.length} books (of ${books.length} total)`);
   for (let i = 0; i < booksToSync.length; i++) {
     const book = booksToSync[i];
-    console.log(`MoonSync: Hardcover [${i + 1}/${booksToSync.length}] "${book.title}" \u2014 progress: ${book.progress}%, hardcoverId: ${book.hardcoverId}`);
+    console.debug(`MoonSync: Hardcover [${i + 1}/${booksToSync.length}] "${book.title}" \u2014 progress: ${book.progress}%, hardcoverId: ${book.hardcoverId}`);
     onProgress == null ? void 0 : onProgress(`Hardcover: ${book.title} (${i + 1}/${booksToSync.length})`);
     try {
       let hardcoverId = book.hardcoverId;
@@ -564,7 +562,7 @@ async function syncBooksToHardcover(books, token, onProgress) {
           slug = match.slug;
           result.newIds.push({ title: book.title, author: book.author, hardcoverId, slug });
         } else {
-          console.log(`MoonSync: Could not find "${book.title}" on Hardcover, skipping`);
+          console.debug(`MoonSync: Could not find "${book.title}" on Hardcover, skipping`);
           result.notFoundTitles.push(book.title);
           continue;
         }
@@ -583,7 +581,7 @@ async function syncBooksToHardcover(books, token, onProgress) {
       const statusId = p >= 99 ? STATUS_READ : p > 0 ? STATUS_CURRENTLY_READING : STATUS_WANT_TO_READ;
       let updated = await updateHardcoverBook(hardcoverId, statusId, p, pages, token);
       if (updated.badEdition) {
-        console.log(`MoonSync: Bad edition ${hardcoverId} for "${book.title}", searching for alternative`);
+        console.debug(`MoonSync: Bad edition ${hardcoverId} for "${book.title}", searching for alternative`);
         const match = await searchHardcoverBook(book.title, book.author, token, hardcoverId);
         if (match) {
           hardcoverId = match.id;
@@ -603,7 +601,7 @@ async function syncBooksToHardcover(books, token, onProgress) {
       }
     } catch (error) {
       result.booksFailed++;
-      console.log(`MoonSync: Hardcover sync failed for "${book.title}"`, error);
+      console.debug(`MoonSync: Hardcover sync failed for "${book.title}"`, error);
     }
   }
   return result;
@@ -3422,7 +3420,7 @@ var require_jszip_min = __commonJS({
 var require_sql_wasm = __commonJS({
   "node_modules/sql.js/dist/sql-wasm.js"(exports, module2) {
     var initSqlJsPromise = void 0;
-    var initSqlJs3 = function(moduleConfig) {
+    var initSqlJs2 = function(moduleConfig) {
       if (initSqlJsPromise) {
         return initSqlJsPromise;
       }
@@ -5746,14 +5744,14 @@ var require_sql_wasm = __commonJS({
       return initSqlJsPromise;
     };
     if (typeof exports === "object" && typeof module2 === "object") {
-      module2.exports = initSqlJs3;
-      module2.exports.default = initSqlJs3;
+      module2.exports = initSqlJs2;
+      module2.exports.default = initSqlJs2;
     } else if (typeof define === "function" && define["amd"]) {
       define([], function() {
-        return initSqlJs3;
+        return initSqlJs2;
       });
     } else if (typeof exports === "object") {
-      exports["Module"] = initSqlJs3;
+      exports["Module"] = initSqlJs2;
     }
   }
 });
@@ -6613,6 +6611,71 @@ async function downloadAndResizeCover(url, maxWidth = 400, maxHeight = 600) {
   }
 }
 
+// src/utils.ts
+function escapeYaml(str) {
+  return str.replace(/"/g, '\\"').replace(/\n/g, " ");
+}
+function extractFrontmatter(content) {
+  if (!content.startsWith("---")) {
+    return null;
+  }
+  const endIndex = content.indexOf("---", 3);
+  if (endIndex === -1) {
+    return null;
+  }
+  return content.substring(3, endIndex);
+}
+function parseFrontmatterField(frontmatter, fieldName) {
+  const regex = new RegExp(`^${fieldName}:\\s*"?([^"\\n]+)"?`, "m");
+  const match = frontmatter.match(regex);
+  return match ? match[1].trim() : null;
+}
+function parseFrontmatter(content) {
+  const frontmatter = extractFrontmatter(content);
+  if (!frontmatter) {
+    return {
+      title: null,
+      author: null,
+      progress: null,
+      highlightsCount: null,
+      highlightsHash: null,
+      coverPath: null,
+      moonReaderPath: null,
+      lastRead: null,
+      lastSynced: null,
+      isManualNote: false,
+      hasCustomMetadata: false
+    };
+  }
+  const progressStr = parseFrontmatterField(frontmatter, "progress");
+  const highlightsCountStr = parseFrontmatterField(frontmatter, "highlights_count");
+  return {
+    title: parseFrontmatterField(frontmatter, "title"),
+    author: parseFrontmatterField(frontmatter, "author"),
+    progress: progressStr ? parseFloat(progressStr) : null,
+    highlightsCount: highlightsCountStr !== null ? parseInt(highlightsCountStr, 10) : null,
+    highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
+    coverPath: parseFrontmatterField(frontmatter, "cover"),
+    moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
+    lastRead: parseFrontmatterField(frontmatter, "last_read"),
+    lastSynced: parseFrontmatterField(frontmatter, "last_synced"),
+    isManualNote: /^manual_note:\s*true/m.test(frontmatter),
+    hasCustomMetadata: /^custom_metadata:\s*true/m.test(frontmatter)
+  };
+}
+function computeHighlightsHash(highlights, highlightSort = "position") {
+  if (highlights.length === 0)
+    return "";
+  const sorted = [...highlights].sort((a, b) => a.position - b.position);
+  const fingerprint = `sort:${highlightSort}|` + sorted.map((h) => `${h.position}:${h.timestamp}:${h.originalText.length}`).join("|");
+  let hash = 5381;
+  for (let i = 0; i < fingerprint.length; i++) {
+    hash = (hash << 5) + hash + fingerprint.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
+
 // src/modal.ts
 var SyncSummaryModal = class extends import_obsidian4.Modal {
   constructor(app, result, settings) {
@@ -6821,11 +6884,21 @@ var SelectCoverModal = class extends import_obsidian4.Modal {
     const loadingEl = container.createDiv({ cls: "moonsync-loading" });
     loadingEl.setText("Searching for covers...");
     let covers;
-    if (this.activeSearchTab === "hardcover") {
-      const { searchHardcoverBooks: searchHardcoverBooks2 } = await Promise.resolve().then(() => (init_hardcover(), hardcover_exports));
-      covers = await searchHardcoverBooks2(this.title, this.author, this.hardcoverToken, 10);
-    } else {
-      covers = await fetchMultipleBookCovers(this.title, this.author, 10);
+    try {
+      if (this.activeSearchTab === "hardcover") {
+        const { searchHardcoverBooks: searchHardcoverBooks2 } = await Promise.resolve().then(() => (init_hardcover(), hardcover_exports));
+        covers = await searchHardcoverBooks2(this.title, this.author, this.hardcoverToken, 10);
+      } else {
+        covers = await fetchMultipleBookCovers(this.title, this.author, 10);
+      }
+    } catch (error) {
+      loadingEl.remove();
+      container.createEl("p", {
+        text: "Search failed. Please try again.",
+        cls: "setting-item-description"
+      });
+      console.debug("MoonSync: Cover search failed", error);
+      return;
     }
     loadingEl.remove();
     if (covers.length === 0) {
@@ -6977,11 +7050,21 @@ var SelectBookMetadataModal = class extends import_obsidian4.Modal {
     const loadingEl = container.createDiv({ cls: "moonsync-loading" });
     loadingEl.setText("Searching for books...");
     let books;
-    if (this.activeTab === "hardcover") {
-      const { searchHardcoverBooks: searchHardcoverBooks2 } = await Promise.resolve().then(() => (init_hardcover(), hardcover_exports));
-      books = await searchHardcoverBooks2(this.title, this.author, this.hardcoverToken, 10);
-    } else {
-      books = await fetchMultipleBookCovers(this.title, this.author, 10);
+    try {
+      if (this.activeTab === "hardcover") {
+        const { searchHardcoverBooks: searchHardcoverBooks2 } = await Promise.resolve().then(() => (init_hardcover(), hardcover_exports));
+        books = await searchHardcoverBooks2(this.title, this.author, this.hardcoverToken, 10);
+      } else {
+        books = await fetchMultipleBookCovers(this.title, this.author, 10);
+      }
+    } catch (error) {
+      loadingEl.remove();
+      container.createEl("p", {
+        text: "Search failed. Please try again.",
+        cls: "setting-item-description"
+      });
+      console.debug("MoonSync: Metadata search failed", error);
+      return;
     }
     loadingEl.remove();
     if (books.length === 0) {
@@ -7155,20 +7238,19 @@ var CreateBookModal = class extends import_obsidian4.Modal {
 };
 function generateBookTemplate(title, author, coverPath, description, publishedDate = null, publisher = null, pageCount = null, genres = null, series = null, language = null) {
   const lines = [];
-  const escapeYaml3 = (str) => str.replace(/"/g, '\\"').replace(/\n/g, " ");
   lines.push("---");
-  lines.push(`title: "${escapeYaml3(title)}"`);
+  lines.push(`title: "${escapeYaml(title)}"`);
   if (author) {
-    lines.push(`author: "${escapeYaml3(author)}"`);
+    lines.push(`author: "${escapeYaml(author)}"`);
   }
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
   lines.push("highlights_count: 0");
   lines.push("manual_note: true");
   if (publishedDate) {
-    lines.push(`published_date: "${escapeYaml3(publishedDate)}"`);
+    lines.push(`published_date: "${escapeYaml(publishedDate)}"`);
   }
   if (publisher) {
-    lines.push(`publisher: "${escapeYaml3(publisher)}"`);
+    lines.push(`publisher: "${escapeYaml(publisher)}"`);
   }
   if (pageCount !== null) {
     lines.push(`page_count: ${pageCount}`);
@@ -7176,11 +7258,11 @@ function generateBookTemplate(title, author, coverPath, description, publishedDa
   if (genres && genres.length > 0) {
     lines.push(`genres:`);
     for (const genre of genres) {
-      lines.push(`  - "${escapeYaml3(genre)}"`);
+      lines.push(`  - "${escapeYaml(genre)}"`);
     }
   }
   if (series) {
-    lines.push(`series: "${escapeYaml3(series)}"`);
+    lines.push(`series: "${escapeYaml(series)}"`);
   }
   if (language) {
     lines.push(`language: "${language}"`);
@@ -7498,71 +7580,6 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
     console.debug("MoonSync: Failed to read Cache directory", error);
     return [];
   }
-}
-
-// src/utils.ts
-function escapeYaml(str) {
-  return str.replace(/"/g, '\\"').replace(/\n/g, " ");
-}
-function extractFrontmatter(content) {
-  if (!content.startsWith("---")) {
-    return null;
-  }
-  const endIndex = content.indexOf("---", 3);
-  if (endIndex === -1) {
-    return null;
-  }
-  return content.substring(3, endIndex);
-}
-function parseFrontmatterField(frontmatter, fieldName) {
-  const regex = new RegExp(`^${fieldName}:\\s*"?([^"\\n]+)"?`, "m");
-  const match = frontmatter.match(regex);
-  return match ? match[1].trim() : null;
-}
-function parseFrontmatter(content) {
-  const frontmatter = extractFrontmatter(content);
-  if (!frontmatter) {
-    return {
-      title: null,
-      author: null,
-      progress: null,
-      highlightsCount: null,
-      highlightsHash: null,
-      coverPath: null,
-      moonReaderPath: null,
-      lastRead: null,
-      lastSynced: null,
-      isManualNote: false,
-      hasCustomMetadata: false
-    };
-  }
-  const progressStr = parseFrontmatterField(frontmatter, "progress");
-  const highlightsCountStr = parseFrontmatterField(frontmatter, "highlights_count");
-  return {
-    title: parseFrontmatterField(frontmatter, "title"),
-    author: parseFrontmatterField(frontmatter, "author"),
-    progress: progressStr ? parseFloat(progressStr) : null,
-    highlightsCount: highlightsCountStr !== null ? parseInt(highlightsCountStr, 10) : null,
-    highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
-    coverPath: parseFrontmatterField(frontmatter, "cover"),
-    moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
-    lastRead: parseFrontmatterField(frontmatter, "last_read"),
-    lastSynced: parseFrontmatterField(frontmatter, "last_synced"),
-    isManualNote: /^manual_note:\s*true/m.test(frontmatter),
-    hasCustomMetadata: /^custom_metadata:\s*true/m.test(frontmatter)
-  };
-}
-function computeHighlightsHash(highlights, highlightSort = "position") {
-  if (highlights.length === 0)
-    return "";
-  const sorted = [...highlights].sort((a, b) => a.position - b.position);
-  const fingerprint = `sort:${highlightSort}|` + sorted.map((h) => `${h.position}:${h.timestamp}:${h.originalText.length}`).join("|");
-  let hash = 5381;
-  for (let i = 0; i < fingerprint.length; i++) {
-    hash = (hash << 5) + hash + fingerprint.charCodeAt(i);
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36);
 }
 
 // src/writer/markdown.ts
@@ -8197,10 +8214,11 @@ async function initDatabase(wasmPath) {
     });
   }
 }
+function getSqlJs() {
+  return SQL;
+}
 
 // src/enrichment.ts
-var import_sql2 = __toESM(require_sql_wasm());
-var import_promises6 = require("fs/promises");
 var import_path6 = require("path");
 async function extractBackupStatistics(syncPath, wasmPath) {
   const backupDir = (0, import_path6.join)(syncPath, ".Moon+", "Backup");
@@ -8210,8 +8228,9 @@ async function extractBackupStatistics(syncPath, wasmPath) {
       return null;
     const mrpro = await extractMrpro(latestBackup);
     await initDatabase(wasmPath);
-    const wasmBinary = await (0, import_promises6.readFile)(wasmPath);
-    const SQL2 = await (0, import_sql2.default)({ wasmBinary });
+    const SQL2 = getSqlJs();
+    if (!SQL2)
+      return null;
     const db = new SQL2.Database(new Uint8Array(mrpro.database));
     try {
       const results = db.exec(
@@ -8392,7 +8411,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     progressNotice.setMessage("MoonSync: Enriching book metadata...");
     const { enrichmentResult, booksWithSufficientMetadata } = await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath, settings.trackBooksWithoutHighlights);
     if (enrichmentResult.booksEnriched > 0) {
-      console.log(
+      console.debug(
         `MoonSync: Enriched ${enrichmentResult.booksEnriched} books from sync data (${enrichmentResult.coversFound} covers, ${enrichmentResult.statisticsFound} statistics)`
       );
     }
@@ -8525,11 +8544,11 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     if (settings.hardcoverEnabled && settings.hardcoverToken) {
       try {
         progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
-        console.log(`MoonSync: Hardcover sync starting \u2014 ${changedBookTitles.size} changed books, ${booksWithHighlights.length} total books`);
+        console.debug(`MoonSync: Hardcover sync starting \u2014 ${changedBookTitles.size} changed books, ${booksWithHighlights.length} total books`);
         const hardcoverItems = [];
         for (const b of booksWithHighlights) {
           if (b.progress === null) {
-            console.log(`MoonSync: Hardcover skipping "${b.book.title}" \u2014 no progress data`);
+            console.debug(`MoonSync: Hardcover skipping "${b.book.title}" \u2014 no progress data`);
             continue;
           }
           const filename = generateFilename(b.book.title);
@@ -8547,16 +8566,16 @@ async function syncFromMoonReader(app, settings, wasmPath) {
                 lastSyncedProgress = parseFrontmatterField(fm, "hardcover_progress");
               }
             } else {
-              console.log(`MoonSync: Hardcover "${b.book.title}" \u2014 note not found at ${filePath}`);
+              console.debug(`MoonSync: Hardcover "${b.book.title}" \u2014 note not found at ${filePath}`);
             }
           } catch (e) {
           }
           const currentProgress = b.progress.toFixed(1);
           if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress) {
-            console.log(`MoonSync: Hardcover skipping "${b.book.title}" \u2014 progress unchanged (${currentProgress}%)`);
+            console.debug(`MoonSync: Hardcover skipping "${b.book.title}" \u2014 progress unchanged (${currentProgress}%)`);
             continue;
           }
-          console.log(`MoonSync: Hardcover queuing "${b.book.title}" \u2014 progress: ${b.progress}%, hardcoverId: ${hardcoverId}, lastSynced: ${lastSyncedProgress}`);
+          console.debug(`MoonSync: Hardcover queuing "${b.book.title}" \u2014 progress: ${b.progress}%, hardcoverId: ${hardcoverId}, lastSynced: ${lastSyncedProgress}`);
           hardcoverItems.push({
             title: b.book.title,
             author: b.book.author,
@@ -8564,7 +8583,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
             hardcoverId
           });
         }
-        console.log(`MoonSync: Hardcover ${hardcoverItems.length} books queued for sync`);
+        console.debug(`MoonSync: Hardcover ${hardcoverItems.length} books queued for sync`);
         if (hardcoverItems.length > 0) {
           const hcResult = await syncBooksToHardcover(
             hardcoverItems,
@@ -8572,7 +8591,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
             (msg) => progressNotice.setMessage(`MoonSync: ${msg}`)
           );
           result.hardcoverUpdated = hcResult.booksUpdated;
-          console.log(`MoonSync: Hardcover write-back \u2014 ${hcResult.updatedTitles.length} updated, ${hcResult.newIds.length} new IDs, ${hcResult.slugs.size} slugs`);
+          console.debug(`MoonSync: Hardcover write-back \u2014 ${hcResult.updatedTitles.length} updated, ${hcResult.newIds.length} new IDs, ${hcResult.slugs.size} slugs`);
           const newIdMap = new Map(hcResult.newIds.map((n) => [n.title, n.hardcoverId]));
           const newSlugMap = new Map(hcResult.newIds.map((n) => [n.title, n.slug]));
           const progressMap = new Map(hardcoverItems.map((i) => [i.title, i.progress]));
@@ -8608,12 +8627,12 @@ ${fields.join("\n")}
                 await app.vault.adapter.write(fp, content);
               }
             } catch (err) {
-              console.log(`MoonSync: Failed to write hardcover data for "${title}"`, err);
+              console.debug(`MoonSync: Failed to write hardcover data for "${title}"`, err);
             }
           }
         }
       } catch (error) {
-        console.log("MoonSync: Hardcover sync failed", error);
+        console.debug("MoonSync: Hardcover sync failed", error);
       }
     }
     if (settings.showIndex) {
@@ -8707,7 +8726,7 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
   const notesCount = bookData.highlights.filter((h) => h.note && h.note.trim()).length;
   lines.push(`notes_count: ${notesCount}`);
   if (settings.showReadingProgress && bookData.progress !== null) {
-    lines.push(`progress: "${bookData.progress.toFixed(1)}%"`);
+    lines.push(`progress: ${bookData.progress.toFixed(1)}%`);
     if (bookData.currentChapter) {
       lines.push(`current_chapter: ${bookData.currentChapter}`);
     }
@@ -8749,7 +8768,13 @@ function mergeManualNoteWithMoonReader(existingContent, bookData, settings) {
     }
     lines.push("");
   }
-  for (const highlight of bookData.highlights) {
+  const reverse = settings.highlightSort.endsWith("-reverse");
+  const sortByDate = settings.highlightSort.startsWith("date");
+  const sorted = [...bookData.highlights].sort((a, b) => {
+    const cmp = sortByDate ? a.timestamp - b.timestamp : a.chapter - b.chapter || a.position - b.position;
+    return reverse ? -cmp : cmp;
+  });
+  for (const highlight of sorted) {
     lines.push(formatHighlight(highlight, settings.showHighlightColors));
     lines.push("");
   }
@@ -8874,7 +8899,7 @@ async function findExistingFile(app, outputPath, preferredFilename, bookTitle, t
     if (oldPath !== preferredPath && await app.vault.adapter.exists(oldPath)) {
       try {
         await app.vault.adapter.rename(oldPath, preferredPath);
-        console.log(`MoonSync: Renamed "${oldFilename}.md" \u2192 "${preferredFilename}.md"`);
+        console.debug(`MoonSync: Renamed "${oldFilename}.md" \u2192 "${preferredFilename}.md"`);
         return preferredPath;
       } catch (e) {
         return oldPath;
@@ -9166,10 +9191,10 @@ function updateCustomBookFrontmatter(content, bookInfo, settings) {
     lines.push(line);
   }
   if (bookInfo.publishedDate) {
-    lines.push(`published_date: "${escapeYaml2(bookInfo.publishedDate)}"`);
+    lines.push(`published_date: "${escapeYaml(bookInfo.publishedDate)}"`);
   }
   if (bookInfo.publisher) {
-    lines.push(`publisher: "${escapeYaml2(bookInfo.publisher)}"`);
+    lines.push(`publisher: "${escapeYaml(bookInfo.publisher)}"`);
   }
   if (bookInfo.pageCount !== null) {
     lines.push(`page_count: ${bookInfo.pageCount}`);
@@ -9177,11 +9202,11 @@ function updateCustomBookFrontmatter(content, bookInfo, settings) {
   if (bookInfo.genres && bookInfo.genres.length > 0) {
     lines.push(`genres:`);
     for (const genre of bookInfo.genres) {
-      lines.push(`  - "${escapeYaml2(genre)}"`);
+      lines.push(`  - "${escapeYaml(genre)}"`);
     }
   }
   if (bookInfo.series) {
-    lines.push(`series: "${escapeYaml2(bookInfo.series)}"`);
+    lines.push(`series: "${escapeYaml(bookInfo.series)}"`);
   }
   if (bookInfo.language) {
     lines.push(`language: "${bookInfo.language}"`);
@@ -9192,9 +9217,6 @@ function updateCustomBookFrontmatter(content, bookInfo, settings) {
   }
   lines.push("---");
   return lines.join("\n") + contentAfterFrontmatter;
-}
-function escapeYaml2(str) {
-  return str.replace(/"/g, '\\"').replace(/\n/g, " ");
 }
 async function updateIndexNote(app, outputPath, moonReaderBooks, settings) {
   const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
@@ -9346,15 +9368,20 @@ function parseManualExport(content) {
         noteText = noteMatch[2].trim();
       }
       highlights.push({
-        originalText: highlightText,
-        note: noteText,
+        id: 0,
+        book: title,
+        filename: "",
         chapter: currentChapter,
+        position: 0,
+        highlightLength: highlightText.length,
         highlightColor: -256,
         // Yellow (default)
         timestamp: Date.now(),
-        pagePos: 0,
-        rangeStart: "",
-        rangeEnd: ""
+        bookmark: "",
+        note: noteText,
+        originalText: highlightText,
+        underline: false,
+        strikethrough: false
       });
     }
   }
@@ -9776,7 +9803,10 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
         series,
         isbn10: null,
         isbn13: null,
-        language
+        language,
+        previousTitle: null,
+        hardcoverId: null,
+        hardcoverSlug: null
       };
       const noteContent = generateBookNote(bookData, this.settings);
       await this.app.vault.create(filePath, noteContent);
@@ -10062,7 +10092,6 @@ ${fields}
     }
     const frontmatter = frontmatterMatch[1];
     let contentAfterFrontmatter = content.slice(frontmatterMatch[0].length);
-    const escapeYaml3 = (str) => str.replace(/"/g, '\\"').replace(/\n/g, " ");
     const fieldsToReplace = /* @__PURE__ */ new Set(["title", "author", "published_date", "publisher", "page_count", "genres", "series", "language", "cover", "rating", "ratings_count", "custom_metadata"]);
     if (bookInfo.hardcoverId) {
       fieldsToReplace.add("hardcover_id");
@@ -10098,16 +10127,16 @@ ${fields}
       }
     }
     if (bookInfo.title) {
-      lines.push(`title: "${escapeYaml3(bookInfo.title)}"`);
+      lines.push(`title: "${escapeYaml(bookInfo.title)}"`);
     }
     if (bookInfo.author) {
-      lines.push(`author: "${escapeYaml3(bookInfo.author)}"`);
+      lines.push(`author: "${escapeYaml(bookInfo.author)}"`);
     }
     if (bookInfo.publishedDate) {
-      lines.push(`published_date: "${escapeYaml3(bookInfo.publishedDate)}"`);
+      lines.push(`published_date: "${escapeYaml(bookInfo.publishedDate)}"`);
     }
     if (bookInfo.publisher) {
-      lines.push(`publisher: "${escapeYaml3(bookInfo.publisher)}"`);
+      lines.push(`publisher: "${escapeYaml(bookInfo.publisher)}"`);
     }
     if (bookInfo.pageCount !== null) {
       lines.push(`page_count: ${bookInfo.pageCount}`);
@@ -10115,11 +10144,11 @@ ${fields}
     if (bookInfo.genres && bookInfo.genres.length > 0) {
       lines.push(`genres:`);
       for (const genre of bookInfo.genres) {
-        lines.push(`  - "${escapeYaml3(genre)}"`);
+        lines.push(`  - "${escapeYaml(genre)}"`);
       }
     }
     if (bookInfo.series) {
-      lines.push(`series: "${escapeYaml3(bookInfo.series)}"`);
+      lines.push(`series: "${escapeYaml(bookInfo.series)}"`);
     }
     if (bookInfo.language) {
       lines.push(`language: "${bookInfo.language}"`);

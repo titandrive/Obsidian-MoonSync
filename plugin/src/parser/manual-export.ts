@@ -69,14 +69,19 @@ export function parseManualExport(content: string): ManualExportData | null {
 			}
 
 			highlights.push({
-				originalText: highlightText,
-				note: noteText,
+				id: 0,
+				book: title,
+				filename: "",
 				chapter: currentChapter,
+				position: 0,
+				highlightLength: highlightText.length,
 				highlightColor: -256, // Yellow (default)
 				timestamp: Date.now(),
-				pagePos: 0,
-				rangeStart: "",
-				rangeEnd: "",
+				bookmark: "",
+				note: noteText,
+				originalText: highlightText,
+				underline: false,
+				strikethrough: false,
 			});
 		}
 	}

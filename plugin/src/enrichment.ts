@@ -2,9 +2,7 @@ import { BookData, MoonReaderStatistics } from "./types";
 import { parseBooksSyncFile, parseCategoryField, BooksSyncEntry } from "./parser/books-sync";
 import { scanLocalCovers } from "./parser/local-covers";
 import { findLatestBackup, extractMrpro } from "./parser/mrpro";
-import { initDatabase } from "./parser/database";
-import initSqlJs from "sql.js";
-import { readFile } from "fs/promises";
+import { initDatabase, getSqlJs } from "./parser/database";
 import { join } from "path";
 
 export interface EnrichmentResult {
@@ -30,8 +28,8 @@ async function extractBackupStatistics(
 		const mrpro = await extractMrpro(latestBackup);
 
 		await initDatabase(wasmPath);
-		const wasmBinary = await readFile(wasmPath);
-		const SQL = await initSqlJs({ wasmBinary });
+		const SQL = getSqlJs();
+		if (!SQL) return null;
 		const db = new SQL.Database(new Uint8Array(mrpro.database));
 
 		try {

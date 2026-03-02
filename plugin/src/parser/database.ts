@@ -23,6 +23,13 @@ export async function initDatabase(wasmPath: string): Promise<void> {
 }
 
 /**
+ * Get the initialized sql.js instance. Must call initDatabase first.
+ */
+export function getSqlJs(): typeof SQL {
+	return SQL;
+}
+
+/**
  * Parse the Moon Reader database and extract all book data
  */
 export async function parseDatabase(

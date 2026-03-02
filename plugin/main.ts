@@ -6,7 +6,7 @@ import { CreateBookModal, generateBookTemplate, SelectCoverModal, SelectBookMeta
 import { generateFilename, generateBookNote } from "./src/writer/markdown";
 import { fetchBookInfo, downloadCover, downloadAndResizeCover, BookInfoResult } from "./src/covers";
 import { parseManualExport } from "./src/parser/manual-export";
-import { parseFrontmatter, extractFrontmatter, parseFrontmatterField } from "./src/utils";
+import { parseFrontmatter, extractFrontmatter, parseFrontmatterField, escapeYaml } from "./src/utils";
 import { lookupBookBySlug, updateHardcoverBook } from "./src/hardcover";
 import { join } from "path";
 import { watch, FSWatcher } from "fs";
@@ -493,6 +493,9 @@ export default class MoonSyncPlugin extends Plugin {
 				isbn10: null,
 				isbn13: null,
 				language: language,
+				previousTitle: null,
+				hardcoverId: null,
+				hardcoverSlug: null,
 			};
 
 			// Generate the note content
@@ -866,7 +869,7 @@ export default class MoonSyncPlugin extends Plugin {
 		const frontmatter = frontmatterMatch[1];
 		let contentAfterFrontmatter = content.slice(frontmatterMatch[0].length);
 
-		const escapeYaml = (str: string) => str.replace(/"/g, '\\"').replace(/\n/g, " ");
+
 
 		// Fields we want to replace with new values
 		const fieldsToReplace = new Set(["title", "author", "published_date", "publisher", "page_count", "genres", "series", "language", "cover", "rating", "ratings_count", "custom_metadata"]);
