@@ -6591,13 +6591,19 @@ var SyncSummaryModal = class extends import_obsidian4.Modal {
   }
 };
 var SelectCoverModal = class extends import_obsidian4.Modal {
-  constructor(app, title, author, onSelect) {
+  constructor(app, title, author, onSelect, hardcoverEnabled = false, hardcoverToken = "") {
     super(app);
     this.customUrl = "";
-    this.resultsContainer = null;
+    this.activeSearchTab = "hardcover";
+    this.googleResultsContainer = null;
+    this.hardcoverResultsContainer = null;
     this.title = title;
     this.author = author;
     this.onSelect = onSelect;
+    this.hardcoverEnabled = hardcoverEnabled && !!hardcoverToken;
+    this.hardcoverToken = hardcoverToken;
+    if (!this.hardcoverEnabled)
+      this.activeSearchTab = "google";
   }
   onOpen() {
     const { contentEl, modalEl } = this;
@@ -6606,50 +6612,85 @@ var SelectCoverModal = class extends import_obsidian4.Modal {
     modalEl.addClass("mod-moonsync-cover");
     new import_obsidian4.Setting(contentEl).setName("Fetch book cover").setHeading();
     const tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
-    const searchTab = tabNav.createEl("button", { text: "Search", cls: "moonsync-tab active" });
+    const tabs = [];
+    const tabContents = [];
+    let hardcoverTab = null;
+    if (this.hardcoverEnabled) {
+      hardcoverTab = tabNav.createEl("button", { text: "Hardcover", cls: "moonsync-tab active" });
+      tabs.push(hardcoverTab);
+    }
+    const googleTab = tabNav.createEl("button", { text: this.hardcoverEnabled ? "Google Books" : "Search", cls: this.hardcoverEnabled ? "moonsync-tab" : "moonsync-tab active" });
+    tabs.push(googleTab);
     const urlTab = tabNav.createEl("button", { text: "Import", cls: "moonsync-tab" });
-    const searchContent = contentEl.createDiv({ cls: "moonsync-tab-content active" });
+    tabs.push(urlTab);
+    let hardcoverContent = null;
+    if (this.hardcoverEnabled) {
+      hardcoverContent = contentEl.createDiv({ cls: "moonsync-tab-content active" });
+      tabContents.push(hardcoverContent);
+    }
+    const googleContent = contentEl.createDiv({ cls: this.hardcoverEnabled ? "moonsync-tab-content" : "moonsync-tab-content active" });
+    tabContents.push(googleContent);
     const urlContent = contentEl.createDiv({ cls: "moonsync-tab-content" });
-    searchTab.addEventListener("click", () => {
-      searchTab.addClass("active");
-      urlTab.removeClass("active");
-      searchContent.addClass("active");
-      urlContent.removeClass("active");
+    tabContents.push(urlContent);
+    const switchTab = (activeTab, activeContent) => {
+      tabs.forEach((t) => t.removeClass("active"));
+      tabContents.forEach((c) => c.removeClass("active"));
+      activeTab.addClass("active");
+      activeContent.addClass("active");
+    };
+    if (hardcoverTab && hardcoverContent) {
+      hardcoverTab.addEventListener("click", () => {
+        this.activeSearchTab = "hardcover";
+        switchTab(hardcoverTab, hardcoverContent);
+        if (this.hardcoverResultsContainer && this.hardcoverResultsContainer.childElementCount === 0) {
+          void this.performSearch();
+        }
+      });
+    }
+    googleTab.addEventListener("click", () => {
+      this.activeSearchTab = "google";
+      switchTab(googleTab, googleContent);
+      if (this.googleResultsContainer && this.googleResultsContainer.childElementCount === 0) {
+        void this.performSearch();
+      }
     });
     urlTab.addEventListener("click", () => {
-      urlTab.addClass("active");
-      searchTab.removeClass("active");
-      urlContent.addClass("active");
-      searchContent.removeClass("active");
+      switchTab(urlTab, urlContent);
     });
-    const titleSetting = new import_obsidian4.Setting(searchContent).setName("Title").addText((text) => {
-      text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
-        this.title = value;
+    const buildSearchFields = (container) => {
+      const titleSetting = new import_obsidian4.Setting(container).setName("Title").addText((text) => {
+        text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
+          this.title = value;
+        });
+        text.inputEl.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void this.performSearch();
+          }
+        });
       });
-      text.inputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          void this.performSearch();
-        }
+      titleSetting.settingEl.addClass("moonsync-labeled-field");
+      const authorSetting = new import_obsidian4.Setting(container).setName("Author").addText((text) => {
+        text.setPlaceholder("Enter author name").setValue(this.author).onChange((value) => {
+          this.author = value;
+        });
+        text.inputEl.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void this.performSearch();
+          }
+        });
       });
-    });
-    titleSetting.settingEl.addClass("moonsync-labeled-field");
-    const authorSetting = new import_obsidian4.Setting(searchContent).setName("Author").addText((text) => {
-      text.setPlaceholder("Enter author name").setValue(this.author).onChange((value) => {
-        this.author = value;
+      authorSetting.settingEl.addClass("moonsync-labeled-field");
+      new import_obsidian4.Setting(container).addButton((button) => {
+        button.setButtonText("Search").setCta().onClick(() => this.performSearch());
       });
-      text.inputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          void this.performSearch();
-        }
-      });
-    });
-    authorSetting.settingEl.addClass("moonsync-labeled-field");
-    new import_obsidian4.Setting(searchContent).addButton((button) => {
-      button.setButtonText("Search").setCta().onClick(() => this.performSearch());
-    });
-    this.resultsContainer = searchContent.createDiv({ cls: "moonsync-cover-results" });
+      return container.createDiv({ cls: "moonsync-cover-results" });
+    };
+    if (hardcoverContent) {
+      this.hardcoverResultsContainer = buildSearchFields(hardcoverContent);
+    }
+    this.googleResultsContainer = buildSearchFields(googleContent);
     urlContent.createEl("p", {
       text: "If search can't find the cover, or you have one you prefer, you can import it here.",
       cls: "moonsync-url-description"
@@ -6682,32 +6723,39 @@ var SelectCoverModal = class extends import_obsidian4.Modal {
     }, 150);
   }
   async performSearch() {
-    if (!this.resultsContainer)
+    const container = this.activeSearchTab === "hardcover" ? this.hardcoverResultsContainer : this.googleResultsContainer;
+    if (!container)
       return;
-    this.resultsContainer.empty();
+    container.empty();
     if (!this.title.trim()) {
-      this.resultsContainer.createEl("p", {
+      container.createEl("p", {
         text: "Please enter a book title.",
         cls: "setting-item-description"
       });
       return;
     }
-    const loadingEl = this.resultsContainer.createDiv({ cls: "moonsync-loading" });
+    const loadingEl = container.createDiv({ cls: "moonsync-loading" });
     loadingEl.setText("Searching for covers...");
-    const covers = await fetchMultipleBookCovers(this.title, this.author, 10);
+    let covers;
+    if (this.activeSearchTab === "hardcover") {
+      const { searchHardcoverBooks: searchHardcoverBooks2 } = await Promise.resolve().then(() => (init_hardcover(), hardcover_exports));
+      covers = await searchHardcoverBooks2(this.title, this.author, this.hardcoverToken, 10);
+    } else {
+      covers = await fetchMultipleBookCovers(this.title, this.author, 10);
+    }
     loadingEl.remove();
     if (covers.length === 0) {
-      this.resultsContainer.createEl("p", {
+      container.createEl("p", {
         text: "No covers found. Try a different search query.",
         cls: "setting-item-description"
       });
       return;
     }
-    this.resultsContainer.createEl("p", {
+    container.createEl("p", {
       text: `Found ${covers.length} result${covers.length === 1 ? "" : "s"} for "${this.title}"${this.author ? ` by ${this.author}` : ""}`,
       cls: "moonsync-search-info"
     });
-    const gridContainer = this.resultsContainer.createDiv({ cls: "moonsync-cover-grid" });
+    const gridContainer = container.createDiv({ cls: "moonsync-cover-grid" });
     for (const cover of covers) {
       const coverItem = gridContainer.createDiv({ cls: "moonsync-cover-item" });
       coverItem.createEl("img", {
@@ -9669,7 +9717,9 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
         author,
         (coverUrl) => {
           void this.handleCoverSelected(coverUrl, title, content, activeFile);
-        }
+        },
+        this.settings.hardcoverEnabled,
+        this.settings.hardcoverToken
       ).open();
     } catch (error) {
       console.error("MoonSync: Failed to re-fetch cover", error);

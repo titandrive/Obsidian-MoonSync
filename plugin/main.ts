@@ -556,7 +556,9 @@ export default class MoonSyncPlugin extends Plugin {
 				author,
 				(coverUrl: string) => {
 					void this.handleCoverSelected(coverUrl, title, content, activeFile);
-				}
+				},
+				this.settings.hardcoverEnabled,
+				this.settings.hardcoverToken
 			).open();
 		} catch (error) {
 			console.error("MoonSync: Failed to re-fetch cover", error);
