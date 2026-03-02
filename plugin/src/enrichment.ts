@@ -188,6 +188,7 @@ export async function enrichBooksWithSyncData(
 				result.statisticsFound++;
 			}
 		}
+
 	}
 
 	// Discover books from books.sync that weren't found via .an/.po files

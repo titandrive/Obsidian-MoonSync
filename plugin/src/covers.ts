@@ -5,13 +5,15 @@ export interface BookInfoResult {
 	coverUrl: string | null;
 	description: string | null;
 	author: string | null;
-	source: "openlibrary" | "googlebooks" | null;
+	source: "openlibrary" | "googlebooks" | "hardcover" | null;
 	publishedDate: string | null;
 	publisher: string | null;
 	pageCount: number | null;
 	genres: string[] | null;
 	series: string | null;
 	language: string | null;
+	hardcoverId?: number;
+	hardcoverSlug?: string;
 }
 
 interface OpenLibraryResult {

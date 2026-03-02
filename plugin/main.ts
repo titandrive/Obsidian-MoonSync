@@ -712,7 +712,9 @@ export default class MoonSyncPlugin extends Plugin {
 				author,
 				(bookInfo: BookInfoResult) => {
 					void this.handleMetadataSelected(bookInfo, title, content, activeFile);
-				}
+				},
+				this.settings.hardcoverEnabled,
+				this.settings.hardcoverToken
 			).open();
 		} catch (error) {
 			console.error("MoonSync: Failed to fetch metadata", error);
@@ -866,6 +868,11 @@ export default class MoonSyncPlugin extends Plugin {
 
 		// Fields we want to replace with new values
 		const fieldsToReplace = new Set(["title", "author", "published_date", "publisher", "page_count", "genres", "series", "language", "cover", "rating", "ratings_count", "custom_metadata"]);
+		// Only replace hardcover fields when selecting from Hardcover (preserve existing link otherwise)
+		if (bookInfo.hardcoverId) {
+			fieldsToReplace.add("hardcover_id");
+			fieldsToReplace.add("hardcover_url");
+		}
 
 		// Parse existing frontmatter
 		const frontmatterLines: string[] = [];
@@ -937,6 +944,13 @@ export default class MoonSyncPlugin extends Plugin {
 		}
 		if (coverPath) {
 			lines.push(`cover: "${coverPath}"`);
+		}
+		// Add Hardcover fields if selected from Hardcover
+		if (bookInfo.hardcoverId) {
+			lines.push(`hardcover_id: ${bookInfo.hardcoverId}`);
+		}
+		if (bookInfo.hardcoverSlug) {
+			lines.push(`hardcover_url: "https://hardcover.app/books/${bookInfo.hardcoverSlug}"`);
 		}
 		// Add custom_metadata flag so sync doesn't overwrite
 		lines.push(`custom_metadata: true`);

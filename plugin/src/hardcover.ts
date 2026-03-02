@@ -1,4 +1,5 @@
 import { requestUrl } from "obsidian";
+import { BookInfoResult } from "./covers";
 
 const HARDCOVER_API = "https://api.hardcover.app/v1/graphql";
 
@@ -131,6 +132,139 @@ export async function lookupBookBySlug(
 		console.debug("MoonSync: Hardcover slug lookup failed", error);
 	}
 	return null;
+}
+
+/**
+ * Search Hardcover for books and return full metadata as BookInfoResult[].
+ * Used by the metadata modal's Hardcover tab.
+ * Two-step: search for IDs, then hydrate with full book data.
+ */
+export async function searchHardcoverBooks(
+	title: string,
+	author: string,
+	token: string,
+	maxResults: number = 10
+): Promise<BookInfoResult[]> {
+	const query = author ? `${title} ${author}` : title;
+
+	try {
+		// Step 1: Search for book IDs
+		await rateLimitDelay();
+		const searchQuery = `{
+			search(
+				query: "${escapeGraphQL(query)}",
+				query_type: "Book",
+				per_page: ${maxResults}
+			) {
+				ids
+			}
+		}`;
+		const searchResult = await hardcoverGraphQL(searchQuery, token);
+		const ids: number[] = searchResult.data?.search?.ids;
+		if (!ids || ids.length === 0) return [];
+
+		// Step 2: Hydrate with full metadata
+		await rateLimitDelay();
+		const hydrateQuery = `{
+			books(where: { id: { _in: [${ids.join(",")}] } }) {
+				id
+				title
+				slug
+				description
+				release_date
+				pages
+				rating
+				ratings_count
+				image { url }
+				cached_image
+				contributions(order_by: { id: asc }, limit: 3) {
+					author { name }
+				}
+				taggings(limit: 10) {
+					tag { tag }
+				}
+				book_series {
+					position
+					series { name }
+				}
+				default_physical_edition {
+					isbn_13
+					pages
+					publisher { name }
+					language { language }
+				}
+				default_ebook_edition {
+					isbn_13
+					pages
+					publisher { name }
+					language { language }
+				}
+			}
+		}`;
+		const hydrateResult = await hardcoverGraphQL(hydrateQuery, token);
+		const books = hydrateResult.data?.books;
+		if (!books || !Array.isArray(books)) return [];
+
+		// Sort results to match the original search order
+		const idOrder = new Map(ids.map((id, i) => [id, i]));
+		books.sort((a: any, b: any) => (idOrder.get(a.id) ?? 999) - (idOrder.get(b.id) ?? 999));
+
+		return books.map((book: any): BookInfoResult => {
+			// Cover URL: prefer image.url, fall back to cached_image
+			let coverUrl: string | null = book.image?.url || null;
+			if (!coverUrl && book.cached_image) {
+				const cached = typeof book.cached_image === "string"
+					? JSON.parse(book.cached_image)
+					: book.cached_image;
+				coverUrl = cached?.url || null;
+			}
+
+			// Author: join contributions
+			const authors = (book.contributions || [])
+				.map((c: any) => c.author?.name)
+				.filter(Boolean);
+			const authorStr = authors.length > 0 ? authors.join(", ") : null;
+
+			// Genres from taggings
+			const genres = (book.taggings || [])
+				.map((t: any) => t.tag?.tag)
+				.filter(Boolean);
+
+			// Series
+			const seriesEntry = book.book_series?.[0];
+			let series: string | null = null;
+			if (seriesEntry?.series?.name) {
+				series = seriesEntry.position
+					? `${seriesEntry.series.name} #${seriesEntry.position}`
+					: seriesEntry.series.name;
+			}
+
+			// Edition-level metadata (prefer physical, fall back to ebook)
+			const edition = book.default_physical_edition || book.default_ebook_edition;
+			const pageCount = book.pages || edition?.pages || null;
+			const publisher = edition?.publisher?.name || null;
+			const language = edition?.language?.language || null;
+
+			return {
+				title: book.title || null,
+				coverUrl,
+				description: book.description || null,
+				author: authorStr,
+				source: "hardcover",
+				publishedDate: book.release_date || null,
+				publisher,
+				pageCount,
+				genres: genres.length > 0 ? genres : null,
+				series,
+				language,
+				hardcoverId: book.id,
+				hardcoverSlug: book.slug || undefined,
+			};
+		});
+	} catch (error) {
+		console.error("MoonSync: Hardcover search failed", error);
+		return [];
+	}
 }
 
 /**

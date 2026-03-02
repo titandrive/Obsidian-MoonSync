@@ -322,18 +322,27 @@ export class SelectBookMetadataModal extends Modal {
 	private title: string;
 	private author: string;
 	private onSelect: (bookInfo: BookInfoResult) => void;
-	private resultsContainer: HTMLElement | null = null;
+	private hardcoverEnabled: boolean;
+	private hardcoverToken: string;
+	private googleResultsContainer: HTMLElement | null = null;
+	private hardcoverResultsContainer: HTMLElement | null = null;
+	private activeTab: "google" | "hardcover" = "hardcover";
 
 	constructor(
 		app: App,
 		title: string,
 		author: string,
-		onSelect: (bookInfo: BookInfoResult) => void
+		onSelect: (bookInfo: BookInfoResult) => void,
+		hardcoverEnabled: boolean = false,
+		hardcoverToken: string = ""
 	) {
 		super(app);
 		this.title = title;
 		this.author = author;
 		this.onSelect = onSelect;
+		this.hardcoverEnabled = hardcoverEnabled && !!hardcoverToken;
+		this.hardcoverToken = hardcoverToken;
+		if (!this.hardcoverEnabled) this.activeTab = "google";
 	}
 
 	onOpen() {
@@ -348,6 +357,16 @@ export class SelectBookMetadataModal extends Modal {
 			text: "Select a book to replace all metadata including cover, description, and details.",
 			cls: "moonsync-url-description"
 		});
+
+		// Tab navigation (only when Hardcover is enabled)
+		let tabNav: HTMLElement | null = null;
+		let googleTab: HTMLElement | null = null;
+		let hardcoverTab: HTMLElement | null = null;
+		if (this.hardcoverEnabled) {
+			tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
+			hardcoverTab = tabNav.createEl("button", { text: "Hardcover", cls: "moonsync-tab active" });
+			googleTab = tabNav.createEl("button", { text: "Google Books", cls: "moonsync-tab" });
+		}
 
 		// Search fields
 		const titleSetting = new Setting(contentEl)
@@ -394,58 +413,90 @@ export class SelectBookMetadataModal extends Modal {
 					.onClick(() => this.performSearch());
 			});
 
-		// Results container
-		this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
+		// Results containers — tab content divs created AFTER search fields
+		if (this.hardcoverEnabled) {
+			const hardcoverContent = contentEl.createDiv({ cls: "moonsync-tab-content active" });
+			const googleContent = contentEl.createDiv({ cls: "moonsync-tab-content" });
+
+			this.googleResultsContainer = googleContent.createDiv({ cls: "moonsync-cover-results" });
+			this.hardcoverResultsContainer = hardcoverContent.createDiv({ cls: "moonsync-cover-results" });
+
+			googleTab!.addEventListener("click", () => {
+				this.activeTab = "google";
+				googleTab!.addClass("active");
+				hardcoverTab!.removeClass("active");
+				googleContent.addClass("active");
+				hardcoverContent.removeClass("active");
+				if (this.googleResultsContainer && this.googleResultsContainer.childElementCount === 0) {
+					void this.performSearch();
+				}
+			});
+
+			hardcoverTab!.addEventListener("click", () => {
+				this.activeTab = "hardcover";
+				hardcoverTab!.addClass("active");
+				googleTab!.removeClass("active");
+				hardcoverContent.addClass("active");
+				googleContent.removeClass("active");
+				if (this.hardcoverResultsContainer && this.hardcoverResultsContainer.childElementCount === 0) {
+					void this.performSearch();
+				}
+			});
+		} else {
+			this.googleResultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
+		}
 
 		// Perform initial search after a short delay
 		setTimeout(() => { void this.performSearch(); }, 150);
 	}
 
 	private async performSearch() {
-		if (!this.resultsContainer) return;
+		const container = this.activeTab === "hardcover"
+			? this.hardcoverResultsContainer
+			: this.googleResultsContainer;
+		if (!container) return;
 
-		// Clear previous results
-		this.resultsContainer.empty();
+		container.empty();
 
 		if (!this.title.trim()) {
-			this.resultsContainer.createEl("p", {
+			container.createEl("p", {
 				text: "Please enter a book title.",
 				cls: "setting-item-description"
 			});
 			return;
 		}
 
-		// Loading indicator
-		const loadingEl = this.resultsContainer.createDiv({ cls: "moonsync-loading" });
+		const loadingEl = container.createDiv({ cls: "moonsync-loading" });
 		loadingEl.setText("Searching for books...");
 
-		// Fetch books
-		const books = await fetchMultipleBookCovers(this.title, this.author, 10);
+		let books: BookInfoResult[];
+		if (this.activeTab === "hardcover") {
+			const { searchHardcoverBooks } = await import("./hardcover");
+			books = await searchHardcoverBooks(this.title, this.author, this.hardcoverToken, 10);
+		} else {
+			books = await fetchMultipleBookCovers(this.title, this.author, 10);
+		}
 
-		// Remove loading indicator
 		loadingEl.remove();
 
 		if (books.length === 0) {
-			this.resultsContainer.createEl("p", {
+			container.createEl("p", {
 				text: "No books found. Try a different search query.",
 				cls: "setting-item-description"
 			});
 			return;
 		}
 
-		// Display search info
-		this.resultsContainer.createEl("p", {
+		container.createEl("p", {
 			text: `Found ${books.length} result${books.length === 1 ? "" : "s"} for "${this.title}"${this.author ? ` by ${this.author}` : ""}`,
 			cls: "moonsync-search-info"
 		});
 
-		// Display books in a grid
-		const gridContainer = this.resultsContainer.createDiv({ cls: "moonsync-cover-grid" });
+		const gridContainer = container.createDiv({ cls: "moonsync-cover-grid" });
 
 		for (const book of books) {
 			const bookItem = gridContainer.createDiv({ cls: "moonsync-cover-item" });
 
-			// Cover image
 			if (book.coverUrl) {
 				bookItem.createEl("img", {
 					attr: {
@@ -455,7 +506,6 @@ export class SelectBookMetadataModal extends Modal {
 				});
 			}
 
-			// Book info
 			const info = bookItem.createDiv({ cls: "moonsync-cover-info" });
 			if (book.title) {
 				info.createDiv({ cls: "moonsync-cover-title", text: book.title });
@@ -464,7 +514,6 @@ export class SelectBookMetadataModal extends Modal {
 				info.createDiv({ cls: "moonsync-cover-author", text: book.author });
 			}
 
-			// Show more metadata details
 			const details: string[] = [];
 			if (book.publishedDate) {
 				details.push(book.publishedDate);
@@ -479,7 +528,6 @@ export class SelectBookMetadataModal extends Modal {
 				info.createDiv({ cls: "moonsync-cover-year", text: details.join(" · ") });
 			}
 
-			// Click handler
 			bookItem.addEventListener("click", () => {
 				this.onSelect(book);
 				this.close();

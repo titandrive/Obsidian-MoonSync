@@ -46,6 +46,7 @@ var __publicField = (obj, key, value) => {
 var hardcover_exports = {};
 __export(hardcover_exports, {
   lookupBookBySlug: () => lookupBookBySlug,
+  searchHardcoverBooks: () => searchHardcoverBooks,
   syncBooksToHardcover: () => syncBooksToHardcover,
   updateHardcoverBook: () => updateHardcoverBook,
   validateHardcoverToken: () => validateHardcoverToken
@@ -117,6 +118,116 @@ async function lookupBookBySlug(slug, token) {
     console.debug("MoonSync: Hardcover slug lookup failed", error);
   }
   return null;
+}
+async function searchHardcoverBooks(title, author, token, maxResults = 10) {
+  var _a, _b, _c;
+  const query = author ? `${title} ${author}` : title;
+  try {
+    await rateLimitDelay();
+    const searchQuery = `{
+			search(
+				query: "${escapeGraphQL(query)}",
+				query_type: "Book",
+				per_page: ${maxResults}
+			) {
+				ids
+			}
+		}`;
+    const searchResult = await hardcoverGraphQL(searchQuery, token);
+    const ids = (_b = (_a = searchResult.data) == null ? void 0 : _a.search) == null ? void 0 : _b.ids;
+    if (!ids || ids.length === 0)
+      return [];
+    await rateLimitDelay();
+    const hydrateQuery = `{
+			books(where: { id: { _in: [${ids.join(",")}] } }) {
+				id
+				title
+				slug
+				description
+				release_date
+				pages
+				rating
+				ratings_count
+				image { url }
+				cached_image
+				contributions(order_by: { id: asc }, limit: 3) {
+					author { name }
+				}
+				taggings(limit: 10) {
+					tag { tag }
+				}
+				book_series {
+					position
+					series { name }
+				}
+				default_physical_edition {
+					isbn_13
+					pages
+					publisher { name }
+					language { language }
+				}
+				default_ebook_edition {
+					isbn_13
+					pages
+					publisher { name }
+					language { language }
+				}
+			}
+		}`;
+    const hydrateResult = await hardcoverGraphQL(hydrateQuery, token);
+    const books = (_c = hydrateResult.data) == null ? void 0 : _c.books;
+    if (!books || !Array.isArray(books))
+      return [];
+    const idOrder = new Map(ids.map((id, i) => [id, i]));
+    books.sort((a, b) => {
+      var _a2, _b2;
+      return ((_a2 = idOrder.get(a.id)) != null ? _a2 : 999) - ((_b2 = idOrder.get(b.id)) != null ? _b2 : 999);
+    });
+    return books.map((book) => {
+      var _a2, _b2, _c2, _d, _e;
+      let coverUrl = ((_a2 = book.image) == null ? void 0 : _a2.url) || null;
+      if (!coverUrl && book.cached_image) {
+        const cached = typeof book.cached_image === "string" ? JSON.parse(book.cached_image) : book.cached_image;
+        coverUrl = (cached == null ? void 0 : cached.url) || null;
+      }
+      const authors = (book.contributions || []).map((c) => {
+        var _a3;
+        return (_a3 = c.author) == null ? void 0 : _a3.name;
+      }).filter(Boolean);
+      const authorStr = authors.length > 0 ? authors.join(", ") : null;
+      const genres = (book.taggings || []).map((t) => {
+        var _a3;
+        return (_a3 = t.tag) == null ? void 0 : _a3.tag;
+      }).filter(Boolean);
+      const seriesEntry = (_b2 = book.book_series) == null ? void 0 : _b2[0];
+      let series = null;
+      if ((_c2 = seriesEntry == null ? void 0 : seriesEntry.series) == null ? void 0 : _c2.name) {
+        series = seriesEntry.position ? `${seriesEntry.series.name} #${seriesEntry.position}` : seriesEntry.series.name;
+      }
+      const edition = book.default_physical_edition || book.default_ebook_edition;
+      const pageCount = book.pages || (edition == null ? void 0 : edition.pages) || null;
+      const publisher = ((_d = edition == null ? void 0 : edition.publisher) == null ? void 0 : _d.name) || null;
+      const language = ((_e = edition == null ? void 0 : edition.language) == null ? void 0 : _e.language) || null;
+      return {
+        title: book.title || null,
+        coverUrl,
+        description: book.description || null,
+        author: authorStr,
+        source: "hardcover",
+        publishedDate: book.release_date || null,
+        publisher,
+        pageCount,
+        genres: genres.length > 0 ? genres : null,
+        series,
+        language,
+        hardcoverId: book.id,
+        hardcoverSlug: book.slug || void 0
+      };
+    });
+  } catch (error) {
+    console.error("MoonSync: Hardcover search failed", error);
+    return [];
+  }
 }
 async function searchHardcoverBook(title, author, token, excludeId) {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
@@ -6629,12 +6740,18 @@ var SelectCoverModal = class extends import_obsidian4.Modal {
   }
 };
 var SelectBookMetadataModal = class extends import_obsidian4.Modal {
-  constructor(app, title, author, onSelect) {
+  constructor(app, title, author, onSelect, hardcoverEnabled = false, hardcoverToken = "") {
     super(app);
-    this.resultsContainer = null;
+    this.googleResultsContainer = null;
+    this.hardcoverResultsContainer = null;
+    this.activeTab = "hardcover";
     this.title = title;
     this.author = author;
     this.onSelect = onSelect;
+    this.hardcoverEnabled = hardcoverEnabled && !!hardcoverToken;
+    this.hardcoverToken = hardcoverToken;
+    if (!this.hardcoverEnabled)
+      this.activeTab = "google";
   }
   onOpen() {
     const { contentEl, modalEl } = this;
@@ -6646,6 +6763,14 @@ var SelectBookMetadataModal = class extends import_obsidian4.Modal {
       text: "Select a book to replace all metadata including cover, description, and details.",
       cls: "moonsync-url-description"
     });
+    let tabNav = null;
+    let googleTab = null;
+    let hardcoverTab = null;
+    if (this.hardcoverEnabled) {
+      tabNav = contentEl.createDiv({ cls: "moonsync-tab-nav" });
+      hardcoverTab = tabNav.createEl("button", { text: "Hardcover", cls: "moonsync-tab active" });
+      googleTab = tabNav.createEl("button", { text: "Google Books", cls: "moonsync-tab" });
+    }
     const titleSetting = new import_obsidian4.Setting(contentEl).setName("Title").addText((text) => {
       text.setPlaceholder("Enter book title").setValue(this.title).onChange((value) => {
         this.title = value;
@@ -6673,38 +6798,72 @@ var SelectBookMetadataModal = class extends import_obsidian4.Modal {
     new import_obsidian4.Setting(contentEl).addButton((button) => {
       button.setButtonText("Search").setCta().onClick(() => this.performSearch());
     });
-    this.resultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
+    if (this.hardcoverEnabled) {
+      const hardcoverContent = contentEl.createDiv({ cls: "moonsync-tab-content active" });
+      const googleContent = contentEl.createDiv({ cls: "moonsync-tab-content" });
+      this.googleResultsContainer = googleContent.createDiv({ cls: "moonsync-cover-results" });
+      this.hardcoverResultsContainer = hardcoverContent.createDiv({ cls: "moonsync-cover-results" });
+      googleTab.addEventListener("click", () => {
+        this.activeTab = "google";
+        googleTab.addClass("active");
+        hardcoverTab.removeClass("active");
+        googleContent.addClass("active");
+        hardcoverContent.removeClass("active");
+        if (this.googleResultsContainer && this.googleResultsContainer.childElementCount === 0) {
+          void this.performSearch();
+        }
+      });
+      hardcoverTab.addEventListener("click", () => {
+        this.activeTab = "hardcover";
+        hardcoverTab.addClass("active");
+        googleTab.removeClass("active");
+        hardcoverContent.addClass("active");
+        googleContent.removeClass("active");
+        if (this.hardcoverResultsContainer && this.hardcoverResultsContainer.childElementCount === 0) {
+          void this.performSearch();
+        }
+      });
+    } else {
+      this.googleResultsContainer = contentEl.createDiv({ cls: "moonsync-cover-results" });
+    }
     setTimeout(() => {
       void this.performSearch();
     }, 150);
   }
   async performSearch() {
-    if (!this.resultsContainer)
+    const container = this.activeTab === "hardcover" ? this.hardcoverResultsContainer : this.googleResultsContainer;
+    if (!container)
       return;
-    this.resultsContainer.empty();
+    container.empty();
     if (!this.title.trim()) {
-      this.resultsContainer.createEl("p", {
+      container.createEl("p", {
         text: "Please enter a book title.",
         cls: "setting-item-description"
       });
       return;
     }
-    const loadingEl = this.resultsContainer.createDiv({ cls: "moonsync-loading" });
+    const loadingEl = container.createDiv({ cls: "moonsync-loading" });
     loadingEl.setText("Searching for books...");
-    const books = await fetchMultipleBookCovers(this.title, this.author, 10);
+    let books;
+    if (this.activeTab === "hardcover") {
+      const { searchHardcoverBooks: searchHardcoverBooks2 } = await Promise.resolve().then(() => (init_hardcover(), hardcover_exports));
+      books = await searchHardcoverBooks2(this.title, this.author, this.hardcoverToken, 10);
+    } else {
+      books = await fetchMultipleBookCovers(this.title, this.author, 10);
+    }
     loadingEl.remove();
     if (books.length === 0) {
-      this.resultsContainer.createEl("p", {
+      container.createEl("p", {
         text: "No books found. Try a different search query.",
         cls: "setting-item-description"
       });
       return;
     }
-    this.resultsContainer.createEl("p", {
+    container.createEl("p", {
       text: `Found ${books.length} result${books.length === 1 ? "" : "s"} for "${this.title}"${this.author ? ` by ${this.author}` : ""}`,
       cls: "moonsync-search-info"
     });
-    const gridContainer = this.resultsContainer.createDiv({ cls: "moonsync-cover-grid" });
+    const gridContainer = container.createDiv({ cls: "moonsync-cover-grid" });
     for (const book of books) {
       const bookItem = gridContainer.createDiv({ cls: "moonsync-cover-item" });
       if (book.coverUrl) {
@@ -9628,7 +9787,9 @@ ${coverEmbed}
         author,
         (bookInfo) => {
           void this.handleMetadataSelected(bookInfo, title, content, activeFile);
-        }
+        },
+        this.settings.hardcoverEnabled,
+        this.settings.hardcoverToken
       ).open();
     } catch (error) {
       console.error("MoonSync: Failed to fetch metadata", error);
@@ -9748,6 +9909,10 @@ ${fields}
     let contentAfterFrontmatter = content.slice(frontmatterMatch[0].length);
     const escapeYaml3 = (str) => str.replace(/"/g, '\\"').replace(/\n/g, " ");
     const fieldsToReplace = /* @__PURE__ */ new Set(["title", "author", "published_date", "publisher", "page_count", "genres", "series", "language", "cover", "rating", "ratings_count", "custom_metadata"]);
+    if (bookInfo.hardcoverId) {
+      fieldsToReplace.add("hardcover_id");
+      fieldsToReplace.add("hardcover_url");
+    }
     const frontmatterLines = [];
     let skipNextLines = false;
     for (const line of frontmatter.split("\n")) {
@@ -9806,6 +9971,12 @@ ${fields}
     }
     if (coverPath) {
       lines.push(`cover: "${coverPath}"`);
+    }
+    if (bookInfo.hardcoverId) {
+      lines.push(`hardcover_id: ${bookInfo.hardcoverId}`);
+    }
+    if (bookInfo.hardcoverSlug) {
+      lines.push(`hardcover_url: "https://hardcover.app/books/${bookInfo.hardcoverSlug}"`);
     }
     lines.push(`custom_metadata: true`);
     lines.push("---");
