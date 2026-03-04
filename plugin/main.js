@@ -6262,7 +6262,13 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
     );
   }
   displayIntegrationsTab(container) {
-    new import_obsidian2.Setting(container).setName("Hardcover.app").setDesc("Sync your reading status and progress to Hardcover.").setHeading();
+    const hardcoverHeading = new import_obsidian2.Setting(container).setName("Hardcover.app").setHeading();
+    const hardcoverDesc = hardcoverHeading.descEl;
+    hardcoverDesc.appendText("Sync your reading status and progress to Hardcover. ");
+    hardcoverDesc.createEl("a", {
+      text: "Get your API key",
+      href: "https://docs.hardcover.app/api/getting-started/"
+    });
     new import_obsidian2.Setting(container).setName("Enable Hardcover sync").setDesc("Update reading status on Hardcover after each sync").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.hardcoverEnabled).onChange(async (value) => {
         this.plugin.settings.hardcoverEnabled = value;
@@ -8722,6 +8728,34 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     }
     if (cacheModified) {
       await saveCache(app, outputPath, cache);
+    }
+    if (settings.hardcoverEnabled && settings.hardcoverToken) {
+      for (const bookData of booksWithHighlights) {
+        const cachedBook = getCachedInfo(cache, bookData.book.title, bookData.book.author);
+        if (!(cachedBook == null ? void 0 : cachedBook.hardcoverId) || !(cachedBook == null ? void 0 : cachedBook.hardcoverSlug))
+          continue;
+        const lookupTitle = cachedBook.source === "hardcover" && cachedBook.title ? cachedBook.title : bookData.book.title;
+        const filename = generateFilename(lookupTitle);
+        const filePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${filename}.md`);
+        try {
+          if (!await app.vault.adapter.exists(filePath))
+            continue;
+          const content = await app.vault.adapter.read(filePath);
+          if (/^hardcover_id: /m.test(content))
+            continue;
+          const fields = [];
+          fields.push(`hardcover_id: ${cachedBook.hardcoverId}`);
+          fields.push(`hardcover_url: "https://hardcover.app/books/${cachedBook.hardcoverSlug}"`);
+          const updated = content.replace(/\n---\n/, `
+${fields.join("\n")}
+---
+`);
+          if (updated !== content) {
+            await app.vault.adapter.write(filePath, updated);
+          }
+        } catch (e) {
+        }
+      }
     }
     if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
       try {

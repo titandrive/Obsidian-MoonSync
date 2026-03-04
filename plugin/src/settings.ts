@@ -427,10 +427,15 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 	}
 
 	private displayIntegrationsTab(container: HTMLElement): void {
-		new Setting(container)
+		const hardcoverHeading = new Setting(container)
 			.setName("Hardcover.app")
-			.setDesc("Sync your reading status and progress to Hardcover.")
 			.setHeading();
+		const hardcoverDesc = hardcoverHeading.descEl;
+		hardcoverDesc.appendText("Sync your reading status and progress to Hardcover. ");
+		hardcoverDesc.createEl("a", {
+			text: "Get your API key",
+			href: "https://docs.hardcover.app/api/getting-started/",
+		});
 
 		new Setting(container)
 			.setName("Enable Hardcover sync")

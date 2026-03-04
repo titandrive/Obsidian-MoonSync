@@ -267,6 +267,36 @@ export async function syncFromMoonReader(
 			await saveCache(app, outputPath, cache);
 		}
 
+		// Write hardcover_id and hardcover_url to existing notes from cache
+		// This covers books that were matched during metadata fetch but skipped by progress sync
+		if (settings.hardcoverEnabled && settings.hardcoverToken) {
+			for (const bookData of booksWithHighlights) {
+				const cachedBook = getCachedInfo(cache, bookData.book.title, bookData.book.author);
+				if (!cachedBook?.hardcoverId || !cachedBook?.hardcoverSlug) continue;
+
+				const lookupTitle = (cachedBook.source === "hardcover" && cachedBook.title)
+					? cachedBook.title : bookData.book.title;
+				const filename = generateFilename(lookupTitle);
+				const filePath = normalizePath(`${outputPath}/${filename}.md`);
+				try {
+					if (!await app.vault.adapter.exists(filePath)) continue;
+					const content = await app.vault.adapter.read(filePath);
+					// Skip if already has hardcover_id
+					if (/^hardcover_id: /m.test(content)) continue;
+					// Insert hardcover fields before closing ---
+					const fields: string[] = [];
+					fields.push(`hardcover_id: ${cachedBook.hardcoverId}`);
+					fields.push(`hardcover_url: "https://hardcover.app/books/${cachedBook.hardcoverSlug}"`);
+					const updated = content.replace(/\n---\n/, `\n${fields.join("\n")}\n---\n`);
+					if (updated !== content) {
+						await app.vault.adapter.write(filePath, updated);
+					}
+				} catch {
+					// Ignore write errors for individual books
+				}
+			}
+		}
+
 		// Sync reading progress to Hardcover if enabled
 		if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
 			try {
