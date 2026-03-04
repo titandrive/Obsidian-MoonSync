@@ -8,7 +8,7 @@ Sync your reading highlights, notes, and progress from Moon+ Reader to **Obsidia
 
 - **Obsidian Sync** — Automatically create and update book notes with highlights, reading progress, covers, and metadata
 - **Hardcover Sync** — Push reading status and progress to [Hardcover.app](https://hardcover.app) so your library stays up to date across platforms
-- **Rich Metadata** — Book covers, descriptions, genres, series info, reading time, and ratings — sourced directly from Moon Reader's sync data or from Google Books and Open Library as a fallback
+- **Rich Metadata** — Book covers, descriptions, genres, series info, reading time, and ratings — sourced from [Hardcover](https://hardcover.app) (recommended), Moon Reader's sync data, or Google Books and Open Library as a fallback
 - **Library Index** — Auto-generated index with cover collage, stats, and an Obsidian Bases database view
 - **Highlight Colors** — Preserve Moon Reader highlight colors as styled callouts
 - **File Watcher** — Automatically sync when Moon Reader cache files change (ideal for always-on servers)
@@ -46,7 +46,7 @@ This is the preferred way to use MoonSync — the data is more accurate than wha
 
 ### Without Sync My Shelf
 
-If "Sync my shelf" is not enabled, MoonSync falls back to discovering books from Moon Reader's cache files (`.an` and `.po` files). Metadata like descriptions, genres, covers, and author names are fetched from **Google Books** and **Open Library**. This works well but depends on an internet connection and the accuracy of those services.
+If "Sync my shelf" is not enabled, MoonSync falls back to discovering books from Moon Reader's cache files (`.an` and `.po` files). Metadata like descriptions, genres, covers, and author names are fetched from **[Hardcover](https://hardcover.app)** (if enabled, recommended), **Google Books**, or **Open Library**. This works well but depends on an internet connection.
 
 ### What Gets Synced
 
@@ -113,17 +113,23 @@ For the richest and most accurate metadata, configure Moon Reader as follows:
 
 With all three enabled, every book in your Moon Reader library will appear in Obsidian with full metadata, even if you haven't made any highlights yet.
 
-### Setting Up Hardcover Sync
+### Setting Up Hardcover
 
-MoonSync can automatically sync your reading progress to [Hardcover.app](https://hardcover.app), a modern book tracking platform.
+MoonSync integrates with [Hardcover.app](https://hardcover.app), a modern book tracking platform. Even if you don't use Hardcover to track your reading, enabling it is **recommended** as it provides significantly better metadata than Google Books or Open Library — including more accurate titles, descriptions, genres, and cover images.
 
 1. Create a [Hardcover](https://hardcover.app) account if you don't have one
 2. Go to the [API Getting Started](https://docs.hardcover.app/api/getting-started/) page and get your bearer token
 3. In MoonSync settings, go to the **Hardcover** tab
-4. Enable Hardcover sync and paste your API token
+4. Enable Hardcover and paste your API token
 5. Click **Test** to verify the connection
 
-After each sync, MoonSync automatically updates your Hardcover library:
+#### Metadata Only (No Progress Sync)
+
+If you just want better metadata without syncing your reading progress to Hardcover, enable Hardcover and paste your token but turn **off** "Sync reading progress." MoonSync will use Hardcover as the primary metadata source for book titles, descriptions, genres, covers, and more — without updating your Hardcover library.
+
+#### With Progress Sync
+
+With "Sync reading progress" enabled, MoonSync also updates your Hardcover library after each sync:
 - **0% progress** → Want to Read
 - **1–98% progress** → Currently Reading
 - **99%+ progress** → Read
@@ -245,9 +251,10 @@ MoonSync automatically generates an index and base note to give you different wa
 - **Base File Name** - By default, the base note is titled `2. Base` so that it stays at the top of the list. You can change the name here.
 
 ### Hardcover Tab
-- **Enable Hardcover sync** - Turn on/off syncing to Hardcover after each MoonSync sync
-- **API token** - Your Hardcover bearer token
-- **Test connection** - Verify your token is working
+- **Enable Hardcover** - Use Hardcover as a metadata source and optionally sync reading progress. Recommended for all users — provides better titles, descriptions, genres, and covers than Google Books or Open Library
+- **API Token** - Your Hardcover bearer token
+- **Test Connection** - Verify your token is working
+- **Sync Reading Progress** - When enabled, MoonSync pushes your reading status and progress to your Hardcover library after each sync. Turn this off if you only want Hardcover for metadata
 
 ### About the Index and Base Notes
 
@@ -292,7 +299,7 @@ It also provides a library view that shows a breakdown of the following statisti
 ## Privacy & Security
 
 - **Read-only access**: MoonSync only reads from your sync folder. It never modifies your Moon Reader data.
-- **Local processing**: All data stays on your machine. When "Sync my shelf" is enabled, metadata is sourced entirely from your local sync data with no external API calls needed. External APIs (Google Books, Open Library) are only contacted as a fallback for missing metadata, and optionally for Hardcover sync (if enabled).
+- **Local processing**: All data stays on your machine. When "Sync my shelf" is enabled, metadata is sourced entirely from your local sync data with no external API calls needed. External APIs (Hardcover, Google Books, Open Library) are only contacted as a fallback for missing metadata or covers.
 - **Caching**: API responses are cached locally to minimize external requests.
 
 ## Troubleshooting
