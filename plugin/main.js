@@ -6349,25 +6349,19 @@ async function batchFetchBookInfo(books, concurrency = 5, onProgress, hardcoverT
   const results = /* @__PURE__ */ new Map();
   let booksToFallback = books;
   if (hardcoverToken) {
-    console.log(`MoonSync: Trying Hardcover batch search for ${books.length} books`);
     try {
       const { batchSearchHardcover: batchSearchHardcover2 } = await Promise.resolve().then(() => (init_hardcover(), hardcover_exports));
       const hcResults = await batchSearchHardcover2(books, hardcoverToken, onProgress);
-      console.log(`MoonSync: Hardcover found ${hcResults.size}/${books.length} books`);
       for (const [key, info] of hcResults) {
-        console.log(`MoonSync: Hardcover hit: "${key}" \u2014 id=${info.hardcoverId}, slug=${info.hardcoverSlug}, cover=${!!info.coverUrl}`);
         results.set(key, info);
       }
       booksToFallback = books.filter((b) => {
         const info = results.get(`${b.title}|${b.author}`);
         return !info || !info.coverUrl;
       });
-      console.log(`MoonSync: ${booksToFallback.length} books falling back to Google/OL`);
     } catch (error) {
       console.debug("MoonSync: Hardcover batch search failed, falling back", error);
     }
-  } else {
-    console.log("MoonSync: Hardcover token not provided, skipping Hardcover search");
   }
   if (booksToFallback.length === 0)
     return results;

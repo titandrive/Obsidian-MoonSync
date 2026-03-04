@@ -190,13 +190,10 @@ export async function batchFetchBookInfo(
 	// Batch search on Hardcover first (N searches + 1 hydration instead of 2N calls)
 	let booksToFallback = books;
 	if (hardcoverToken) {
-		console.log(`MoonSync: Trying Hardcover batch search for ${books.length} books`);
 		try {
 			const { batchSearchHardcover } = await import("./hardcover");
 			const hcResults = await batchSearchHardcover(books, hardcoverToken, onProgress);
-			console.log(`MoonSync: Hardcover found ${hcResults.size}/${books.length} books`);
 			for (const [key, info] of hcResults) {
-				console.log(`MoonSync: Hardcover hit: "${key}" — id=${info.hardcoverId}, slug=${info.hardcoverSlug}, cover=${!!info.coverUrl}`);
 				results.set(key, info);
 			}
 			// Fall back to Google/OL only for books Hardcover didn't find or had no cover
@@ -204,12 +201,9 @@ export async function batchFetchBookInfo(
 				const info = results.get(`${b.title}|${b.author}`);
 				return !info || !info.coverUrl;
 			});
-			console.log(`MoonSync: ${booksToFallback.length} books falling back to Google/OL`);
 		} catch (error) {
 			console.debug("MoonSync: Hardcover batch search failed, falling back", error);
 		}
-	} else {
-		console.log("MoonSync: Hardcover token not provided, skipping Hardcover search");
 	}
 
 	if (booksToFallback.length === 0) return results;
