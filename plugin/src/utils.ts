@@ -1,6 +1,18 @@
 import { MoonReaderHighlight } from "./types";
 
 /**
+ * Clean a string for external API searches by stripping filename artifacts.
+ * Keeps letters, numbers, spaces, single hyphens, and apostrophes.
+ */
+export function cleanForSearch(str: string): string {
+	return str
+		.replace(/-{2,}/g, " ")
+		.replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+/**
  * Escape special characters for YAML strings
  */
 export function escapeYaml(str: string): string {

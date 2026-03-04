@@ -42,6 +42,117 @@ var __publicField = (obj, key, value) => {
   return value;
 };
 
+// src/utils.ts
+function cleanForSearch(str) {
+  return str.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+}
+function escapeYaml(str) {
+  return str.replace(/"/g, '\\"').replace(/\n/g, " ");
+}
+function extractAuthorFromFilename(filename) {
+  const name = filename.replace(/\.[^.]+$/, "");
+  const dashIndex = name.lastIndexOf(" - ");
+  if (dashIndex === -1 || dashIndex === name.length - 3) {
+    return null;
+  }
+  return name.substring(dashIndex + 3).trim() || null;
+}
+function cleanDownloadFilename(title, currentAuthor) {
+  if (!title.includes(" -- "))
+    return { title, author: null };
+  const segments = title.split(" -- ").map((s) => s.trim());
+  const hasHash = segments.some((s) => /^[0-9a-f]{16,}$/i.test(s));
+  if (!hasHash)
+    return { title, author: null };
+  const cleanedTitle = segments[0].replace(/_/g, " ").trim();
+  const author = segments.length > 1 && !/^[0-9a-f]{16,}$/i.test(segments[1]) && !/^\d{4}$/.test(segments[1]) ? segments[1] : null;
+  return { title: cleanedTitle, author: !currentAuthor && author ? author : null };
+}
+function stripBracketPrefix(title) {
+  return title.replace(/^\[.*?\]\s*/, "").trim();
+}
+function stripAuthorSuffix(title, author) {
+  if (!author)
+    return title;
+  const dashIndex = title.lastIndexOf(" - ");
+  if (dashIndex <= 0)
+    return title;
+  const suffix = title.substring(dashIndex + 3).trim().toLowerCase();
+  const prefix = title.substring(0, dashIndex).trim().toLowerCase();
+  const authorLower = author.toLowerCase();
+  if (suffix.startsWith(authorLower) || authorLower.startsWith(suffix)) {
+    return title.substring(0, dashIndex).trim();
+  }
+  if (prefix === authorLower || authorLower.startsWith(prefix)) {
+    return title.substring(dashIndex + 3).trim();
+  }
+  return title;
+}
+function extractFrontmatter(content) {
+  if (!content.startsWith("---")) {
+    return null;
+  }
+  const endIndex = content.indexOf("---", 3);
+  if (endIndex === -1) {
+    return null;
+  }
+  return content.substring(3, endIndex);
+}
+function parseFrontmatterField(frontmatter, fieldName) {
+  const regex = new RegExp(`^${fieldName}:\\s*"?([^"\\n]+)"?`, "m");
+  const match = frontmatter.match(regex);
+  return match ? match[1].trim() : null;
+}
+function parseFrontmatter(content) {
+  const frontmatter = extractFrontmatter(content);
+  if (!frontmatter) {
+    return {
+      title: null,
+      author: null,
+      progress: null,
+      highlightsCount: null,
+      highlightsHash: null,
+      coverPath: null,
+      moonReaderPath: null,
+      lastRead: null,
+      lastSynced: null,
+      isManualNote: false,
+      hasCustomMetadata: false
+    };
+  }
+  const progressStr = parseFrontmatterField(frontmatter, "progress");
+  const highlightsCountStr = parseFrontmatterField(frontmatter, "highlights_count");
+  return {
+    title: parseFrontmatterField(frontmatter, "title"),
+    author: parseFrontmatterField(frontmatter, "author"),
+    progress: progressStr ? parseFloat(progressStr) : null,
+    highlightsCount: highlightsCountStr !== null ? parseInt(highlightsCountStr, 10) : null,
+    highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
+    coverPath: parseFrontmatterField(frontmatter, "cover"),
+    moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
+    lastRead: parseFrontmatterField(frontmatter, "last_read"),
+    lastSynced: parseFrontmatterField(frontmatter, "last_synced"),
+    isManualNote: /^manual_note:\s*true/m.test(frontmatter),
+    hasCustomMetadata: /^custom_metadata:\s*true/m.test(frontmatter)
+  };
+}
+function computeHighlightsHash(highlights, highlightSort = "position") {
+  if (highlights.length === 0)
+    return "";
+  const sorted = [...highlights].sort((a, b) => a.position - b.position);
+  const fingerprint = `sort:${highlightSort}|` + sorted.map((h) => `${h.position}:${h.timestamp}:${h.originalText.length}`).join("|");
+  let hash = 5381;
+  for (let i = 0; i < fingerprint.length; i++) {
+    hash = (hash << 5) + hash + fingerprint.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
+var init_utils = __esm({
+  "src/utils.ts"() {
+  }
+});
+
 // src/hardcover.ts
 var hardcover_exports = {};
 __export(hardcover_exports, {
@@ -54,9 +165,6 @@ __export(hardcover_exports, {
 });
 function escapeGraphQL(str) {
   return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
-}
-function cleanTitleForSearch(title) {
-  return title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
 }
 function titleMatchScore(candidate, search) {
   const c = candidate.toLowerCase();
@@ -321,8 +429,8 @@ async function batchSearchHardcover(books, token, onProgress) {
   const idToKeys = /* @__PURE__ */ new Map();
   for (let i = 0; i < books.length; i++) {
     const book = books[i];
-    const cleanTitle = cleanTitleForSearch(book.title);
-    const cleanAuthor = book.author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+    const cleanTitle = cleanForSearch(book.title);
+    const cleanAuthor = cleanForSearch(book.author);
     const key = `${book.title}|${book.author}`;
     let foundId = null;
     if (cleanAuthor) {
@@ -443,7 +551,7 @@ async function searchHardcoverBook(title, author, token, excludeId) {
   } catch (error) {
     console.debug("MoonSync: Hardcover title-only search failed", error);
   }
-  const cleanTitle = cleanTitleForSearch(title);
+  const cleanTitle = cleanForSearch(title);
   const match = await fullTextSearchForId(cleanTitle, author, token, excludeId);
   if (match) {
     let pages = null;
@@ -679,6 +787,7 @@ var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READIN
 var init_hardcover = __esm({
   "src/hardcover.ts"() {
     import_obsidian = require("obsidian");
+    init_utils();
     HARDCOVER_API = "https://api.hardcover.app/v1/graphql";
     STATUS_WANT_TO_READ = 1;
     STATUS_CURRENTLY_READING = 2;
@@ -6317,6 +6426,7 @@ var import_obsidian4 = require("obsidian");
 
 // src/covers.ts
 var import_obsidian3 = require("obsidian");
+init_utils();
 function pickBestTitleMatch(items, targetTitle, getTitle) {
   if (items.length === 1)
     return items[0];
@@ -6344,8 +6454,8 @@ async function fetchBookInfo(title, author, hardcoverToken) {
   if (dashIdx > 0) {
     titleForSearch = titleForSearch.substring(0, dashIdx);
   }
-  const cleanTitle = titleForSearch.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
-  const cleanAuthor = author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+  const cleanTitle = cleanForSearch(titleForSearch);
+  const cleanAuthor = cleanForSearch(author);
   let hardcoverResult = null;
   if (hardcoverToken) {
     try {
@@ -6712,111 +6822,8 @@ async function downloadAndResizeCover(url, maxWidth = 400, maxHeight = 600) {
   }
 }
 
-// src/utils.ts
-function escapeYaml(str) {
-  return str.replace(/"/g, '\\"').replace(/\n/g, " ");
-}
-function extractAuthorFromFilename(filename) {
-  const name = filename.replace(/\.[^.]+$/, "");
-  const dashIndex = name.lastIndexOf(" - ");
-  if (dashIndex === -1 || dashIndex === name.length - 3) {
-    return null;
-  }
-  return name.substring(dashIndex + 3).trim() || null;
-}
-function cleanDownloadFilename(title, currentAuthor) {
-  if (!title.includes(" -- "))
-    return { title, author: null };
-  const segments = title.split(" -- ").map((s) => s.trim());
-  const hasHash = segments.some((s) => /^[0-9a-f]{16,}$/i.test(s));
-  if (!hasHash)
-    return { title, author: null };
-  const cleanedTitle = segments[0].replace(/_/g, " ").trim();
-  const author = segments.length > 1 && !/^[0-9a-f]{16,}$/i.test(segments[1]) && !/^\d{4}$/.test(segments[1]) ? segments[1] : null;
-  return { title: cleanedTitle, author: !currentAuthor && author ? author : null };
-}
-function stripBracketPrefix(title) {
-  return title.replace(/^\[.*?\]\s*/, "").trim();
-}
-function stripAuthorSuffix(title, author) {
-  if (!author)
-    return title;
-  const dashIndex = title.lastIndexOf(" - ");
-  if (dashIndex <= 0)
-    return title;
-  const suffix = title.substring(dashIndex + 3).trim().toLowerCase();
-  const prefix = title.substring(0, dashIndex).trim().toLowerCase();
-  const authorLower = author.toLowerCase();
-  if (suffix.startsWith(authorLower) || authorLower.startsWith(suffix)) {
-    return title.substring(0, dashIndex).trim();
-  }
-  if (prefix === authorLower || authorLower.startsWith(prefix)) {
-    return title.substring(dashIndex + 3).trim();
-  }
-  return title;
-}
-function extractFrontmatter(content) {
-  if (!content.startsWith("---")) {
-    return null;
-  }
-  const endIndex = content.indexOf("---", 3);
-  if (endIndex === -1) {
-    return null;
-  }
-  return content.substring(3, endIndex);
-}
-function parseFrontmatterField(frontmatter, fieldName) {
-  const regex = new RegExp(`^${fieldName}:\\s*"?([^"\\n]+)"?`, "m");
-  const match = frontmatter.match(regex);
-  return match ? match[1].trim() : null;
-}
-function parseFrontmatter(content) {
-  const frontmatter = extractFrontmatter(content);
-  if (!frontmatter) {
-    return {
-      title: null,
-      author: null,
-      progress: null,
-      highlightsCount: null,
-      highlightsHash: null,
-      coverPath: null,
-      moonReaderPath: null,
-      lastRead: null,
-      lastSynced: null,
-      isManualNote: false,
-      hasCustomMetadata: false
-    };
-  }
-  const progressStr = parseFrontmatterField(frontmatter, "progress");
-  const highlightsCountStr = parseFrontmatterField(frontmatter, "highlights_count");
-  return {
-    title: parseFrontmatterField(frontmatter, "title"),
-    author: parseFrontmatterField(frontmatter, "author"),
-    progress: progressStr ? parseFloat(progressStr) : null,
-    highlightsCount: highlightsCountStr !== null ? parseInt(highlightsCountStr, 10) : null,
-    highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
-    coverPath: parseFrontmatterField(frontmatter, "cover"),
-    moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
-    lastRead: parseFrontmatterField(frontmatter, "last_read"),
-    lastSynced: parseFrontmatterField(frontmatter, "last_synced"),
-    isManualNote: /^manual_note:\s*true/m.test(frontmatter),
-    hasCustomMetadata: /^custom_metadata:\s*true/m.test(frontmatter)
-  };
-}
-function computeHighlightsHash(highlights, highlightSort = "position") {
-  if (highlights.length === 0)
-    return "";
-  const sorted = [...highlights].sort((a, b) => a.position - b.position);
-  const fingerprint = `sort:${highlightSort}|` + sorted.map((h) => `${h.position}:${h.timestamp}:${h.originalText.length}`).join("|");
-  let hash = 5381;
-  for (let i = 0; i < fingerprint.length; i++) {
-    hash = (hash << 5) + hash + fingerprint.charCodeAt(i);
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36);
-}
-
 // src/modal.ts
+init_utils();
 var SyncSummaryModal = class extends import_obsidian4.Modal {
   constructor(app, result, settings) {
     super(app);
@@ -7481,6 +7488,7 @@ var UpdateHardcoverModal = class extends import_obsidian4.Modal {
 var import_promises = require("fs/promises");
 var import_path2 = require("path");
 var import_zlib = require("zlib");
+init_utils();
 function normalizeBookTitle(title) {
   return title.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
 }
@@ -7725,6 +7733,7 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
 }
 
 // src/writer/markdown.ts
+init_utils();
 function generateBookNote(bookData, settings) {
   const { book, highlights, statistics, progress, currentChapter, lastReadTimestamp, coverPath, fetchedDescription, publishedDate, publisher, pageCount, genres, series, isbn10, isbn13, language } = bookData;
   const lines = [];
@@ -8070,6 +8079,7 @@ function setCachedInfo(cache, title, author, info) {
 
 // src/scanner.ts
 var import_obsidian6 = require("obsidian");
+init_utils();
 async function scanAllBookNotes(app, outputPath) {
   const books = [];
   const normalizedPath = (0, import_obsidian6.normalizePath)(outputPath);
@@ -8208,6 +8218,7 @@ function mergeBookLists(moonReaderBooks, scannedBooks) {
 }
 
 // src/sync.ts
+init_utils();
 init_hardcover();
 
 // src/parser/books-sync.ts
@@ -8361,6 +8372,7 @@ function getSqlJs() {
 }
 
 // src/enrichment.ts
+init_utils();
 var import_path6 = require("path");
 async function extractBackupStatistics(syncPath, wasmPath) {
   const backupDir = (0, import_path6.join)(syncPath, ".Moon+", "Backup");
@@ -9667,6 +9679,7 @@ function parseManualExport(content) {
 }
 
 // main.ts
+init_utils();
 init_hardcover();
 var import_path7 = require("path");
 var import_fs2 = require("fs");

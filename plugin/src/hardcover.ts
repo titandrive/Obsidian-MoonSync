@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
 import { BookInfoResult } from "./covers";
+import { cleanForSearch } from "./utils";
 
 const HARDCOVER_API = "https://api.hardcover.app/v1/graphql";
 
@@ -36,17 +37,6 @@ function escapeGraphQL(str: string): string {
 	return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
 }
 
-/**
- * Clean a title for external API searches by stripping filename artifacts.
- * Keeps letters, numbers, spaces, single hyphens, and apostrophes.
- */
-function cleanTitleForSearch(title: string): string {
-	return title
-		.replace(/-{2,}/g, " ")
-		.replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
-}
 
 /**
  * Score how well a candidate title matches a search title.
@@ -386,8 +376,8 @@ export async function batchSearchHardcover(
 	// Step 1: Search for each book's ID — try exact match first, then full-text search
 	for (let i = 0; i < books.length; i++) {
 		const book = books[i];
-		const cleanTitle = cleanTitleForSearch(book.title);
-		const cleanAuthor = book.author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+		const cleanTitle = cleanForSearch(book.title);
+		const cleanAuthor = cleanForSearch(book.author);
 		const key = `${book.title}|${book.author}`;
 		let foundId: number | null = null;
 
@@ -532,7 +522,7 @@ async function searchHardcoverBook(
 	}
 
 	// Fallback to full-text search with progressive queries and title-similarity scoring
-	const cleanTitle = cleanTitleForSearch(title);
+	const cleanTitle = cleanForSearch(title);
 	const match = await fullTextSearchForId(cleanTitle, author, token, excludeId);
 	if (match) {
 		// Fetch slug and pages for the matched book

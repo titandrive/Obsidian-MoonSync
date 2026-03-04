@@ -1,4 +1,5 @@
 import { requestUrl } from "obsidian";
+import { cleanForSearch } from "./utils";
 
 export interface BookInfoResult {
 	title: string | null;
@@ -88,8 +89,8 @@ export async function fetchBookInfo(
 	if (dashIdx > 0) {
 		titleForSearch = titleForSearch.substring(0, dashIdx);
 	}
-	const cleanTitle = titleForSearch.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
-	const cleanAuthor = author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+	const cleanTitle = cleanForSearch(titleForSearch);
+	const cleanAuthor = cleanForSearch(author);
 
 	// Try Hardcover first when enabled (richer metadata and covers)
 	let hardcoverResult: BookInfoResult | null = null;
@@ -173,17 +174,6 @@ export async function fetchBookInfo(
 		series,
 		language
 	};
-}
-
-/**
- * Legacy function for backward compatibility
- */
-export async function fetchBookCover(
-	title: string,
-	author: string
-): Promise<{ url: string | null; source: "openlibrary" | "googlebooks" | null }> {
-	const result = await fetchBookInfo(title, author);
-	return { url: result.coverUrl, source: result.source };
 }
 
 /**
