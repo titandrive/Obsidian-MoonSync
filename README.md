@@ -314,7 +314,7 @@ Not currently. MoonSync requires access to Moon Reader's sync folder on disk (vi
 <details>
 <summary>Does MoonSync work with Moon Reader Free or only Pro?</summary>
 
-Both. However, Moon Reader Pro offers more highlight colors and better sync options, which MoonSync can take advantage of.
+Cloud sync (Dropbox, WebDAV, FTP) is a Pro-only feature, so automatic syncing requires Moon Reader Pro. With the free version, you can still use MoonSync's manual export/import workflow — share your highlights as text from Moon Reader and import them via the "Import Note" command.
 </details>
 
 <details>
@@ -360,22 +360,12 @@ You can toggle individual sections on or off (description, progress, covers, hig
 </details>
 
 <details>
-<summary>Can I move my book notes to a different folder?</summary>
-
-Yes. Change the "Output Folder" in MoonSync settings. Existing notes won't be moved automatically — you'll need to move them yourself, and MoonSync will find them in the new location on the next sync.
-</details>
-
-<details>
 <summary>How does Hardcover progress sync work?</summary>
 
-MoonSync maps your Moon Reader progress to Hardcover statuses: 0% → Want to Read, 1–98% → Currently Reading, 99%+ → Read. Progress only updates when it has increased, so it won't accidentally reset your progress.
+Whenever your progress changes in Moon Reader, and Hardcover sync is enabled, MoonSync will push that to Hardcover. Your progress (percent and page number) will therefore be reflected in Hardcover. It will also update the reading status of books (Currently Reading, Read) automatically. When a book changes from 0%, it will update the status from Want to Read to Currently Reading. When the progress gest to 99%, the book will be marked as Read. 
+
 </details>
 
-<details>
-<summary>Is my Hardcover API token stored securely?</summary>
-
-Your token is stored locally in Obsidian's plugin settings, the same way other Obsidian plugins store credentials. It is never sent anywhere other than the Hardcover API.
-</details>
 
 ## Privacy & Security
 
