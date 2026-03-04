@@ -92,12 +92,17 @@ export async function fetchBookInfo(
 	const cleanAuthor = author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
 
 	// Try Hardcover first when enabled (richer metadata and covers)
+	let hardcoverResult: BookInfoResult | null = null;
 	if (hardcoverToken) {
 		try {
 			const { searchHardcoverBooks } = await import("./hardcover");
 			const results = await searchHardcoverBooks(cleanTitle, cleanAuthor, hardcoverToken, 1);
-			if (results.length > 0 && results[0].coverUrl) {
-				return results[0];
+			if (results.length > 0) {
+				hardcoverResult = results[0];
+				// If Hardcover has a cover, return immediately — no need for fallback
+				if (hardcoverResult.coverUrl) {
+					return hardcoverResult;
+				}
 			}
 		} catch (error) {
 			console.debug("MoonSync: Hardcover fetch failed, falling back to Google/OpenLibrary", error);
@@ -109,6 +114,12 @@ export async function fetchBookInfo(
 		fetchFromOpenLibrary(cleanTitle, cleanAuthor),
 		fetchFromGoogleBooks(cleanTitle, cleanAuthor),
 	]);
+
+	// If Hardcover found the book but had no cover, keep Hardcover metadata and only take the cover
+	if (hardcoverResult) {
+		hardcoverResult.coverUrl = openLibraryResult.coverUrl || googleBooksResult.coverUrl;
+		return hardcoverResult;
+	}
 
 	// Prefer Open Library for covers (higher resolution)
 	const coverUrl = openLibraryResult.coverUrl || googleBooksResult.coverUrl;

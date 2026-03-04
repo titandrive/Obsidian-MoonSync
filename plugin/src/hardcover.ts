@@ -18,6 +18,8 @@ export interface HardcoverSyncResult {
 	notFoundTitles: string[];
 	/** Map of title -> slug for all successfully synced books (for building URLs) */
 	slugs: Map<string, string>;
+	/** Map of title -> pages for all successfully synced books (for caching) */
+	pages: Map<string, number>;
 }
 
 interface HardcoverBookMatch {
@@ -47,7 +49,96 @@ function cleanTitleForSearch(title: string): string {
 }
 
 /**
- * Rate limiter — ensures at least 1100ms between requests (under 60 req/min)
+ * Score how well a candidate title matches a search title.
+ * 3 = exact match, 2 = one starts with the other, 1 = one contains the other, 0 = no match
+ */
+function titleMatchScore(candidate: string, search: string): number {
+	const c = candidate.toLowerCase();
+	const s = search.toLowerCase();
+	if (c === s) return 3;
+	if (c.startsWith(s) || s.startsWith(c)) return 2;
+	if (c.includes(s) || s.includes(c)) return 1;
+	return 0;
+}
+
+/**
+ * Build progressive search queries from a title.
+ * Tries: full title, first half of words (drops subtitles), main word (skips articles).
+ */
+function buildSearchQueries(cleanTitle: string, cleanAuthor: string): string[] {
+	const queries = [cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle];
+	const words = cleanTitle.split(" ");
+	if (words.length > 3) {
+		const halfQuery = words.slice(0, Math.ceil(words.length / 2)).join(" ");
+		if (!queries.includes(halfQuery)) queries.push(halfQuery);
+		const skipArticles = ["a", "an", "the"];
+		const startIdx = skipArticles.includes(words[0].toLowerCase()) ? 1 : 0;
+		const mainWord = words[startIdx] || words[0];
+		if (!queries.includes(mainWord)) queries.push(mainWord);
+	}
+	return queries;
+}
+
+const MIN_USERS_THRESHOLD = 10;
+
+/**
+ * Full-text search for a book ID on Hardcover with progressive queries and title-similarity scoring.
+ * Shared by both batchSearchHardcover and searchHardcoverBook.
+ */
+async function fullTextSearchForId(
+	cleanTitle: string,
+	cleanAuthor: string,
+	token: string,
+	excludeId?: number
+): Promise<{ id: number; title: string } | null> {
+	const searchQueries = buildSearchQueries(cleanTitle, cleanAuthor);
+	const normalizedSearch = cleanTitle.toLowerCase();
+
+	for (const query of searchQueries) {
+		try {
+			await rateLimitDelay();
+			const searchQuery = `{
+				search(
+					query: "${escapeGraphQL(query)}",
+					query_type: "books",
+					per_page: 5
+				) {
+					results
+				}
+			}`;
+			const result = await hardcoverGraphQL(searchQuery, token);
+			const hits = result.data?.search?.results?.hits;
+			if (hits && Array.isArray(hits) && hits.length > 0) {
+				const validHits = hits.filter((h: any) => h.document);
+				if (validHits.length > 0) {
+					// Pick the best title match, breaking ties by popularity
+					const doc = validHits.reduce((best: any, h: any) => {
+						const bestTitle = (best?.title || "").toLowerCase();
+						const hTitle = (h.document?.title || "").toLowerCase();
+						const bestScore = titleMatchScore(bestTitle, normalizedSearch);
+						const hScore = titleMatchScore(hTitle, normalizedSearch);
+						if (hScore !== bestScore) return hScore > bestScore ? h.document : best;
+						return (h.document?.users_count || 0) > (best?.users_count || 0) ? h.document : best;
+					}, validHits[0].document);
+					const docId = doc?.id ? parseInt(String(doc.id), 10) : null;
+					const docUsers = doc?.users_count || 0;
+					console.debug(`MoonSync: Hardcover search "${query}" — best hit: id=${docId}, users=${docUsers}, title="${doc?.title}"`);
+					if (docId && (!excludeId || docId !== excludeId) && docUsers >= MIN_USERS_THRESHOLD) {
+						return { id: docId, title: doc.title || cleanTitle };
+					} else {
+						console.debug(`MoonSync: Hardcover search "${query}" — rejected (users=${docUsers}, need >= ${MIN_USERS_THRESHOLD})`);
+					}
+				}
+			}
+		} catch (error) {
+			console.debug("MoonSync: Hardcover text search failed", error);
+		}
+	}
+	return null;
+}
+
+/**
+ * Rate limiter — ensures at least 500ms between requests (under 120 req/min)
  */
 let lastRequestTime = 0;
 async function rateLimitDelay(): Promise<void> {
@@ -339,43 +430,10 @@ export async function batchSearchHardcover(
 			} catch { /* try next approach */ }
 		}
 
-		// Fallback: full-text search, pick best title match
+		// Fallback: full-text search with progressive queries and title-similarity scoring
 		if (!foundId) {
-			try {
-				await rateLimitDelay();
-				const query = cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle;
-				const searchQuery = `{
-					search(
-						query: "${escapeGraphQL(query)}",
-						query_type: "books",
-						per_page: 5
-					) {
-						results
-					}
-				}`;
-				const searchResult = await hardcoverGraphQL(searchQuery, token);
-				const hits = searchResult.data?.search?.results?.hits;
-				if (hits && Array.isArray(hits) && hits.length > 0) {
-					const validHits = hits.filter((h: any) => h.document);
-					if (validHits.length > 0) {
-						// Pick the best title match, breaking ties by popularity
-						const normalizedSearch = cleanTitle.toLowerCase();
-						const doc = validHits.reduce((best: any, h: any) => {
-							const bestTitle = (best?.title || "").toLowerCase();
-							const hTitle = (h.document?.title || "").toLowerCase();
-							const bestScore = bestTitle === normalizedSearch ? 3
-								: bestTitle.startsWith(normalizedSearch) || normalizedSearch.startsWith(bestTitle) ? 2
-								: bestTitle.includes(normalizedSearch) || normalizedSearch.includes(bestTitle) ? 1 : 0;
-							const hScore = hTitle === normalizedSearch ? 3
-								: hTitle.startsWith(normalizedSearch) || normalizedSearch.startsWith(hTitle) ? 2
-								: hTitle.includes(normalizedSearch) || normalizedSearch.includes(hTitle) ? 1 : 0;
-							if (hScore !== bestScore) return hScore > bestScore ? h.document : best;
-							return (h.document?.users_count || 0) > (best?.users_count || 0) ? h.document : best;
-						}, validHits[0].document);
-						foundId = doc?.id ? parseInt(String(doc.id), 10) : null;
-					}
-				}
-			} catch { /* skip */ }
+			const match = await fullTextSearchForId(cleanTitle, cleanAuthor, token);
+			if (match) foundId = match.id;
 		}
 
 		if (foundId) {
@@ -473,69 +531,22 @@ async function searchHardcoverBook(
 		console.debug("MoonSync: Hardcover title-only search failed", error);
 	}
 
-	// Fallback to full-text search with cleaned title (strip filename artifacts)
+	// Fallback to full-text search with progressive queries and title-similarity scoring
 	const cleanTitle = cleanTitleForSearch(title);
-
-	// Try full cleaned title first, then progressively shorter versions
-	const searchQueries = [cleanTitle];
-	const words = cleanTitle.split(" ");
-	if (words.length > 3) {
-		// Try first half of words (drops subtitles/series names)
-		searchQueries.push(words.slice(0, Math.ceil(words.length / 2)).join(" "));
-		// Try just the main title word(s) — skip leading articles
-		const skipArticles = ["a", "an", "the"];
-		const startIdx = skipArticles.includes(words[0].toLowerCase()) ? 1 : 0;
-		const mainWord = words[startIdx] || words[0];
-		if (!searchQueries.includes(mainWord)) {
-			searchQueries.push(mainWord);
-		}
-	}
-
-	for (const searchTitle of searchQueries) {
+	const match = await fullTextSearchForId(cleanTitle, author, token, excludeId);
+	if (match) {
+		// Fetch slug and pages for the matched book
+		let pages: number | null = null;
+		let slug = "";
 		try {
 			await rateLimitDelay();
-			const searchQuery = `{
-				search(
-					query: "${escapeGraphQL(searchTitle)}",
-					query_type: "books",
-					per_page: 5
-				) {
-					results
-				}
-			}`;
-			const result = await hardcoverGraphQL(searchQuery, token);
-			const hits = result.data?.search?.results?.hits;
-			if (hits && Array.isArray(hits) && hits.length > 0) {
-				// Prefer the most popular result (most users)
-				const validHits = hits.filter((h: any) => h.document);
-				const doc = validHits.length > 0
-					? validHits.reduce((best: any, h: any) => {
-						return (h.document?.users_count || 0) > (best?.users_count || 0) ? h.document : best;
-					}, validHits[0].document)
-					: null;
-				const docId = doc?.id ? parseInt(String(doc.id), 10) : null;
-				const docUsers = doc?.users_count || 0;
-				console.debug(`MoonSync: Hardcover search "${searchTitle}" — best hit: id=${docId}, users=${docUsers}, title="${doc?.title}"`);
-				if (docId && (!excludeId || docId !== excludeId) && docUsers >= 10) {
-					// Good quality result — use it
-					let pages: number | null = null;
-					let slug = "";
-					try {
-						await rateLimitDelay();
-						const detailQuery = `{ books(where: { id: { _eq: ${docId} } }, limit: 1) { slug pages } }`;
-						const detailResult = await hardcoverGraphQL(detailQuery, token);
-						const detail = detailResult.data?.books?.[0];
-						pages = detail?.pages ?? null;
-						slug = detail?.slug ?? "";
-					} catch { /* ignore */ }
-					return { id: docId, title: doc.title || title, slug, pages };
-				} else {
-					console.debug(`MoonSync: Hardcover search "${searchTitle}" — rejected (users=${docUsers}, need >= 10)`);
-				}
-			}
-		} catch (error) {
-			console.debug("MoonSync: Hardcover text search failed", error);
-		}
+			const detailQuery = `{ books(where: { id: { _eq: ${match.id} } }, limit: 1) { slug pages } }`;
+			const detailResult = await hardcoverGraphQL(detailQuery, token);
+			const detail = detailResult.data?.books?.[0];
+			pages = detail?.pages ?? null;
+			slug = detail?.slug ?? "";
+		} catch { /* ignore */ }
+		return { id: match.id, title: match.title, slug, pages };
 	}
 
 	return null;
@@ -845,6 +856,8 @@ export interface HardcoverSyncItem {
 	author: string;
 	progress: number | null;
 	hardcoverId: number | null; // from frontmatter
+	cachedSlug?: string; // from cache, avoids re-fetching
+	cachedPages?: number; // from cache, avoids re-fetching
 }
 
 /**
@@ -864,6 +877,7 @@ export async function syncBooksToHardcover(
 		updatedTitles: [],
 		notFoundTitles: [],
 		slugs: new Map(),
+		pages: new Map(),
 	};
 
 	// Only process books that have progress data
@@ -880,8 +894,8 @@ export async function syncBooksToHardcover(
 
 		try {
 			let hardcoverId = book.hardcoverId;
-			let pages: number | null = null;
-			let slug = "";
+			let pages: number | null = book.cachedPages ?? null;
+			let slug = book.cachedSlug ?? "";
 
 			// Search for book if no ID from frontmatter
 			if (hardcoverId === null) {
@@ -896,14 +910,14 @@ export async function syncBooksToHardcover(
 					result.notFoundTitles.push(book.title);
 					continue;
 				}
-			} else {
-				// Have ID but need pages and slug for progress update
+			} else if (!slug) {
+				// Have ID but need pages and slug — only fetch if not cached
 				try {
 					await rateLimitDelay();
 					const detailQuery = `{ books(where: { id: { _eq: ${hardcoverId} } }, limit: 1) { slug pages } }`;
 					const detailResult = await hardcoverGraphQL(detailQuery, token);
 					const detail = detailResult.data?.books?.[0];
-					pages = detail?.pages ?? null;
+					pages = detail?.pages ?? pages;
 					slug = detail?.slug ?? "";
 				} catch { /* ignore */ }
 			}
@@ -931,6 +945,7 @@ export async function syncBooksToHardcover(
 				result.booksUpdated++;
 				result.updatedTitles.push(book.title);
 				if (slug) result.slugs.set(book.title, slug);
+				if (pages) result.pages.set(book.title, pages);
 			} else {
 				result.booksFailed++;
 			}

@@ -12,6 +12,9 @@ export interface CachedBookInfo {
 	language: string | null;
 	source: "hardcover" | "googlebooks" | "openlibrary" | null;
 	hardcoverAttempted?: boolean; // true if Hardcover was tried (even if it fell back)
+	hardcoverId?: number; // Hardcover book ID for progress sync
+	hardcoverSlug?: string; // Hardcover URL slug
+	hardcoverPages?: number; // Page count from Hardcover edition (for progress calculation)
 	fetchedAt: number; // timestamp
 }
 

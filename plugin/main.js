@@ -58,6 +58,79 @@ function escapeGraphQL(str) {
 function cleanTitleForSearch(title) {
   return title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
 }
+function titleMatchScore(candidate, search) {
+  const c = candidate.toLowerCase();
+  const s = search.toLowerCase();
+  if (c === s)
+    return 3;
+  if (c.startsWith(s) || s.startsWith(c))
+    return 2;
+  if (c.includes(s) || s.includes(c))
+    return 1;
+  return 0;
+}
+function buildSearchQueries(cleanTitle, cleanAuthor) {
+  const queries = [cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle];
+  const words = cleanTitle.split(" ");
+  if (words.length > 3) {
+    const halfQuery = words.slice(0, Math.ceil(words.length / 2)).join(" ");
+    if (!queries.includes(halfQuery))
+      queries.push(halfQuery);
+    const skipArticles = ["a", "an", "the"];
+    const startIdx = skipArticles.includes(words[0].toLowerCase()) ? 1 : 0;
+    const mainWord = words[startIdx] || words[0];
+    if (!queries.includes(mainWord))
+      queries.push(mainWord);
+  }
+  return queries;
+}
+async function fullTextSearchForId(cleanTitle, cleanAuthor, token, excludeId) {
+  var _a, _b, _c;
+  const searchQueries = buildSearchQueries(cleanTitle, cleanAuthor);
+  const normalizedSearch = cleanTitle.toLowerCase();
+  for (const query of searchQueries) {
+    try {
+      await rateLimitDelay();
+      const searchQuery = `{
+				search(
+					query: "${escapeGraphQL(query)}",
+					query_type: "books",
+					per_page: 5
+				) {
+					results
+				}
+			}`;
+      const result = await hardcoverGraphQL(searchQuery, token);
+      const hits = (_c = (_b = (_a = result.data) == null ? void 0 : _a.search) == null ? void 0 : _b.results) == null ? void 0 : _c.hits;
+      if (hits && Array.isArray(hits) && hits.length > 0) {
+        const validHits = hits.filter((h) => h.document);
+        if (validHits.length > 0) {
+          const doc = validHits.reduce((best, h) => {
+            var _a2, _b2;
+            const bestTitle = ((best == null ? void 0 : best.title) || "").toLowerCase();
+            const hTitle = (((_a2 = h.document) == null ? void 0 : _a2.title) || "").toLowerCase();
+            const bestScore = titleMatchScore(bestTitle, normalizedSearch);
+            const hScore = titleMatchScore(hTitle, normalizedSearch);
+            if (hScore !== bestScore)
+              return hScore > bestScore ? h.document : best;
+            return (((_b2 = h.document) == null ? void 0 : _b2.users_count) || 0) > ((best == null ? void 0 : best.users_count) || 0) ? h.document : best;
+          }, validHits[0].document);
+          const docId = (doc == null ? void 0 : doc.id) ? parseInt(String(doc.id), 10) : null;
+          const docUsers = (doc == null ? void 0 : doc.users_count) || 0;
+          console.debug(`MoonSync: Hardcover search "${query}" \u2014 best hit: id=${docId}, users=${docUsers}, title="${doc == null ? void 0 : doc.title}"`);
+          if (docId && (!excludeId || docId !== excludeId) && docUsers >= MIN_USERS_THRESHOLD) {
+            return { id: docId, title: doc.title || cleanTitle };
+          } else {
+            console.debug(`MoonSync: Hardcover search "${query}" \u2014 rejected (users=${docUsers}, need >= ${MIN_USERS_THRESHOLD})`);
+          }
+        }
+      }
+    } catch (error) {
+      console.debug("MoonSync: Hardcover text search failed", error);
+    }
+  }
+  return null;
+}
 async function rateLimitDelay() {
   const now = Date.now();
   const elapsed = now - lastRequestTime;
@@ -243,7 +316,7 @@ async function searchHardcoverBooks(title, author, token, maxResults = 10) {
   }
 }
 async function batchSearchHardcover(books, token, onProgress) {
-  var _a, _b, _c, _d, _e, _f, _g;
+  var _a, _b, _c, _d;
   const results = /* @__PURE__ */ new Map();
   const idToKeys = /* @__PURE__ */ new Map();
   for (let i = 0; i < books.length; i++) {
@@ -290,39 +363,9 @@ async function batchSearchHardcover(books, token, onProgress) {
       }
     }
     if (!foundId) {
-      try {
-        await rateLimitDelay();
-        const query = cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle;
-        const searchQuery = `{
-					search(
-						query: "${escapeGraphQL(query)}",
-						query_type: "books",
-						per_page: 5
-					) {
-						results
-					}
-				}`;
-        const searchResult = await hardcoverGraphQL(searchQuery, token);
-        const hits = (_g = (_f = (_e = searchResult.data) == null ? void 0 : _e.search) == null ? void 0 : _f.results) == null ? void 0 : _g.hits;
-        if (hits && Array.isArray(hits) && hits.length > 0) {
-          const validHits = hits.filter((h) => h.document);
-          if (validHits.length > 0) {
-            const normalizedSearch = cleanTitle.toLowerCase();
-            const doc = validHits.reduce((best, h) => {
-              var _a2, _b2;
-              const bestTitle = ((best == null ? void 0 : best.title) || "").toLowerCase();
-              const hTitle = (((_a2 = h.document) == null ? void 0 : _a2.title) || "").toLowerCase();
-              const bestScore = bestTitle === normalizedSearch ? 3 : bestTitle.startsWith(normalizedSearch) || normalizedSearch.startsWith(bestTitle) ? 2 : bestTitle.includes(normalizedSearch) || normalizedSearch.includes(bestTitle) ? 1 : 0;
-              const hScore = hTitle === normalizedSearch ? 3 : hTitle.startsWith(normalizedSearch) || normalizedSearch.startsWith(hTitle) ? 2 : hTitle.includes(normalizedSearch) || normalizedSearch.includes(hTitle) ? 1 : 0;
-              if (hScore !== bestScore)
-                return hScore > bestScore ? h.document : best;
-              return (((_b2 = h.document) == null ? void 0 : _b2.users_count) || 0) > ((best == null ? void 0 : best.users_count) || 0) ? h.document : best;
-            }, validHits[0].document);
-            foundId = (doc == null ? void 0 : doc.id) ? parseInt(String(doc.id), 10) : null;
-          }
-        }
-      } catch (e) {
-      }
+      const match = await fullTextSearchForId(cleanTitle, cleanAuthor, token);
+      if (match)
+        foundId = match.id;
     }
     if (foundId) {
       idToKeys.set(foundId, key);
@@ -348,7 +391,7 @@ async function batchSearchHardcover(books, token, onProgress) {
   return results;
 }
 async function searchHardcoverBook(title, author, token, excludeId) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
   try {
     await rateLimitDelay();
     const exactQuery = `{
@@ -401,60 +444,20 @@ async function searchHardcoverBook(title, author, token, excludeId) {
     console.debug("MoonSync: Hardcover title-only search failed", error);
   }
   const cleanTitle = cleanTitleForSearch(title);
-  const searchQueries = [cleanTitle];
-  const words = cleanTitle.split(" ");
-  if (words.length > 3) {
-    searchQueries.push(words.slice(0, Math.ceil(words.length / 2)).join(" "));
-    const skipArticles = ["a", "an", "the"];
-    const startIdx = skipArticles.includes(words[0].toLowerCase()) ? 1 : 0;
-    const mainWord = words[startIdx] || words[0];
-    if (!searchQueries.includes(mainWord)) {
-      searchQueries.push(mainWord);
-    }
-  }
-  for (const searchTitle of searchQueries) {
+  const match = await fullTextSearchForId(cleanTitle, author, token, excludeId);
+  if (match) {
+    let pages = null;
+    let slug = "";
     try {
       await rateLimitDelay();
-      const searchQuery = `{
-				search(
-					query: "${escapeGraphQL(searchTitle)}",
-					query_type: "books",
-					per_page: 5
-				) {
-					results
-				}
-			}`;
-      const result = await hardcoverGraphQL(searchQuery, token);
-      const hits = (_i = (_h = (_g = result.data) == null ? void 0 : _g.search) == null ? void 0 : _h.results) == null ? void 0 : _i.hits;
-      if (hits && Array.isArray(hits) && hits.length > 0) {
-        const validHits = hits.filter((h) => h.document);
-        const doc = validHits.length > 0 ? validHits.reduce((best, h) => {
-          var _a2;
-          return (((_a2 = h.document) == null ? void 0 : _a2.users_count) || 0) > ((best == null ? void 0 : best.users_count) || 0) ? h.document : best;
-        }, validHits[0].document) : null;
-        const docId = (doc == null ? void 0 : doc.id) ? parseInt(String(doc.id), 10) : null;
-        const docUsers = (doc == null ? void 0 : doc.users_count) || 0;
-        console.debug(`MoonSync: Hardcover search "${searchTitle}" \u2014 best hit: id=${docId}, users=${docUsers}, title="${doc == null ? void 0 : doc.title}"`);
-        if (docId && (!excludeId || docId !== excludeId) && docUsers >= 10) {
-          let pages = null;
-          let slug = "";
-          try {
-            await rateLimitDelay();
-            const detailQuery = `{ books(where: { id: { _eq: ${docId} } }, limit: 1) { slug pages } }`;
-            const detailResult = await hardcoverGraphQL(detailQuery, token);
-            const detail = (_k = (_j = detailResult.data) == null ? void 0 : _j.books) == null ? void 0 : _k[0];
-            pages = (_l = detail == null ? void 0 : detail.pages) != null ? _l : null;
-            slug = (_m = detail == null ? void 0 : detail.slug) != null ? _m : "";
-          } catch (e) {
-          }
-          return { id: docId, title: doc.title || title, slug, pages };
-        } else {
-          console.debug(`MoonSync: Hardcover search "${searchTitle}" \u2014 rejected (users=${docUsers}, need >= 10)`);
-        }
-      }
-    } catch (error) {
-      console.debug("MoonSync: Hardcover text search failed", error);
+      const detailQuery = `{ books(where: { id: { _eq: ${match.id} } }, limit: 1) { slug pages } }`;
+      const detailResult = await hardcoverGraphQL(detailQuery, token);
+      const detail = (_h = (_g = detailResult.data) == null ? void 0 : _g.books) == null ? void 0 : _h[0];
+      pages = (_i = detail == null ? void 0 : detail.pages) != null ? _i : null;
+      slug = (_j = detail == null ? void 0 : detail.slug) != null ? _j : "";
+    } catch (e) {
     }
+    return { id: match.id, title: match.title, slug, pages };
   }
   return null;
 }
@@ -595,14 +598,15 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
   return { success: true, badEdition: false };
 }
 async function syncBooksToHardcover(books, token, onProgress) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e, _f;
   const result = {
     booksUpdated: 0,
     booksFailed: 0,
     newIds: [],
     updatedTitles: [],
     notFoundTitles: [],
-    slugs: /* @__PURE__ */ new Map()
+    slugs: /* @__PURE__ */ new Map(),
+    pages: /* @__PURE__ */ new Map()
   };
   const booksToSync = books.filter((b) => b.progress !== null);
   if (booksToSync.length === 0) {
@@ -615,8 +619,8 @@ async function syncBooksToHardcover(books, token, onProgress) {
     onProgress == null ? void 0 : onProgress(`Hardcover: ${book.title} (${i + 1}/${booksToSync.length})`);
     try {
       let hardcoverId = book.hardcoverId;
-      let pages = null;
-      let slug = "";
+      let pages = (_a = book.cachedPages) != null ? _a : null;
+      let slug = (_b = book.cachedSlug) != null ? _b : "";
       if (hardcoverId === null) {
         const match = await searchHardcoverBook(book.title, book.author, token);
         if (match) {
@@ -629,14 +633,14 @@ async function syncBooksToHardcover(books, token, onProgress) {
           result.notFoundTitles.push(book.title);
           continue;
         }
-      } else {
+      } else if (!slug) {
         try {
           await rateLimitDelay();
           const detailQuery = `{ books(where: { id: { _eq: ${hardcoverId} } }, limit: 1) { slug pages } }`;
           const detailResult = await hardcoverGraphQL(detailQuery, token);
-          const detail = (_b = (_a = detailResult.data) == null ? void 0 : _a.books) == null ? void 0 : _b[0];
-          pages = (_c = detail == null ? void 0 : detail.pages) != null ? _c : null;
-          slug = (_d = detail == null ? void 0 : detail.slug) != null ? _d : "";
+          const detail = (_d = (_c = detailResult.data) == null ? void 0 : _c.books) == null ? void 0 : _d[0];
+          pages = (_e = detail == null ? void 0 : detail.pages) != null ? _e : pages;
+          slug = (_f = detail == null ? void 0 : detail.slug) != null ? _f : "";
         } catch (e) {
         }
       }
@@ -659,6 +663,8 @@ async function syncBooksToHardcover(books, token, onProgress) {
         result.updatedTitles.push(book.title);
         if (slug)
           result.slugs.set(book.title, slug);
+        if (pages)
+          result.pages.set(book.title, pages);
       } else {
         result.booksFailed++;
       }
@@ -669,7 +675,7 @@ async function syncBooksToHardcover(books, token, onProgress) {
   }
   return result;
 }
-var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ;
+var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, MIN_USERS_THRESHOLD, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ;
 var init_hardcover = __esm({
   "src/hardcover.ts"() {
     import_obsidian = require("obsidian");
@@ -677,6 +683,7 @@ var init_hardcover = __esm({
     STATUS_WANT_TO_READ = 1;
     STATUS_CURRENTLY_READING = 2;
     STATUS_READ = 3;
+    MIN_USERS_THRESHOLD = 10;
     lastRequestTime = 0;
     USER_BOOK_PARTS = `
 	id
@@ -6339,12 +6346,16 @@ async function fetchBookInfo(title, author, hardcoverToken) {
   }
   const cleanTitle = titleForSearch.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
   const cleanAuthor = author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+  let hardcoverResult = null;
   if (hardcoverToken) {
     try {
       const { searchHardcoverBooks: searchHardcoverBooks2 } = await Promise.resolve().then(() => (init_hardcover(), hardcover_exports));
       const results = await searchHardcoverBooks2(cleanTitle, cleanAuthor, hardcoverToken, 1);
-      if (results.length > 0 && results[0].coverUrl) {
-        return results[0];
+      if (results.length > 0) {
+        hardcoverResult = results[0];
+        if (hardcoverResult.coverUrl) {
+          return hardcoverResult;
+        }
       }
     } catch (error) {
       console.debug("MoonSync: Hardcover fetch failed, falling back to Google/OpenLibrary", error);
@@ -6354,6 +6365,10 @@ async function fetchBookInfo(title, author, hardcoverToken) {
     fetchFromOpenLibrary(cleanTitle, cleanAuthor),
     fetchFromGoogleBooks(cleanTitle, cleanAuthor)
   ]);
+  if (hardcoverResult) {
+    hardcoverResult.coverUrl = openLibraryResult.coverUrl || googleBooksResult.coverUrl;
+    return hardcoverResult;
+  }
   const coverUrl = openLibraryResult.coverUrl || googleBooksResult.coverUrl;
   const description = googleBooksResult.description || openLibraryResult.description;
   const fetchedTitle = googleBooksResult.title || openLibraryResult.title;
@@ -8738,7 +8753,9 @@ async function syncFromMoonReader(app, settings, wasmPath) {
             title: b.book.title,
             author: b.book.author,
             progress: b.progress,
-            hardcoverId
+            hardcoverId,
+            cachedSlug: cachedBook == null ? void 0 : cachedBook.hardcoverSlug,
+            cachedPages: cachedBook == null ? void 0 : cachedBook.hardcoverPages
           });
           if (hcLookupTitle !== b.book.title) {
             titleToFilename.set(b.book.title, hcLookupTitle);
@@ -8792,10 +8809,36 @@ ${fields.join("\n")}
               console.debug(`MoonSync: Failed to write hardcover data for "${title}"`, err);
             }
           }
+          for (const item of hardcoverItems) {
+            const cachedEntry = getCachedInfo(cache, item.title, item.author);
+            if (cachedEntry) {
+              const slug = hcResult.slugs.get(item.title) || newSlugMap.get(item.title);
+              const pages = hcResult.pages.get(item.title);
+              const newId = newIdMap.get(item.title);
+              let modified = false;
+              if (slug && cachedEntry.hardcoverSlug !== slug) {
+                cachedEntry.hardcoverSlug = slug;
+                modified = true;
+              }
+              if (pages && cachedEntry.hardcoverPages !== pages) {
+                cachedEntry.hardcoverPages = pages;
+                modified = true;
+              }
+              if (newId && cachedEntry.hardcoverId !== newId) {
+                cachedEntry.hardcoverId = newId;
+                modified = true;
+              }
+              if (modified)
+                cacheModified = true;
+            }
+          }
         }
       } catch (error) {
         console.debug("MoonSync: Hardcover sync failed", error);
       }
+    }
+    if (cacheModified) {
+      await saveCache(app, outputPath, cache);
     }
     if (settings.showIndex) {
       const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
@@ -9050,6 +9093,15 @@ async function buildTitleCache(app, outputPath) {
   return cache;
 }
 var SIMILARITY_THRESHOLD = 0.8;
+function updateTitleCacheAfterRename(titleCache, oldPath, newPath, newTitle) {
+  const idx = titleCache.findIndex((e) => e.filePath === oldPath);
+  if (idx !== -1) {
+    titleCache[idx].filePath = newPath;
+    if (newTitle) {
+      titleCache[idx].normalizedTitle = normalizeBookTitle2(newTitle);
+    }
+  }
+}
 async function findExistingFile(app, outputPath, preferredFilename, bookTitle, titleCache, previousTitle = null) {
   const preferredPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${preferredFilename}.md`);
   if (await app.vault.adapter.exists(preferredPath)) {
@@ -9061,6 +9113,7 @@ async function findExistingFile(app, outputPath, preferredFilename, bookTitle, t
     if (oldPath !== preferredPath && await app.vault.adapter.exists(oldPath)) {
       try {
         await app.vault.adapter.rename(oldPath, preferredPath);
+        updateTitleCacheAfterRename(titleCache, oldPath, preferredPath, bookTitle);
         console.debug(`MoonSync: Renamed "${oldFilename}.md" \u2192 "${preferredFilename}.md"`);
         return preferredPath;
       } catch (e) {
@@ -9083,6 +9136,7 @@ async function findExistingFile(app, outputPath, preferredFilename, bookTitle, t
     if (bestMatch.path !== preferredPath) {
       try {
         await app.vault.adapter.rename(bestMatch.path, preferredPath);
+        updateTitleCacheAfterRename(titleCache, bestMatch.path, preferredPath, bookTitle);
         return preferredPath;
       } catch (e) {
         return bestMatch.path;
@@ -9117,7 +9171,9 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       series: prefetchedBookInfo.series,
       language: prefetchedBookInfo.language,
       source: prefetchedBookInfo.source,
-      hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken)
+      hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken),
+      hardcoverId: prefetchedBookInfo.hardcoverId,
+      hardcoverSlug: prefetchedBookInfo.hardcoverSlug ? prefetchedBookInfo.hardcoverSlug : void 0
     });
     cacheModified = true;
   }
@@ -9267,7 +9323,9 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
         series: bookInfo.series,
         language: bookInfo.language,
         source: bookInfo.source,
-        hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken)
+        hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken),
+        hardcoverId: bookInfo.hardcoverId,
+        hardcoverSlug: bookInfo.hardcoverSlug ? bookInfo.hardcoverSlug : void 0
       });
       cacheModified = true;
     }
@@ -9298,6 +9356,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       if (fileExists && !await app.vault.adapter.exists(newFilePath)) {
         try {
           await app.vault.adapter.rename(filePath, newFilePath);
+          updateTitleCacheAfterRename(titleCache, filePath, newFilePath, bookData.book.title);
           console.debug(`MoonSync: Renamed "${filename}.md" \u2192 "${newFilename}.md"`);
           filePath = newFilePath;
         } catch (e) {

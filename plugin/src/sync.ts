@@ -315,6 +315,8 @@ export async function syncFromMoonReader(
 						author: b.book.author,
 						progress: b.progress,
 						hardcoverId,
+						cachedSlug: cachedBook?.hardcoverSlug,
+						cachedPages: cachedBook?.hardcoverPages,
 					});
 					// Track the correct filename for write-back (may differ from Moon Reader title)
 					if (hcLookupTitle !== b.book.title) {
@@ -370,10 +372,38 @@ export async function syncFromMoonReader(
 							console.debug(`MoonSync: Failed to write hardcover data for "${title}"`, err);
 						}
 					}
+				// Write back slug/pages to metadata cache so future syncs skip the detail fetch
+					for (const item of hardcoverItems) {
+						const cachedEntry = getCachedInfo(cache, item.title, item.author);
+						if (cachedEntry) {
+							const slug = hcResult.slugs.get(item.title) || newSlugMap.get(item.title);
+							const pages = hcResult.pages.get(item.title);
+							const newId = newIdMap.get(item.title);
+							let modified = false;
+							if (slug && cachedEntry.hardcoverSlug !== slug) {
+								cachedEntry.hardcoverSlug = slug;
+								modified = true;
+							}
+							if (pages && cachedEntry.hardcoverPages !== pages) {
+								cachedEntry.hardcoverPages = pages;
+								modified = true;
+							}
+							if (newId && cachedEntry.hardcoverId !== newId) {
+								cachedEntry.hardcoverId = newId;
+								modified = true;
+							}
+							if (modified) cacheModified = true;
+						}
+					}
 				}
 			} catch (error) {
 				console.debug("MoonSync: Hardcover sync failed", error);
 			}
+		}
+
+		// Save cache again if Hardcover sync modified it
+		if (cacheModified) {
+			await saveCache(app, outputPath, cache);
 		}
 
 		// Update index note if enabled
@@ -773,6 +803,24 @@ async function buildTitleCache(app: App, outputPath: string): Promise<TitleCache
 const SIMILARITY_THRESHOLD = 0.80;
 
 /**
+ * Update the title cache after a file rename to prevent stale entries
+ */
+function updateTitleCacheAfterRename(
+	titleCache: TitleCacheEntry[],
+	oldPath: string,
+	newPath: string,
+	newTitle?: string
+): void {
+	const idx = titleCache.findIndex(e => e.filePath === oldPath);
+	if (idx !== -1) {
+		titleCache[idx].filePath = newPath;
+		if (newTitle) {
+			titleCache[idx].normalizedTitle = normalizeBookTitle(newTitle);
+		}
+	}
+}
+
+/**
  * Find existing file with fuzzy matching using pre-built title cache
  * Returns the actual file path if found, otherwise returns the preferred path
  */
@@ -798,6 +846,7 @@ async function findExistingFile(
 		if (oldPath !== preferredPath && await app.vault.adapter.exists(oldPath)) {
 			try {
 				await app.vault.adapter.rename(oldPath, preferredPath);
+				updateTitleCacheAfterRename(titleCache, oldPath, preferredPath, bookTitle);
 				console.debug(`MoonSync: Renamed "${oldFilename}.md" → "${preferredFilename}.md"`);
 				return preferredPath;
 			} catch {
@@ -829,6 +878,7 @@ async function findExistingFile(
 			// Found a match with different filename - rename to preferred filename
 			try {
 				await app.vault.adapter.rename(bestMatch.path, preferredPath);
+				updateTitleCacheAfterRename(titleCache, bestMatch.path, preferredPath, bookTitle);
 				return preferredPath;
 			} catch {
 				return bestMatch.path;
@@ -903,6 +953,8 @@ async function processBook(
 			language: prefetchedBookInfo.language,
 			source: prefetchedBookInfo.source,
 			hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken),
+			hardcoverId: prefetchedBookInfo.hardcoverId,
+			hardcoverSlug: prefetchedBookInfo.hardcoverSlug ? prefetchedBookInfo.hardcoverSlug : undefined,
 		});
 		cacheModified = true;
 	}
@@ -1102,6 +1154,8 @@ async function processBook(
 				language: bookInfo.language,
 				source: bookInfo.source,
 				hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken),
+				hardcoverId: bookInfo.hardcoverId,
+				hardcoverSlug: bookInfo.hardcoverSlug ? bookInfo.hardcoverSlug : undefined,
 			});
 			cacheModified = true;
 		}
@@ -1139,6 +1193,7 @@ async function processBook(
 			if (fileExists && !(await app.vault.adapter.exists(newFilePath))) {
 				try {
 					await app.vault.adapter.rename(filePath, newFilePath);
+					updateTitleCacheAfterRename(titleCache, filePath, newFilePath, bookData.book.title);
 					console.debug(`MoonSync: Renamed "${filename}.md" → "${newFilename}.md"`);
 					filePath = newFilePath;
 				} catch {
