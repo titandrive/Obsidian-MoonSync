@@ -13,7 +13,6 @@ Sync your reading highlights, notes, and progress from Moon+ Reader to **Obsidia
 - **Highlight Colors** — Preserve Moon Reader highlight colors as styled callouts
 - **File Watcher** — Automatically sync when Moon Reader cache files change (ideal for always-on servers)
 - **Smart Updates** — Only syncs when highlights or progress actually change
-- **Offline First** — When Moon Reader's "Sync my shelf" is enabled, book metadata (title, author, description, genres, series) is sourced locally from your sync data. Cover images and supplemental metadata (publisher, page count, etc.) may still be fetched from Google Books and Open Library if not available locally
 
 ## How It Works
 
@@ -25,7 +24,7 @@ Moon Reader syncs your reading data to the cloud (Dropbox, WebDAV, or FTP). Moon
 
 For the best experience, enable **"Sync books across devices"** (also called "Sync my shelf") in Moon Reader's sync settings. This creates a `books.sync` file that contains your full Moon Reader library with rich metadata.
 
-When enabled, MoonSync gets the following data **entirely offline**, without any API calls:
+When enabled, MoonSync gets the following data locally from your sync folder:
 
 | Data | Source |
 |---|---|
@@ -299,7 +298,7 @@ It also provides a library view that shows a breakdown of the following statisti
 ## Privacy & Security
 
 - **Read-only access**: MoonSync only reads from your sync folder. It never modifies your Moon Reader data.
-- **Local processing**: All data stays on your machine. When "Sync my shelf" is enabled, metadata is sourced entirely from your local sync data with no external API calls needed. External APIs (Hardcover, Google Books, Open Library) are only contacted as a fallback for missing metadata or covers.
+- **Local processing**: All data stays on your machine. Highlights and reading progress are read locally from your sync folder. Metadata and covers are fetched from external APIs (Hardcover, Google Books, Open Library) and cached locally.
 - **Caching**: API responses are cached locally to minimize external requests.
 
 ## Troubleshooting
