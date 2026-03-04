@@ -19,7 +19,7 @@ export default class MoonSyncPlugin extends Plugin {
 	private isSyncing = false;
 
 	async onload() {
-		console.log("MoonSync: BUILD 2026-02-23-A loaded");
+		console.log("MoonSync: BUILD 2026-03-03-B loaded");
 		await this.loadSettings();
 
 		// Add settings tab

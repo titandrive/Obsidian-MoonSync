@@ -6,7 +6,7 @@ import { fetchBookInfo, downloadCover, batchFetchBookInfo, BookInfoResult } from
 import { MoonSyncSettings, BookData } from "./types";
 import { loadCache, saveCache, getCachedInfo, setCachedInfo, BookInfoCache } from "./cache";
 import { scanAllBookNotes, mergeBookLists } from "./scanner";
-import { computeHighlightsHash, parseFrontmatter, parseFrontmatterField, extractFrontmatter, escapeYaml } from "./utils";
+import { computeHighlightsHash, parseFrontmatter, parseFrontmatterField, extractFrontmatter, escapeYaml, extractAuthorFromFilename, stripAuthorSuffix } from "./utils";
 import { syncBooksToHardcover, HardcoverSyncItem } from "./hardcover";
 import { enrichBooksWithSyncData } from "./enrichment";
 import { getLocalCover } from "./parser/local-covers";
@@ -145,17 +145,22 @@ export async function syncFromMoonReader(
 			// Folder doesn't exist, use empty set
 		}
 
+		// Fill empty authors from filename pattern ("Title - Author.ext")
+		// and strip author suffix from titles derived from filenames
+		for (const bookData of booksWithHighlights) {
+			if (!bookData.book.author && bookData.book.filename) {
+				const filenameAuthor = extractAuthorFromFilename(bookData.book.filename);
+				if (filenameAuthor) {
+					bookData.book.author = filenameAuthor;
+					bookData.book.title = stripAuthorSuffix(bookData.book.title, filenameAuthor);
+				}
+			}
+		}
+
 		// Determine which books need API fetching
 		const booksToFetch: Array<{ title: string; author: string }> = [];
 		for (let i = 0; i < booksWithHighlights.length; i++) {
 			const bookData = booksWithHighlights[i];
-
-			// Skip API fetch if enrichment provided sufficient metadata and cover is available
-			if (booksWithSufficientMetadata.has(i)) {
-				const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-				const hasCover = existingCoversSet.has(coverFilename) || !!bookData.book.coverFile;
-				if (hasCover) continue;
-			}
 
 			const cachedInfo = getCachedInfo(cache, bookData.book.title, bookData.book.author);
 			const hasAttemptedFetch = cachedInfo && (
@@ -163,10 +168,31 @@ export async function syncFromMoonReader(
 				cachedInfo.publisher !== undefined &&
 				cachedInfo.pageCount !== undefined
 			);
-			const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-			const hasCover = existingCoversSet.has(coverFilename) || !!bookData.book.coverFile;
 
-			if (!hasCover && !hasAttemptedFetch) {
+			// Re-fetch if Hardcover is enabled but was never attempted
+			// Only for books actually fetched from another API (not placeholder entries)
+			const needsHardcoverRefetch = hasAttemptedFetch &&
+				settings.hardcoverEnabled && settings.hardcoverToken &&
+				cachedInfo!.source !== null && cachedInfo!.source !== "hardcover" &&
+				!cachedInfo!.hardcoverAttempted;
+
+			// Always fetch if Hardcover needs to be tried, even if enrichment was sufficient
+			if (needsHardcoverRefetch) {
+				booksToFetch.push({ title: bookData.book.title, author: bookData.book.author });
+				continue;
+			}
+
+			// Skip API fetch if enrichment provided sufficient metadata and cover is available
+			// But don't skip if Hardcover is enabled and hasn't been attempted yet
+			const hardcoverPending = settings.hardcoverEnabled && settings.hardcoverToken &&
+				cachedInfo?.hardcoverAttempted !== true;
+			if (booksWithSufficientMetadata.has(i) && !hardcoverPending) {
+				const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
+				const hasCover = existingCoversSet.has(coverFilename) || !!bookData.book.coverFile;
+				if (hasCover) continue;
+			}
+
+			if (!hasAttemptedFetch || hardcoverPending) {
 				booksToFetch.push({ title: bookData.book.title, author: bookData.book.author });
 			}
 		}
@@ -177,8 +203,8 @@ export async function syncFromMoonReader(
 		}
 		const hardcoverToken = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : undefined;
 		const prefetchedInfo = booksToFetch.length > 0
-			? await batchFetchBookInfo(booksToFetch, 5, (done, total) => {
-				progressNotice.setMessage(`MoonSync: Fetching metadata (${done}/${total})...`);
+			? await batchFetchBookInfo(booksToFetch, 5, (done, total, title) => {
+				progressNotice.setMessage(`MoonSync: Fetching metadata (${done}/${total})${title ? ` — ${title}` : ""}...`);
 			}, hardcoverToken)
 			: new Map<string, BookInfoResult>();
 
@@ -241,19 +267,24 @@ export async function syncFromMoonReader(
 			await saveCache(app, outputPath, cache);
 		}
 
-		// Sync to Hardcover if enabled — sync changed books + books needing migration
-		if (settings.hardcoverEnabled && settings.hardcoverToken) {
+		// Sync reading progress to Hardcover if enabled
+		if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
 			try {
 				progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
 				console.debug(`MoonSync: Hardcover sync starting — ${changedBookTitles.size} changed books, ${booksWithHighlights.length} total books`);
 				const hardcoverItems: HardcoverSyncItem[] = [];
+				const titleToFilename = new Map<string, string>();
 				for (const b of booksWithHighlights) {
 					if (b.progress === null) {
 						console.debug(`MoonSync: Hardcover skipping "${b.book.title}" — no progress data`);
 						continue;
 					}
 					// Read hardcover_id and last-synced progress from frontmatter
-					const filename = generateFilename(b.book.title);
+					// Use cached Hardcover title for file lookup (file may have been renamed)
+					const cachedBook = getCachedInfo(cache, b.book.title, b.book.author);
+					const hcLookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title)
+						? cachedBook.title : b.book.title;
+					const filename = generateFilename(hcLookupTitle);
 					const filePath = normalizePath(`${outputPath}/${filename}.md`);
 					let hardcoverId: number | null = null;
 					let lastSyncedProgress: string | null = null;
@@ -285,6 +316,10 @@ export async function syncFromMoonReader(
 						progress: b.progress,
 						hardcoverId,
 					});
+					// Track the correct filename for write-back (may differ from Moon Reader title)
+					if (hcLookupTitle !== b.book.title) {
+						titleToFilename.set(b.book.title, hcLookupTitle);
+					}
 				}
 
 				console.debug(`MoonSync: Hardcover ${hardcoverItems.length} books queued for sync`);
@@ -303,7 +338,8 @@ export async function syncFromMoonReader(
 					const progressMap = new Map(hardcoverItems.map(i => [i.title, i.progress]));
 					for (const title of hcResult.updatedTitles) {
 						try {
-							const fn = generateFilename(title);
+							const wbTitle = titleToFilename.get(title) || title;
+							const fn = generateFilename(wbTitle);
 							const fp = normalizePath(`${outputPath}/${fn}.md`);
 							if (await app.vault.adapter.exists(fp)) {
 								let content = await app.vault.adapter.read(fp);
@@ -818,50 +854,81 @@ async function processBook(
 	prefetchedInfo: Map<string, BookInfoResult> = new Map(),
 	titleCache: TitleCacheEntry[] = []
 ): Promise<boolean> {
-	// Store original title for cache key (before Google Books updates it)
+	// Store original title for cache key (before API updates it)
 	const originalTitle = bookData.book.title;
 	const originalAuthor = bookData.book.author;
 
-	const filename = generateFilename(bookData.book.title);
-	const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title, titleCache, bookData.previousTitle);
-	let cacheModified = false;
-
-	// Check cache first to determine if we need to fetch metadata
+	// Check cache first — if a curated source overrode the title, use that for file lookup
 	const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
+	const lookupTitle = (cachedInfo?.source === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle)
+		? cachedInfo.title
+		: bookData.book.title;
+	const filename = generateFilename(lookupTitle);
+	let filePath = await findExistingFile(app, outputPath, filename, lookupTitle, titleCache, bookData.previousTitle);
+	let cacheModified = false;
 
 	// Check if we've already attempted to fetch metadata
 	// Once we've tried fetching (core fields are !== undefined), don't keep trying
 	// Only check the original 3 fields — genres/series/language were added later
 	// and may be missing from older cache entries
-	const hasAttemptedFetch = cachedInfo && (
+	const hasAttemptedBasicFetch = cachedInfo && (
 		cachedInfo.publishedDate !== undefined &&
 		cachedInfo.publisher !== undefined &&
 		cachedInfo.pageCount !== undefined
 	);
 
+	// If Hardcover is enabled but was never attempted, re-fetch to give it a chance
+	// Only for books actually fetched from another API (not placeholder entries)
+	const hasAttemptedFetch = hasAttemptedBasicFetch && !(
+		settings.hardcoverEnabled && settings.hardcoverToken &&
+		cachedInfo!.source !== null && cachedInfo!.source !== "hardcover" &&
+		!cachedInfo!.hardcoverAttempted
+	);
+
+	// If this book was pre-fetched (e.g. for Hardcover re-fetch), apply results to cache now.
+	// This ensures the cache is updated even if processBook returns early (e.g. 0-highlight books).
+	const prefetchKey = `${originalTitle}|${originalAuthor}`;
+	const prefetchedBookInfo = prefetchedInfo.get(prefetchKey);
+	if (prefetchedBookInfo) {
+		const isCurated = prefetchedBookInfo.source === "hardcover";
+		setCachedInfo(cache, originalTitle, originalAuthor, {
+			title: (isCurated && prefetchedBookInfo.title) ? prefetchedBookInfo.title : originalTitle,
+			description: prefetchedBookInfo.description,
+			author: prefetchedBookInfo.author,
+			publishedDate: prefetchedBookInfo.publishedDate,
+			publisher: prefetchedBookInfo.publisher,
+			pageCount: prefetchedBookInfo.pageCount,
+			genres: prefetchedBookInfo.genres,
+			series: prefetchedBookInfo.series,
+			language: prefetchedBookInfo.language,
+			source: prefetchedBookInfo.source,
+			hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken),
+		});
+		cacheModified = true;
+	}
+
 	// Check if book has changed (compare highlights hash and progress)
 	const existingData = await getExistingBookData(app, filePath);
 	const fileExists = existingData !== null;
-
 	// Handle books with 0 highlights
 	if (bookData.highlights.length === 0) {
 		if (!fileExists) {
 			// No file and no highlights — nothing to do unless tracking is on
 			if (!settings.trackBooksWithoutHighlights) {
 				result.booksSkipped++;
-				return false;
+				return cacheModified;
 			}
 		} else if (settings.trackBooksWithoutHighlights) {
 			// Keep note — skip if already cleaned up, otherwise fall through to update
 			if (existingData.highlightsCount === 0) {
 				result.booksSkipped++;
-				return false;
+				return cacheModified;
 			}
 		} else if (hasUserNotes(existingData.fullContent!)) {
 			// User has custom My Notes content — skip if already cleaned up, otherwise update
 			if (existingData.highlightsCount === 0) {
 				result.booksSkipped++;
-				return false;
+				return cacheModified;
 			}
 		} else {
 			// No tracking, no custom content — delete the note entirely
@@ -870,7 +937,7 @@ async function processBook(
 				await app.vault.trash(file, false);
 				result.booksDeleted++;
 			}
-			return false;
+			return cacheModified;
 		}
 	}
 
@@ -890,11 +957,11 @@ async function processBook(
 
 
 		// Only skip if: nothing changed AND we've already attempted to fetch metadata
-		// Once we've tried fetching once, don't keep retrying if data isn't available
-		if (highlightsUnchanged && progressUnchanged && lastReadUnchanged && hasAttemptedFetch) {
+		// Don't skip if this book was prefetched (it was selected for a reason, e.g. Hardcover)
+		if (highlightsUnchanged && progressUnchanged && lastReadUnchanged && hasAttemptedFetch && !prefetchedBookInfo) {
 			// Book hasn't changed and we have complete cached data, skip
 			result.booksSkipped++;
-			return false;
+			return cacheModified;
 		}
 	}
 
@@ -922,35 +989,41 @@ async function processBook(
 		}
 
 		if (cachedInfo) {
-			// Use cached data — only fill fields not already set by enrichment
-			if (cachedInfo.description && !bookData.fetchedDescription) {
+			// Curated sources (Hardcover) can override epub metadata;
+			// other sources only fill empty fields
+			const isCurated = cachedInfo.source === "hardcover";
+
+			if (isCurated && cachedInfo.title) {
+				bookData.book.title = cachedInfo.title;
+			}
+			if (cachedInfo.description && (isCurated || !bookData.fetchedDescription)) {
 				bookData.fetchedDescription = cachedInfo.description;
 			}
-			if (!bookData.book.author && cachedInfo.author) {
+			if (cachedInfo.author && (isCurated || !bookData.book.author)) {
 				bookData.book.author = cachedInfo.author;
 			}
-			if (cachedInfo.publishedDate && !bookData.publishedDate) {
+			if (cachedInfo.publishedDate && (isCurated || !bookData.publishedDate)) {
 				bookData.publishedDate = cachedInfo.publishedDate;
 			}
-			if (cachedInfo.publisher && !bookData.publisher) {
+			if (cachedInfo.publisher && (isCurated || !bookData.publisher)) {
 				bookData.publisher = cachedInfo.publisher;
 			}
-			if (cachedInfo.pageCount !== null && bookData.pageCount === null) {
+			if (cachedInfo.pageCount !== null && (isCurated || bookData.pageCount === null)) {
 				bookData.pageCount = cachedInfo.pageCount;
 			}
-			if (cachedInfo.genres && !bookData.genres) {
+			if (cachedInfo.genres && (isCurated || !bookData.genres)) {
 				bookData.genres = cachedInfo.genres;
 			}
-			if (cachedInfo.series && !bookData.series) {
+			if (cachedInfo.series && (isCurated || !bookData.series)) {
 				bookData.series = cachedInfo.series;
 			}
-			if (cachedInfo.language && !bookData.language) {
+			if (cachedInfo.language && (isCurated || !bookData.language)) {
 				bookData.language = cachedInfo.language;
 			}
 		}
 
 		// Use pre-fetched info if available; if not pre-fetched and still no cover, fetch now
-		const prefetchKey = `${bookData.book.title}|${bookData.book.author}`;
+		// Key uses original title/author since that's what booksToFetch used
 		let bookInfo = prefetchedInfo.get(prefetchKey);
 
 		// If book wasn't pre-fetched (e.g. local cover was expected but failed), fetch now
@@ -975,31 +1048,38 @@ async function processBook(
 				}
 			}
 
-			// Use fetched data — only fill fields not already set by enrichment
-			if (bookInfo.description && !bookData.fetchedDescription) {
+			// Curated sources (Hardcover) can override epub metadata;
+			// other sources (Google Books, OpenLibrary) only fill empty fields
+			const isCurated = bookInfo.source === "hardcover";
+
+			if (isCurated && bookInfo.title) {
+				bookData.book.title = bookInfo.title;
+			}
+
+			if (bookInfo.description && (isCurated || !bookData.fetchedDescription)) {
 				bookData.fetchedDescription = bookInfo.description;
 			}
 
-			if (!bookData.book.author && bookInfo.author) {
+			if (bookInfo.author && (isCurated || !bookData.book.author)) {
 				bookData.book.author = bookInfo.author;
 			}
 
-			if (bookInfo.publishedDate && !bookData.publishedDate) {
+			if (bookInfo.publishedDate && (isCurated || !bookData.publishedDate)) {
 				bookData.publishedDate = bookInfo.publishedDate;
 			}
-			if (bookInfo.publisher && !bookData.publisher) {
+			if (bookInfo.publisher && (isCurated || !bookData.publisher)) {
 				bookData.publisher = bookInfo.publisher;
 			}
-			if (bookInfo.pageCount !== null && bookData.pageCount === null) {
+			if (bookInfo.pageCount !== null && (isCurated || bookData.pageCount === null)) {
 				bookData.pageCount = bookInfo.pageCount;
 			}
-			if (bookInfo.genres && !bookData.genres) {
+			if (bookInfo.genres && (isCurated || !bookData.genres)) {
 				bookData.genres = bookInfo.genres;
 			}
-			if (bookInfo.series && !bookData.series) {
+			if (bookInfo.series && (isCurated || !bookData.series)) {
 				bookData.series = bookInfo.series;
 			}
-			if (bookInfo.language && !bookData.language) {
+			if (bookInfo.language && (isCurated || !bookData.language)) {
 				bookData.language = bookInfo.language;
 			}
 			if (bookInfo.hardcoverId && !bookData.hardcoverId) {
@@ -1009,9 +1089,9 @@ async function processBook(
 				bookData.hardcoverSlug = bookInfo.hardcoverSlug;
 			}
 
-			// Update cache
+			// Update cache — store API title if curated, otherwise keep original
 			setCachedInfo(cache, originalTitle, originalAuthor, {
-				title: originalTitle,
+				title: (isCurated && bookInfo.title) ? bookInfo.title : originalTitle,
 				description: bookInfo.description,
 				author: bookInfo.author,
 				publishedDate: bookInfo.publishedDate,
@@ -1020,6 +1100,8 @@ async function processBook(
 				genres: bookInfo.genres,
 				series: bookInfo.series,
 				language: bookInfo.language,
+				source: bookInfo.source,
+				hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken),
 			});
 			cacheModified = true;
 		}
@@ -1037,6 +1119,8 @@ async function processBook(
 				genres: bookData.genres,
 				series: bookData.series,
 				language: bookData.language,
+				source: null,
+				hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken),
 			});
 			cacheModified = true;
 		}
@@ -1044,6 +1128,25 @@ async function processBook(
 		// Set cover path if cover already exists
 		if (coverExists) {
 			bookData.coverPath = `moonsync-covers/${coverFilename}`;
+		}
+	}
+
+	// Rename file if title was corrected by a curated source
+	if (bookData.book.title !== originalTitle) {
+		const newFilename = generateFilename(bookData.book.title);
+		const newFilePath = normalizePath(`${outputPath}/${newFilename}.md`);
+		if (newFilePath !== filePath) {
+			if (fileExists && !(await app.vault.adapter.exists(newFilePath))) {
+				try {
+					await app.vault.adapter.rename(filePath, newFilePath);
+					console.debug(`MoonSync: Renamed "${filename}.md" → "${newFilename}.md"`);
+					filePath = newFilePath;
+				} catch {
+					// Rename failed, keep original path
+				}
+			} else if (!fileExists) {
+				filePath = newFilePath;
+			}
 		}
 	}
 
@@ -1066,9 +1169,14 @@ async function processBook(
 		await app.vault.adapter.write(filePath, markdown);
 		result.booksUpdated++;
 	} else {
-		// Create new file
-		await app.vault.create(filePath, markdown);
-		result.booksCreated++;
+		// Create new file (fall back to update if file was created by another path)
+		try {
+			await app.vault.create(filePath, markdown);
+			result.booksCreated++;
+		} catch {
+			await app.vault.adapter.write(filePath, markdown);
+			result.booksUpdated++;
+		}
 	}
 
 	return cacheModified;

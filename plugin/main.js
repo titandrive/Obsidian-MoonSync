@@ -213,22 +213,28 @@ async function hydrateHardcoverBooks(ids, token) {
   });
 }
 async function searchHardcoverBooks(title, author, token, maxResults = 10) {
-  var _a, _b;
+  var _a, _b, _c;
   const query = author ? `${title} ${author}` : title;
   try {
     await rateLimitDelay();
     const searchQuery = `{
 			search(
 				query: "${escapeGraphQL(query)}",
-				query_type: "Book",
+				query_type: "books",
 				per_page: ${maxResults}
 			) {
-				ids
+				results
 			}
 		}`;
     const searchResult = await hardcoverGraphQL(searchQuery, token);
-    const ids = (_b = (_a = searchResult.data) == null ? void 0 : _a.search) == null ? void 0 : _b.ids;
-    if (!ids || ids.length === 0)
+    const hits = (_c = (_b = (_a = searchResult.data) == null ? void 0 : _a.search) == null ? void 0 : _b.results) == null ? void 0 : _c.hits;
+    if (!hits || !Array.isArray(hits) || hits.length === 0)
+      return [];
+    const ids = hits.filter((h) => {
+      var _a2;
+      return (_a2 = h.document) == null ? void 0 : _a2.id;
+    }).map((h) => parseInt(String(h.document.id), 10));
+    if (ids.length === 0)
       return [];
     return await hydrateHardcoverBooks(ids, token);
   } catch (error) {
@@ -237,12 +243,12 @@ async function searchHardcoverBooks(title, author, token, maxResults = 10) {
   }
 }
 async function batchSearchHardcover(books, token, onProgress) {
-  var _a, _b;
+  var _a, _b, _c;
   const results = /* @__PURE__ */ new Map();
   const idToKeys = /* @__PURE__ */ new Map();
   for (let i = 0; i < books.length; i++) {
     const book = books[i];
-    const cleanTitle = book.title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+    const cleanTitle = cleanTitleForSearch(book.title);
     const cleanAuthor = book.author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
     const query = cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle;
     const key = `${book.title}|${book.author}`;
@@ -251,20 +257,30 @@ async function batchSearchHardcover(books, token, onProgress) {
       const searchQuery = `{
 				search(
 					query: "${escapeGraphQL(query)}",
-					query_type: "Book",
-					per_page: 1
+					query_type: "books",
+					per_page: 5
 				) {
-					ids
+					results
 				}
 			}`;
       const searchResult = await hardcoverGraphQL(searchQuery, token);
-      const ids = (_b = (_a = searchResult.data) == null ? void 0 : _a.search) == null ? void 0 : _b.ids;
-      if (ids && ids.length > 0) {
-        idToKeys.set(ids[0], key);
+      const hits = (_c = (_b = (_a = searchResult.data) == null ? void 0 : _a.search) == null ? void 0 : _b.results) == null ? void 0 : _c.hits;
+      if (hits && Array.isArray(hits) && hits.length > 0) {
+        const validHits = hits.filter((h) => h.document);
+        if (validHits.length > 0) {
+          const doc = validHits.reduce((best, h) => {
+            var _a2;
+            return (((_a2 = h.document) == null ? void 0 : _a2.users_count) || 0) > ((best == null ? void 0 : best.users_count) || 0) ? h.document : best;
+          }, validHits[0].document);
+          const docId = (doc == null ? void 0 : doc.id) ? parseInt(String(doc.id), 10) : null;
+          if (docId) {
+            idToKeys.set(docId, key);
+          }
+        }
       }
     } catch (e) {
     }
-    onProgress == null ? void 0 : onProgress(i + 1, books.length);
+    onProgress == null ? void 0 : onProgress(i + 1, books.length, book.title);
   }
   if (idToKeys.size === 0)
     return results;
@@ -5786,7 +5802,8 @@ var DEFAULT_SETTINGS = {
   trackBooksWithoutHighlights: true,
   highlightSort: "position",
   hardcoverEnabled: false,
-  hardcoverToken: ""
+  hardcoverToken: "",
+  hardcoverSyncProgress: true
 };
 function getCalloutType(colorInt) {
   const r = colorInt >> 16 & 255;
@@ -6131,7 +6148,16 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
           button.setButtonText("Test");
         })
       );
-      new import_obsidian2.Setting(container).setDesc("0% \u2192 Want to Read. 1\u201398% \u2192 Currently Reading. 99%+ \u2192 Read. No progress data \u2192 skipped.");
+      new import_obsidian2.Setting(container).setName("Sync reading progress").setDesc("Update reading status and progress on Hardcover after each sync. Disable to use Hardcover only for metadata (covers, descriptions, etc.).").addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.hardcoverSyncProgress).onChange(async (value) => {
+          this.plugin.settings.hardcoverSyncProgress = value;
+          await this.plugin.saveSettings();
+          this.display();
+        })
+      );
+      if (this.plugin.settings.hardcoverSyncProgress) {
+        new import_obsidian2.Setting(container).setDesc("0% \u2192 Want to Read. 1\u201398% \u2192 Currently Reading. 99%+ \u2192 Read. No progress data \u2192 skipped.");
+      }
     }
   }
   displayAboutTab(container) {
@@ -6259,7 +6285,12 @@ function pickBestTitleMatch(items, targetTitle, getTitle) {
   return bestItem;
 }
 async function fetchBookInfo(title, author, hardcoverToken) {
-  const cleanTitle = title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+  let titleForSearch = title.replace(/^\[.*?\]\s*/, "");
+  const dashIdx = titleForSearch.lastIndexOf(" - ");
+  if (dashIdx > 0) {
+    titleForSearch = titleForSearch.substring(0, dashIdx);
+  }
+  const cleanTitle = titleForSearch.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
   const cleanAuthor = author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
   if (hardcoverToken) {
     try {
@@ -6318,18 +6349,25 @@ async function batchFetchBookInfo(books, concurrency = 5, onProgress, hardcoverT
   const results = /* @__PURE__ */ new Map();
   let booksToFallback = books;
   if (hardcoverToken) {
+    console.log(`MoonSync: Trying Hardcover batch search for ${books.length} books`);
     try {
       const { batchSearchHardcover: batchSearchHardcover2 } = await Promise.resolve().then(() => (init_hardcover(), hardcover_exports));
       const hcResults = await batchSearchHardcover2(books, hardcoverToken, onProgress);
+      console.log(`MoonSync: Hardcover found ${hcResults.size}/${books.length} books`);
       for (const [key, info] of hcResults) {
-        if (info.coverUrl) {
-          results.set(key, info);
-        }
+        console.log(`MoonSync: Hardcover hit: "${key}" \u2014 id=${info.hardcoverId}, slug=${info.hardcoverSlug}, cover=${!!info.coverUrl}`);
+        results.set(key, info);
       }
-      booksToFallback = books.filter((b) => !results.has(`${b.title}|${b.author}`));
+      booksToFallback = books.filter((b) => {
+        const info = results.get(`${b.title}|${b.author}`);
+        return !info || !info.coverUrl;
+      });
+      console.log(`MoonSync: ${booksToFallback.length} books falling back to Google/OL`);
     } catch (error) {
       console.debug("MoonSync: Hardcover batch search failed, falling back", error);
     }
+  } else {
+    console.log("MoonSync: Hardcover token not provided, skipping Hardcover search");
   }
   if (booksToFallback.length === 0)
     return results;
@@ -6344,13 +6382,20 @@ async function batchFetchBookInfo(books, concurrency = 5, onProgress, hardcoverT
         running++;
         const key = `${book.title}|${book.author}`;
         fetchBookInfo(book.title, book.author).then((info) => {
-          results.set(key, info);
+          const existing = results.get(key);
+          if (existing && existing.source === "hardcover") {
+            if (info.coverUrl) {
+              existing.coverUrl = info.coverUrl;
+            }
+          } else {
+            results.set(key, info);
+          }
         }).catch((error) => {
           console.debug(`MoonSync: Failed to fetch info for "${book.title}"`, error);
         }).finally(() => {
           running--;
           completed++;
-          onProgress == null ? void 0 : onProgress(results.size, books.length);
+          onProgress == null ? void 0 : onProgress(results.size, books.length, book.title);
           if (completed === fallbackTotal) {
             resolve(results);
           } else {
@@ -6614,6 +6659,45 @@ async function downloadAndResizeCover(url, maxWidth = 400, maxHeight = 600) {
 // src/utils.ts
 function escapeYaml(str) {
   return str.replace(/"/g, '\\"').replace(/\n/g, " ");
+}
+function extractAuthorFromFilename(filename) {
+  const name = filename.replace(/\.[^.]+$/, "");
+  const dashIndex = name.lastIndexOf(" - ");
+  if (dashIndex === -1 || dashIndex === name.length - 3) {
+    return null;
+  }
+  return name.substring(dashIndex + 3).trim() || null;
+}
+function cleanDownloadFilename(title, currentAuthor) {
+  if (!title.includes(" -- "))
+    return { title, author: null };
+  const segments = title.split(" -- ").map((s) => s.trim());
+  const hasHash = segments.some((s) => /^[0-9a-f]{16,}$/i.test(s));
+  if (!hasHash)
+    return { title, author: null };
+  const cleanedTitle = segments[0].replace(/_/g, " ").trim();
+  const author = segments.length > 1 && !/^[0-9a-f]{16,}$/i.test(segments[1]) && !/^\d{4}$/.test(segments[1]) ? segments[1] : null;
+  return { title: cleanedTitle, author: !currentAuthor && author ? author : null };
+}
+function stripBracketPrefix(title) {
+  return title.replace(/^\[.*?\]\s*/, "").trim();
+}
+function stripAuthorSuffix(title, author) {
+  if (!author)
+    return title;
+  const dashIndex = title.lastIndexOf(" - ");
+  if (dashIndex <= 0)
+    return title;
+  const suffix = title.substring(dashIndex + 3).trim().toLowerCase();
+  const prefix = title.substring(0, dashIndex).trim().toLowerCase();
+  const authorLower = author.toLowerCase();
+  if (suffix.startsWith(authorLower) || authorLower.startsWith(suffix)) {
+    return title.substring(0, dashIndex).trim();
+  }
+  if (prefix === authorLower || authorLower.startsWith(prefix)) {
+    return title.substring(dashIndex + 3).trim();
+  }
+  return title;
 }
 function extractFrontmatter(content) {
   if (!content.startsWith("---")) {
@@ -7349,7 +7433,8 @@ function parseAnnotationFile(data, filename) {
     const decompressed = (0, import_zlib.inflateSync)(data).toString("utf-8");
     const lines = decompressed.split("\n");
     const baseName = filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)\.an$/i, "");
-    const bookTitle = normalizeBookTitle(baseName);
+    const cleaned = cleanDownloadFilename(normalizeBookTitle(baseName));
+    const bookTitle = cleaned.title;
     const highlights = [];
     let i = 0;
     while (i < lines.length && lines[i] !== "#") {
@@ -7451,7 +7536,8 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
         const data = await (0, import_promises.readFile)(filePath);
         const parsed = parseAnnotationFile(data, anFile);
         if (parsed) {
-          const actualTitle = (parsed.highlights.length > 0 ? (_a = parsed.highlights[0]) == null ? void 0 : _a.book : null) || parsed.bookTitle;
+          const highlightTitle = parsed.highlights.length > 0 ? (_a = parsed.highlights[0]) == null ? void 0 : _a.book : null;
+          const actualTitle = (highlightTitle ? cleanDownloadFilename(highlightTitle).title : null) || parsed.bookTitle;
           const key = normalizeKey(actualTitle);
           if (!bookDataMap.has(key)) {
             const book = {
@@ -7507,7 +7593,7 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
     for (const poFile of poFiles) {
       try {
         const baseName = poFile.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)\.po$/i, "");
-        let bookTitle = baseName;
+        let bookTitle = cleanDownloadFilename(baseName).title;
         if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
           bookTitle = bookTitle.replace(/_/g, " ");
         }
@@ -8264,7 +8350,12 @@ async function extractBackupStatistics(syncPath, wasmPath) {
 function enrichFromSyncEntry(bookData, entry) {
   if (entry.bookName && entry.bookName !== bookData.book.title && entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName)) {
     bookData.previousTitle = bookData.book.title;
-    bookData.book.title = entry.bookName;
+    const cleaned = cleanDownloadFilename(entry.bookName, entry.author);
+    const cleanedTitle = stripBracketPrefix(stripAuthorSuffix(cleaned.title, entry.author));
+    bookData.book.title = cleanedTitle;
+    if (cleaned.author && !bookData.book.author) {
+      bookData.book.author = cleaned.author;
+    }
   }
   if (!bookData.book.author && entry.author) {
     bookData.book.author = entry.author;
@@ -8331,18 +8422,28 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
     }
   }
   if (trackBooksWithoutHighlights && booksSyncMap) {
+    const existingTitles = /* @__PURE__ */ new Set();
+    for (const book of books) {
+      existingTitles.add(book.book.title.toLowerCase().trim());
+    }
     for (const [key, entry] of booksSyncMap) {
       if (matchedSyncKeys.has(key))
         continue;
       const parsed = entry.category ? parseCategoryField(entry.category) : null;
       const hasValidBookName = entry.bookName && entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName);
-      const title = hasValidBookName ? entry.bookName : entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
+      const rawTitle = hasValidBookName ? entry.bookName : entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
+      const cleaned = cleanDownloadFilename(rawTitle, entry.author || "");
+      const title = stripBracketPrefix(stripAuthorSuffix(cleaned.title, entry.author || ""));
+      const discoveredAuthor = cleaned.author || entry.author || "";
+      if (existingTitles.has(title.toLowerCase().trim()))
+        continue;
+      existingTitles.add(title.toLowerCase().trim());
       const bookData = {
         book: {
           id: 0,
           title,
           filename: entry.filename,
-          author: entry.author || "",
+          author: discoveredAuthor,
           description: entry.description || "",
           category: entry.category || "",
           thumbFile: "",
@@ -8465,20 +8566,33 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       }
     } catch (e) {
     }
+    for (const bookData of booksWithHighlights) {
+      if (!bookData.book.author && bookData.book.filename) {
+        const filenameAuthor = extractAuthorFromFilename(bookData.book.filename);
+        if (filenameAuthor) {
+          bookData.book.author = filenameAuthor;
+          bookData.book.title = stripAuthorSuffix(bookData.book.title, filenameAuthor);
+        }
+      }
+    }
     const booksToFetch = [];
     for (let i = 0; i < booksWithHighlights.length; i++) {
       const bookData = booksWithHighlights[i];
-      if (booksWithSufficientMetadata.has(i)) {
-        const coverFilename2 = `${generateFilename(bookData.book.title)}.jpg`;
-        const hasCover2 = existingCoversSet.has(coverFilename2) || !!bookData.book.coverFile;
-        if (hasCover2)
-          continue;
-      }
       const cachedInfo = getCachedInfo(cache, bookData.book.title, bookData.book.author);
       const hasAttemptedFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0);
-      const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-      const hasCover = existingCoversSet.has(coverFilename) || !!bookData.book.coverFile;
-      if (!hasCover && !hasAttemptedFetch) {
+      const needsHardcoverRefetch = hasAttemptedFetch && settings.hardcoverEnabled && settings.hardcoverToken && cachedInfo.source !== null && cachedInfo.source !== "hardcover" && !cachedInfo.hardcoverAttempted;
+      if (needsHardcoverRefetch) {
+        booksToFetch.push({ title: bookData.book.title, author: bookData.book.author });
+        continue;
+      }
+      const hardcoverPending = settings.hardcoverEnabled && settings.hardcoverToken && (cachedInfo == null ? void 0 : cachedInfo.hardcoverAttempted) !== true;
+      if (booksWithSufficientMetadata.has(i) && !hardcoverPending) {
+        const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
+        const hasCover = existingCoversSet.has(coverFilename) || !!bookData.book.coverFile;
+        if (hasCover)
+          continue;
+      }
+      if (!hasAttemptedFetch || hardcoverPending) {
         booksToFetch.push({ title: bookData.book.title, author: bookData.book.author });
       }
     }
@@ -8486,8 +8600,8 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       progressNotice.setMessage(`MoonSync: Fetching metadata (0/${booksToFetch.length})...`);
     }
     const hardcoverToken = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : void 0;
-    const prefetchedInfo = booksToFetch.length > 0 ? await batchFetchBookInfo(booksToFetch, 5, (done, total) => {
-      progressNotice.setMessage(`MoonSync: Fetching metadata (${done}/${total})...`);
+    const prefetchedInfo = booksToFetch.length > 0 ? await batchFetchBookInfo(booksToFetch, 5, (done, total, title) => {
+      progressNotice.setMessage(`MoonSync: Fetching metadata (${done}/${total})${title ? ` \u2014 ${title}` : ""}...`);
     }, hardcoverToken) : /* @__PURE__ */ new Map();
     const changedBookTitles = /* @__PURE__ */ new Set();
     let processedCount = 0;
@@ -8541,17 +8655,20 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     if (cacheModified) {
       await saveCache(app, outputPath, cache);
     }
-    if (settings.hardcoverEnabled && settings.hardcoverToken) {
+    if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
       try {
         progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
         console.debug(`MoonSync: Hardcover sync starting \u2014 ${changedBookTitles.size} changed books, ${booksWithHighlights.length} total books`);
         const hardcoverItems = [];
+        const titleToFilename = /* @__PURE__ */ new Map();
         for (const b of booksWithHighlights) {
           if (b.progress === null) {
             console.debug(`MoonSync: Hardcover skipping "${b.book.title}" \u2014 no progress data`);
             continue;
           }
-          const filename = generateFilename(b.book.title);
+          const cachedBook = getCachedInfo(cache, b.book.title, b.book.author);
+          const hcLookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title ? cachedBook.title : b.book.title;
+          const filename = generateFilename(hcLookupTitle);
           const filePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${filename}.md`);
           let hardcoverId = null;
           let lastSyncedProgress = null;
@@ -8582,6 +8699,9 @@ async function syncFromMoonReader(app, settings, wasmPath) {
             progress: b.progress,
             hardcoverId
           });
+          if (hcLookupTitle !== b.book.title) {
+            titleToFilename.set(b.book.title, hcLookupTitle);
+          }
         }
         console.debug(`MoonSync: Hardcover ${hardcoverItems.length} books queued for sync`);
         if (hardcoverItems.length > 0) {
@@ -8597,7 +8717,8 @@ async function syncFromMoonReader(app, settings, wasmPath) {
           const progressMap = new Map(hardcoverItems.map((i) => [i.title, i.progress]));
           for (const title of hcResult.updatedTitles) {
             try {
-              const fn = generateFilename(title);
+              const wbTitle = titleToFilename.get(title) || title;
+              const fn = generateFilename(wbTitle);
               const fp = (0, import_obsidian7.normalizePath)(`${outputPath}/${fn}.md`);
               if (await app.vault.adapter.exists(fp)) {
                 let content = await app.vault.adapter.read(fp);
@@ -8933,28 +9054,49 @@ async function findExistingFile(app, outputPath, preferredFilename, bookTitle, t
 async function processBook(app, outputPath, bookData, settings, result, cache, prefetchedInfo = /* @__PURE__ */ new Map(), titleCache = []) {
   const originalTitle = bookData.book.title;
   const originalAuthor = bookData.book.author;
-  const filename = generateFilename(bookData.book.title);
-  const filePath = await findExistingFile(app, outputPath, filename, bookData.book.title, titleCache, bookData.previousTitle);
-  let cacheModified = false;
   const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
-  const hasAttemptedFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0);
+  const lookupTitle = (cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle ? cachedInfo.title : bookData.book.title;
+  const filename = generateFilename(lookupTitle);
+  let filePath = await findExistingFile(app, outputPath, filename, lookupTitle, titleCache, bookData.previousTitle);
+  let cacheModified = false;
+  const hasAttemptedBasicFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0);
+  const hasAttemptedFetch = hasAttemptedBasicFetch && !(settings.hardcoverEnabled && settings.hardcoverToken && cachedInfo.source !== null && cachedInfo.source !== "hardcover" && !cachedInfo.hardcoverAttempted);
+  const prefetchKey = `${originalTitle}|${originalAuthor}`;
+  const prefetchedBookInfo = prefetchedInfo.get(prefetchKey);
+  if (prefetchedBookInfo) {
+    const isCurated = prefetchedBookInfo.source === "hardcover";
+    setCachedInfo(cache, originalTitle, originalAuthor, {
+      title: isCurated && prefetchedBookInfo.title ? prefetchedBookInfo.title : originalTitle,
+      description: prefetchedBookInfo.description,
+      author: prefetchedBookInfo.author,
+      publishedDate: prefetchedBookInfo.publishedDate,
+      publisher: prefetchedBookInfo.publisher,
+      pageCount: prefetchedBookInfo.pageCount,
+      genres: prefetchedBookInfo.genres,
+      series: prefetchedBookInfo.series,
+      language: prefetchedBookInfo.language,
+      source: prefetchedBookInfo.source,
+      hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken)
+    });
+    cacheModified = true;
+  }
   const existingData = await getExistingBookData(app, filePath);
   const fileExists = existingData !== null;
   if (bookData.highlights.length === 0) {
     if (!fileExists) {
       if (!settings.trackBooksWithoutHighlights) {
         result.booksSkipped++;
-        return false;
+        return cacheModified;
       }
     } else if (settings.trackBooksWithoutHighlights) {
       if (existingData.highlightsCount === 0) {
         result.booksSkipped++;
-        return false;
+        return cacheModified;
       }
     } else if (hasUserNotes(existingData.fullContent)) {
       if (existingData.highlightsCount === 0) {
         result.booksSkipped++;
-        return false;
+        return cacheModified;
       }
     } else {
       const file = app.vault.getAbstractFileByPath(filePath);
@@ -8962,7 +9104,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
         await app.vault.trash(file, false);
         result.booksDeleted++;
       }
-      return false;
+      return cacheModified;
     }
   }
   if (fileExists) {
@@ -8971,9 +9113,9 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
     const progressUnchanged = existingData.progress === bookData.progress;
     const newLastRead = bookData.lastReadTimestamp !== null ? new Date(bookData.lastReadTimestamp).toISOString().split("T")[0] : null;
     const lastReadUnchanged = existingData.lastRead === newLastRead;
-    if (highlightsUnchanged && progressUnchanged && lastReadUnchanged && hasAttemptedFetch) {
+    if (highlightsUnchanged && progressUnchanged && lastReadUnchanged && hasAttemptedFetch && !prefetchedBookInfo) {
       result.booksSkipped++;
-      return false;
+      return cacheModified;
     }
   }
   const shouldFetchMetadata = true;
@@ -8994,32 +9136,35 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       }
     }
     if (cachedInfo) {
-      if (cachedInfo.description && !bookData.fetchedDescription) {
+      const isCurated = cachedInfo.source === "hardcover";
+      if (isCurated && cachedInfo.title) {
+        bookData.book.title = cachedInfo.title;
+      }
+      if (cachedInfo.description && (isCurated || !bookData.fetchedDescription)) {
         bookData.fetchedDescription = cachedInfo.description;
       }
-      if (!bookData.book.author && cachedInfo.author) {
+      if (cachedInfo.author && (isCurated || !bookData.book.author)) {
         bookData.book.author = cachedInfo.author;
       }
-      if (cachedInfo.publishedDate && !bookData.publishedDate) {
+      if (cachedInfo.publishedDate && (isCurated || !bookData.publishedDate)) {
         bookData.publishedDate = cachedInfo.publishedDate;
       }
-      if (cachedInfo.publisher && !bookData.publisher) {
+      if (cachedInfo.publisher && (isCurated || !bookData.publisher)) {
         bookData.publisher = cachedInfo.publisher;
       }
-      if (cachedInfo.pageCount !== null && bookData.pageCount === null) {
+      if (cachedInfo.pageCount !== null && (isCurated || bookData.pageCount === null)) {
         bookData.pageCount = cachedInfo.pageCount;
       }
-      if (cachedInfo.genres && !bookData.genres) {
+      if (cachedInfo.genres && (isCurated || !bookData.genres)) {
         bookData.genres = cachedInfo.genres;
       }
-      if (cachedInfo.series && !bookData.series) {
+      if (cachedInfo.series && (isCurated || !bookData.series)) {
         bookData.series = cachedInfo.series;
       }
-      if (cachedInfo.language && !bookData.language) {
+      if (cachedInfo.language && (isCurated || !bookData.language)) {
         bookData.language = cachedInfo.language;
       }
     }
-    const prefetchKey = `${bookData.book.title}|${bookData.book.author}`;
     let bookInfo = prefetchedInfo.get(prefetchKey);
     if (!bookInfo && !coverExists) {
       const hcToken = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : void 0;
@@ -9036,28 +9181,32 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
           bookData.coverPath = `moonsync-covers/${coverFilename}`;
         }
       }
-      if (bookInfo.description && !bookData.fetchedDescription) {
+      const isCurated = bookInfo.source === "hardcover";
+      if (isCurated && bookInfo.title) {
+        bookData.book.title = bookInfo.title;
+      }
+      if (bookInfo.description && (isCurated || !bookData.fetchedDescription)) {
         bookData.fetchedDescription = bookInfo.description;
       }
-      if (!bookData.book.author && bookInfo.author) {
+      if (bookInfo.author && (isCurated || !bookData.book.author)) {
         bookData.book.author = bookInfo.author;
       }
-      if (bookInfo.publishedDate && !bookData.publishedDate) {
+      if (bookInfo.publishedDate && (isCurated || !bookData.publishedDate)) {
         bookData.publishedDate = bookInfo.publishedDate;
       }
-      if (bookInfo.publisher && !bookData.publisher) {
+      if (bookInfo.publisher && (isCurated || !bookData.publisher)) {
         bookData.publisher = bookInfo.publisher;
       }
-      if (bookInfo.pageCount !== null && bookData.pageCount === null) {
+      if (bookInfo.pageCount !== null && (isCurated || bookData.pageCount === null)) {
         bookData.pageCount = bookInfo.pageCount;
       }
-      if (bookInfo.genres && !bookData.genres) {
+      if (bookInfo.genres && (isCurated || !bookData.genres)) {
         bookData.genres = bookInfo.genres;
       }
-      if (bookInfo.series && !bookData.series) {
+      if (bookInfo.series && (isCurated || !bookData.series)) {
         bookData.series = bookInfo.series;
       }
-      if (bookInfo.language && !bookData.language) {
+      if (bookInfo.language && (isCurated || !bookData.language)) {
         bookData.language = bookInfo.language;
       }
       if (bookInfo.hardcoverId && !bookData.hardcoverId) {
@@ -9067,7 +9216,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
         bookData.hardcoverSlug = bookInfo.hardcoverSlug;
       }
       setCachedInfo(cache, originalTitle, originalAuthor, {
-        title: originalTitle,
+        title: isCurated && bookInfo.title ? bookInfo.title : originalTitle,
         description: bookInfo.description,
         author: bookInfo.author,
         publishedDate: bookInfo.publishedDate,
@@ -9075,7 +9224,9 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
         pageCount: bookInfo.pageCount,
         genres: bookInfo.genres,
         series: bookInfo.series,
-        language: bookInfo.language
+        language: bookInfo.language,
+        source: bookInfo.source,
+        hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken)
       });
       cacheModified = true;
     }
@@ -9089,12 +9240,30 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
         pageCount: bookData.pageCount,
         genres: bookData.genres,
         series: bookData.series,
-        language: bookData.language
+        language: bookData.language,
+        source: null,
+        hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken)
       });
       cacheModified = true;
     }
     if (coverExists) {
       bookData.coverPath = `moonsync-covers/${coverFilename}`;
+    }
+  }
+  if (bookData.book.title !== originalTitle) {
+    const newFilename = generateFilename(bookData.book.title);
+    const newFilePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${newFilename}.md`);
+    if (newFilePath !== filePath) {
+      if (fileExists && !await app.vault.adapter.exists(newFilePath)) {
+        try {
+          await app.vault.adapter.rename(filePath, newFilePath);
+          console.debug(`MoonSync: Renamed "${filename}.md" \u2192 "${newFilename}.md"`);
+          filePath = newFilePath;
+        } catch (e) {
+        }
+      } else if (!fileExists) {
+        filePath = newFilePath;
+      }
     }
   }
   let markdown;
@@ -9109,8 +9278,13 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
     await app.vault.adapter.write(filePath, markdown);
     result.booksUpdated++;
   } else {
-    await app.vault.create(filePath, markdown);
-    result.booksCreated++;
+    try {
+      await app.vault.create(filePath, markdown);
+      result.booksCreated++;
+    } catch (e) {
+      await app.vault.adapter.write(filePath, markdown);
+      result.booksUpdated++;
+    }
   }
   return cacheModified;
 }
@@ -9406,7 +9580,7 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
     this.isSyncing = false;
   }
   async onload() {
-    console.log("MoonSync: BUILD 2026-02-23-A loaded");
+    console.log("MoonSync: BUILD 2026-03-03-B loaded");
     await this.loadSettings();
     this.addSettingTab(new MoonSyncSettingTab(this.app, this));
     this.updateRibbonIcon();

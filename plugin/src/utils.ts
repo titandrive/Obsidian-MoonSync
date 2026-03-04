@@ -8,6 +8,69 @@ export function escapeYaml(str: string): string {
 }
 
 /**
+ * Extract author from a "Title - Author.ext" filename pattern
+ * Returns null if the pattern isn't found
+ */
+export function extractAuthorFromFilename(filename: string): string | null {
+	// Remove file extension
+	const name = filename.replace(/\.[^.]+$/, "");
+	// Match the last " - Author" segment (use last occurrence to handle titles with dashes)
+	const dashIndex = name.lastIndexOf(" - ");
+	if (dashIndex === -1 || dashIndex === name.length - 3) {
+		return null;
+	}
+	return name.substring(dashIndex + 3).trim() || null;
+}
+
+/**
+ * Clean download-site filename patterns (Anna's Archive, LibGen, Z-Library, etc.)
+ * Format: "Title -- Author -- Year -- hex_hash -- Source"
+ * Only triggers when a segment contains a hex hash (16+ chars), confirming it's a download filename.
+ * Also extracts the author from the second segment if available.
+ */
+export function cleanDownloadFilename(title: string, currentAuthor?: string): { title: string; author: string | null } {
+	if (!title.includes(" -- ")) return { title, author: null };
+	const segments = title.split(" -- ").map(s => s.trim());
+	const hasHash = segments.some(s => /^[0-9a-f]{16,}$/i.test(s));
+	if (!hasHash) return { title, author: null };
+	const cleanedTitle = segments[0].replace(/_/g, " ").trim();
+	// Second segment is typically the author
+	const author = segments.length > 1 && !/^[0-9a-f]{16,}$/i.test(segments[1]) && !/^\d{4}$/.test(segments[1])
+		? segments[1]
+		: null;
+	return { title: cleanedTitle, author: !currentAuthor && author ? author : null };
+}
+
+/**
+ * Strip leading bracket tags from a title (e.g. "[Collins Business Essentials] Title" → "Title")
+ */
+export function stripBracketPrefix(title: string): string {
+	return title.replace(/^\[.*?\]\s*/, "").trim();
+}
+
+/**
+ * Strip " - Author" suffix (or "Author - " prefix) from a title when the author is known.
+ * Matches if the suffix/prefix starts with the author or vice versa (handles truncation).
+ */
+export function stripAuthorSuffix(title: string, author: string): string {
+	if (!author) return title;
+	const dashIndex = title.lastIndexOf(" - ");
+	if (dashIndex <= 0) return title;
+	const suffix = title.substring(dashIndex + 3).trim().toLowerCase();
+	const prefix = title.substring(0, dashIndex).trim().toLowerCase();
+	const authorLower = author.toLowerCase();
+	// "Title - Author" format
+	if (suffix.startsWith(authorLower) || authorLower.startsWith(suffix)) {
+		return title.substring(0, dashIndex).trim();
+	}
+	// "Author - Title" format
+	if (prefix === authorLower || authorLower.startsWith(prefix)) {
+		return title.substring(dashIndex + 3).trim();
+	}
+	return title;
+}
+
+/**
  * Parsed frontmatter fields from a markdown file
  */
 export interface ParsedFrontmatter {

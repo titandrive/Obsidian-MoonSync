@@ -78,6 +78,7 @@ export interface MoonSyncSettings {
 	highlightSort: "position" | "position-reverse" | "date" | "date-reverse";
 	hardcoverEnabled: boolean;
 	hardcoverToken: string;
+	hardcoverSyncProgress: boolean;
 }
 
 export const DEFAULT_SETTINGS: MoonSyncSettings = {
@@ -101,6 +102,7 @@ export const DEFAULT_SETTINGS: MoonSyncSettings = {
 	highlightSort: "position",
 	hardcoverEnabled: false,
 	hardcoverToken: "",
+	hardcoverSyncProgress: true,
 };
 
 // Moon Reader highlight colors (ARGB format)

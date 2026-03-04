@@ -1,7 +1,7 @@
 import { App, normalizePath } from "obsidian";
 
 export interface CachedBookInfo {
-	title: string | null; // Canonical title from Google Books/Open Library
+	title: string | null;
 	description: string | null;
 	author: string | null;
 	publishedDate: string | null;
@@ -10,6 +10,8 @@ export interface CachedBookInfo {
 	genres: string[] | null;
 	series: string | null;
 	language: string | null;
+	source: "hardcover" | "googlebooks" | "openlibrary" | null;
+	hardcoverAttempted?: boolean; // true if Hardcover was tried (even if it fell back)
 	fetchedAt: number; // timestamp
 }
 

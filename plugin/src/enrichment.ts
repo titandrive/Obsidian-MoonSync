@@ -3,6 +3,7 @@ import { parseBooksSyncFile, parseCategoryField, BooksSyncEntry } from "./parser
 import { scanLocalCovers } from "./parser/local-covers";
 import { findLatestBackup, extractMrpro } from "./parser/mrpro";
 import { initDatabase, getSqlJs } from "./parser/database";
+import { stripAuthorSuffix, stripBracketPrefix, cleanDownloadFilename } from "./utils";
 import { join } from "path";
 
 export interface EnrichmentResult {
@@ -79,7 +80,12 @@ function enrichFromSyncEntry(bookData: BookData, entry: BooksSyncEntry): void {
 	if (entry.bookName && entry.bookName !== bookData.book.title &&
 		entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName)) {
 		bookData.previousTitle = bookData.book.title;
-		bookData.book.title = entry.bookName;
+		const cleaned = cleanDownloadFilename(entry.bookName, entry.author);
+		const cleanedTitle = stripBracketPrefix(stripAuthorSuffix(cleaned.title, entry.author));
+		bookData.book.title = cleanedTitle;
+		if (cleaned.author && !bookData.book.author) {
+			bookData.book.author = cleaned.author;
+		}
 	}
 
 	// Author
@@ -191,19 +197,32 @@ export async function enrichBooksWithSyncData(
 
 	// Discover books from books.sync that weren't found via .an/.po files
 	if (trackBooksWithoutHighlights && booksSyncMap) {
+		// Build title set from existing books for dedup
+		const existingTitles = new Set<string>();
+		for (const book of books) {
+			existingTitles.add(book.book.title.toLowerCase().trim());
+		}
+
 		for (const [key, entry] of booksSyncMap) {
 			if (matchedSyncKeys.has(key)) continue;
 
 			const parsed = entry.category ? parseCategoryField(entry.category) : null;
 			const hasValidBookName = entry.bookName && entry.bookName.length >= 3 && !/^[0-9a-f-]{16,}$/i.test(entry.bookName);
-		const title = hasValidBookName ? entry.bookName : entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
+			const rawTitle = hasValidBookName ? entry.bookName : entry.filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
+			const cleaned = cleanDownloadFilename(rawTitle, entry.author || "");
+			const title = stripBracketPrefix(stripAuthorSuffix(cleaned.title, entry.author || ""));
+			const discoveredAuthor = cleaned.author || entry.author || "";
+
+			// Skip if a book with this title already exists (avoids duplicates from different filenames)
+			if (existingTitles.has(title.toLowerCase().trim())) continue;
+			existingTitles.add(title.toLowerCase().trim());
 
 			const bookData: BookData = {
 				book: {
 					id: 0,
 					title,
 					filename: entry.filename,
-					author: entry.author || "",
+					author: discoveredAuthor,
 					description: entry.description || "",
 					category: entry.category || "",
 					thumbFile: "",

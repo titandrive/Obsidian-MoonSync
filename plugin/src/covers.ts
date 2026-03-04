@@ -82,8 +82,13 @@ export async function fetchBookInfo(
 	author: string,
 	hardcoverToken?: string
 ): Promise<BookInfoResult> {
-	// Clean title/author for API searches — strip filename artifacts
-	const cleanTitle = title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+	// Clean title/author for API searches — strip filename artifacts and author from title
+	let titleForSearch = title.replace(/^\[.*?\]\s*/, ""); // Strip bracket prefixes like "[Publisher]"
+	const dashIdx = titleForSearch.lastIndexOf(" - ");
+	if (dashIdx > 0) {
+		titleForSearch = titleForSearch.substring(0, dashIdx);
+	}
+	const cleanTitle = titleForSearch.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
 	const cleanAuthor = author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
 
 	// Try Hardcover first when enabled (richer metadata and covers)
@@ -177,7 +182,7 @@ export async function fetchBookCover(
 export async function batchFetchBookInfo(
 	books: Array<{ title: string; author: string }>,
 	concurrency: number = 5,
-	onProgress?: (completed: number, total: number) => void,
+	onProgress?: (completed: number, total: number, currentTitle?: string) => void,
 	hardcoverToken?: string
 ): Promise<Map<string, BookInfoResult>> {
 	const results = new Map<string, BookInfoResult>();
@@ -185,19 +190,26 @@ export async function batchFetchBookInfo(
 	// Batch search on Hardcover first (N searches + 1 hydration instead of 2N calls)
 	let booksToFallback = books;
 	if (hardcoverToken) {
+		console.log(`MoonSync: Trying Hardcover batch search for ${books.length} books`);
 		try {
 			const { batchSearchHardcover } = await import("./hardcover");
 			const hcResults = await batchSearchHardcover(books, hardcoverToken, onProgress);
+			console.log(`MoonSync: Hardcover found ${hcResults.size}/${books.length} books`);
 			for (const [key, info] of hcResults) {
-				if (info.coverUrl) {
-					results.set(key, info);
-				}
+				console.log(`MoonSync: Hardcover hit: "${key}" — id=${info.hardcoverId}, slug=${info.hardcoverSlug}, cover=${!!info.coverUrl}`);
+				results.set(key, info);
 			}
-			// Only fall back to Google/OL for books Hardcover didn't find
-			booksToFallback = books.filter(b => !results.has(`${b.title}|${b.author}`));
+			// Fall back to Google/OL only for books Hardcover didn't find or had no cover
+			booksToFallback = books.filter(b => {
+				const info = results.get(`${b.title}|${b.author}`);
+				return !info || !info.coverUrl;
+			});
+			console.log(`MoonSync: ${booksToFallback.length} books falling back to Google/OL`);
 		} catch (error) {
 			console.debug("MoonSync: Hardcover batch search failed, falling back", error);
 		}
+	} else {
+		console.log("MoonSync: Hardcover token not provided, skipping Hardcover search");
 	}
 
 	if (booksToFallback.length === 0) return results;
@@ -215,7 +227,15 @@ export async function batchFetchBookInfo(
 				const key = `${book.title}|${book.author}`;
 				fetchBookInfo(book.title, book.author)
 					.then((info) => {
-						results.set(key, info);
+						const existing = results.get(key);
+						if (existing && existing.source === "hardcover") {
+							// Hardcover found the book but had no cover — only take the cover from fallback
+							if (info.coverUrl) {
+								existing.coverUrl = info.coverUrl;
+							}
+						} else {
+							results.set(key, info);
+						}
 					})
 					.catch((error) => {
 						console.debug(`MoonSync: Failed to fetch info for "${book.title}"`, error);
@@ -223,7 +243,7 @@ export async function batchFetchBookInfo(
 					.finally(() => {
 						running--;
 						completed++;
-						onProgress?.(results.size, books.length);
+						onProgress?.(results.size, books.length, book.title);
 						if (completed === fallbackTotal) {
 							resolve(results);
 						} else {

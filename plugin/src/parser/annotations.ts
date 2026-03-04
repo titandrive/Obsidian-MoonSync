@@ -2,6 +2,7 @@ import { readFile, readdir, stat } from "fs/promises";
 import { join } from "path";
 import { inflateSync } from "zlib";
 import { MoonReaderHighlight, BookData, MoonReaderBook } from "../types";
+import { cleanDownloadFilename } from "../utils";
 
 interface AnnotationFile {
 	filename: string;
@@ -27,7 +28,8 @@ function parseAnnotationFile(data: Buffer, filename: string): AnnotationFile | n
 
 		// Extract book title from filename (author comes from metadata APIs)
 		const baseName = filename.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)\.an$/i, "");
-		const bookTitle = normalizeBookTitle(baseName);
+		const cleaned = cleanDownloadFilename(normalizeBookTitle(baseName));
+		const bookTitle = cleaned.title;
 
 		const highlights: MoonReaderHighlight[] = [];
 		let i = 0;
@@ -178,7 +180,8 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 				if (parsed) {
 					// Use the title from inside the annotation data when available (more reliable),
 					// fall back to filename-derived title when there are no highlights
-					const actualTitle = (parsed.highlights.length > 0 ? parsed.highlights[0]?.book : null) || parsed.bookTitle;
+					const highlightTitle = parsed.highlights.length > 0 ? parsed.highlights[0]?.book : null;
+					const actualTitle = (highlightTitle ? cleanDownloadFilename(highlightTitle).title : null) || parsed.bookTitle;
 					const key = normalizeKey(actualTitle);
 
 					if (!bookDataMap.has(key)) {
@@ -245,7 +248,7 @@ export async function parseAnnotationFiles(syncPath: string, trackBooksWithoutHi
 			try {
 				// Extract book title from .po filename (author comes from metadata APIs)
 				const baseName = poFile.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)\.po$/i, "");
-				let bookTitle = baseName;
+				let bookTitle = cleanDownloadFilename(baseName).title;
 				// Convert underscores to spaces to match the title from inside .an files
 				if (!bookTitle.includes(" ") && bookTitle.includes("_")) {
 					bookTitle = bookTitle.replace(/_/g, " ");

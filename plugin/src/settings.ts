@@ -503,7 +503,22 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 				);
 
 			new Setting(container)
-				.setDesc("0% → Want to Read. 1–98% → Currently Reading. 99%+ → Read. No progress data → skipped.");
+				.setName("Sync reading progress")
+				.setDesc("Update reading status and progress on Hardcover after each sync. Disable to use Hardcover only for metadata (covers, descriptions, etc.).")
+				.addToggle((toggle) =>
+					toggle
+						.setValue(this.plugin.settings.hardcoverSyncProgress)
+						.onChange(async (value) => {
+							this.plugin.settings.hardcoverSyncProgress = value;
+							await this.plugin.saveSettings();
+							this.display();
+						})
+				);
+
+			if (this.plugin.settings.hardcoverSyncProgress) {
+				new Setting(container)
+					.setDesc("0% → Want to Read. 1–98% → Currently Reading. 99%+ → Read. No progress data → skipped.");
+			}
 		}
 	}
 

@@ -256,15 +256,20 @@ export async function searchHardcoverBooks(
 		const searchQuery = `{
 			search(
 				query: "${escapeGraphQL(query)}",
-				query_type: "Book",
+				query_type: "books",
 				per_page: ${maxResults}
 			) {
-				ids
+				results
 			}
 		}`;
 		const searchResult = await hardcoverGraphQL(searchQuery, token);
-		const ids: number[] = searchResult.data?.search?.ids;
-		if (!ids || ids.length === 0) return [];
+		const hits = searchResult.data?.search?.results?.hits;
+		if (!hits || !Array.isArray(hits) || hits.length === 0) return [];
+
+		const ids: number[] = hits
+			.filter((h: any) => h.document?.id)
+			.map((h: any) => parseInt(String(h.document.id), 10));
+		if (ids.length === 0) return [];
 
 		return await hydrateHardcoverBooks(ids, token);
 	} catch (error) {
@@ -281,16 +286,16 @@ export async function searchHardcoverBooks(
 export async function batchSearchHardcover(
 	books: Array<{ title: string; author: string }>,
 	token: string,
-	onProgress?: (completed: number, total: number) => void
+	onProgress?: (completed: number, total: number, currentTitle?: string) => void
 ): Promise<Map<string, BookInfoResult>> {
 	const results = new Map<string, BookInfoResult>();
 	// Map from book ID to the key(s) that searched for it
 	const idToKeys = new Map<number, string>();
 
-	// Step 1: Search for each book's top ID
+	// Step 1: Search for each book's top ID (uses same API format as progress sync search)
 	for (let i = 0; i < books.length; i++) {
 		const book = books[i];
-		const cleanTitle = book.title.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
+		const cleanTitle = cleanTitleForSearch(book.title);
 		const cleanAuthor = book.author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
 		const query = cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle;
 		const key = `${book.title}|${book.author}`;
@@ -300,22 +305,32 @@ export async function batchSearchHardcover(
 			const searchQuery = `{
 				search(
 					query: "${escapeGraphQL(query)}",
-					query_type: "Book",
-					per_page: 1
+					query_type: "books",
+					per_page: 5
 				) {
-					ids
+					results
 				}
 			}`;
 			const searchResult = await hardcoverGraphQL(searchQuery, token);
-			const ids: number[] = searchResult.data?.search?.ids;
-			if (ids && ids.length > 0) {
-				idToKeys.set(ids[0], key);
+			const hits = searchResult.data?.search?.results?.hits;
+			if (hits && Array.isArray(hits) && hits.length > 0) {
+				const validHits = hits.filter((h: any) => h.document);
+				if (validHits.length > 0) {
+					// Pick the most popular result
+					const doc = validHits.reduce((best: any, h: any) => {
+						return (h.document?.users_count || 0) > (best?.users_count || 0) ? h.document : best;
+					}, validHits[0].document);
+					const docId = doc?.id ? parseInt(String(doc.id), 10) : null;
+					if (docId) {
+						idToKeys.set(docId, key);
+					}
+				}
 			}
 		} catch {
 			// Skip this book on search failure
 		}
 
-		onProgress?.(i + 1, books.length);
+		onProgress?.(i + 1, books.length, book.title);
 	}
 
 	if (idToKeys.size === 0) return results;
