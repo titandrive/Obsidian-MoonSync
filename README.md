@@ -41,11 +41,13 @@ When enabled, MoonSync gets the following data locally from your sync folder:
 | Favorite status | Moon Reader shelf data |
 | Date added | Moon Reader shelf data |
 
-This is the preferred way to use MoonSync — the data is more accurate than what online metadata providers return (correct titles, proper author names, genre tags you've set yourself) and syncing is faster since no network requests are needed.
+This is the recommended way to use MoonSync — syncing is faster since less data needs to be fetched from the network.
+
+However, ebook files often contain poorly formatted or incorrect metadata (wrong titles, missing authors, inconsistent formatting). MoonSync uses external metadata providers — **[Hardcover](https://hardcover.app)** (recommended), **Google Books**, or **Open Library** — to cross-reference and correct this data, ensuring your book notes have clean, accurate titles, descriptions, covers, and genres.
 
 ### Without Sync My Shelf
 
-If "Sync my shelf" is not enabled, MoonSync falls back to discovering books from Moon Reader's cache files (`.an` and `.po` files). Metadata like descriptions, genres, covers, and author names are fetched from **[Hardcover](https://hardcover.app)** (if enabled, recommended), **Google Books**, or **Open Library**. This works well but depends on an internet connection.
+If "Sync my shelf" is not enabled, MoonSync falls back to discovering books from Moon Reader's cache files (`.an` and `.po` files). All metadata is fetched from **[Hardcover](https://hardcover.app)** (if enabled, recommended), **Google Books**, or **Open Library**.
 
 ### What Gets Synced
 
