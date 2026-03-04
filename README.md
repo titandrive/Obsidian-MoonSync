@@ -299,44 +299,83 @@ It also provides a library view that shows a breakdown of the following statisti
 
 ## FAQ
 
-**Do I need a Hardcover account?**
+<details>
+<summary>Do I need a Hardcover account?</summary>
+
 No, but it's recommended. Hardcover provides significantly better metadata (titles, descriptions, genres, covers) than the fallback sources (Google Books, Open Library). You can use it for metadata only without syncing your reading progress.
+</details>
 
-**Does MoonSync work on mobile?**
+<details>
+<summary>Does MoonSync work on mobile?</summary>
+
 Not currently. MoonSync requires access to Moon Reader's sync folder on disk (via Dropbox, WebDAV, or FTP), which is only available on desktop.
+</details>
 
-**Does MoonSync work with Moon Reader Free or only Pro?**
+<details>
+<summary>Does MoonSync work with Moon Reader Free or only Pro?</summary>
+
 Both. However, Moon Reader Pro offers more highlight colors and better sync options, which MoonSync can take advantage of.
+</details>
 
-**Can I use MoonSync with Kindle or other e-readers?**
+<details>
+<summary>Can I use MoonSync with Kindle or other e-readers?</summary>
+
 No. MoonSync is designed specifically for Moon Reader's sync format. It reads `.an`, `.po`, and `books.sync` files that are unique to Moon Reader.
+</details>
 
-**Does MoonSync support PDFs?**
+<details>
+<summary>Does MoonSync support PDFs?</summary>
+
 Yes. Moon Reader supports PDFs, and MoonSync will pick up highlights and progress from PDF files just like EPUBs.
+</details>
 
-**Will MoonSync overwrite my notes?**
+<details>
+<summary>Will MoonSync overwrite my notes?</summary>
+
 MoonSync preserves anything you write in the "My Notes" section of each book note. It only updates metadata, highlights, and progress. If you manually set metadata via "Fetch Book Metadata," it sets `custom_metadata: true` to prevent future syncs from overwriting your selection.
+</details>
 
-**What happens if I delete a highlight in Moon Reader?**
+<details>
+<summary>What happens if I delete a highlight in Moon Reader?</summary>
+
 MoonSync reflects your Moon Reader data — if you delete a highlight in Moon Reader and sync, it will be removed from your Obsidian note as well.
+</details>
 
-**What happens if I delete a book or its sync data from Moon Reader?**
+<details>
+<summary>What happens if I delete a book or its sync data from Moon Reader?</summary>
+
 Nothing. Your Obsidian book notes are independent files — MoonSync will never delete or modify them just because the source data is gone. They remain in your vault as-is.
+</details>
 
-**How often does MoonSync sync?**
+<details>
+<summary>How often does MoonSync sync?</summary>
+
 By default, MoonSync syncs once when Obsidian starts. You can also trigger a manual sync anytime via the ribbon icon or command palette. If you enable "Automatic Sync," it watches your sync folder for changes and syncs within a few seconds of Moon Reader updating its cache files.
+</details>
 
-**Can I customize the book note format?**
+<details>
+<summary>Can I customize the book note format?</summary>
+
 You can toggle individual sections on or off (description, progress, covers, highlight colors) and change the highlight sort order in settings. Full template customization is not currently supported.
+</details>
 
-**Can I move my book notes to a different folder?**
+<details>
+<summary>Can I move my book notes to a different folder?</summary>
+
 Yes. Change the "Output Folder" in MoonSync settings. Existing notes won't be moved automatically — you'll need to move them yourself, and MoonSync will find them in the new location on the next sync.
+</details>
 
-**How does Hardcover progress sync work?**
+<details>
+<summary>How does Hardcover progress sync work?</summary>
+
 MoonSync maps your Moon Reader progress to Hardcover statuses: 0% → Want to Read, 1–98% → Currently Reading, 99%+ → Read. Progress only updates when it has increased, so it won't accidentally reset your progress.
+</details>
 
-**Is my Hardcover API token stored securely?**
+<details>
+<summary>Is my Hardcover API token stored securely?</summary>
+
 Your token is stored locally in Obsidian's plugin settings, the same way other Obsidian plugins store credentials. It is never sent anywhere other than the Hardcover API.
+</details>
 
 ## Privacy & Security
 
