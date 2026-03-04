@@ -362,7 +362,7 @@ You can toggle individual sections on or off (description, progress, covers, hig
 <details>
 <summary>How does Hardcover progress sync work?</summary>
 
-Whenever your progress changes in Moon Reader, and Hardcover sync is enabled, MoonSync will push that to Hardcover. Your progress (percent and page number) will therefore be reflected in Hardcover. It will also update the reading status of books (Currently Reading, Read) automatically. When a book changes from 0%, it will update the status from Want to Read to Currently Reading. When the progress gest to 99%, the book will be marked as Read. 
+Whenever your progress changes in Moon Reader, and Hardcover sync is enabled, MoonSync will push that to Hardcover. Your progress (percent and page number) will therefore be reflected in Hardcover. It will also update the reading status of books (Currently Reading, Read) automatically. When a book changes from 0%, it will update the status from Want to Read to Currently Reading. When the progress gets to 99%, the book will be marked as Read. 
 
 </details>
 
