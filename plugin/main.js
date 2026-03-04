@@ -243,42 +243,89 @@ async function searchHardcoverBooks(title, author, token, maxResults = 10) {
   }
 }
 async function batchSearchHardcover(books, token, onProgress) {
-  var _a, _b, _c;
+  var _a, _b, _c, _d, _e, _f, _g;
   const results = /* @__PURE__ */ new Map();
   const idToKeys = /* @__PURE__ */ new Map();
   for (let i = 0; i < books.length; i++) {
     const book = books[i];
     const cleanTitle = cleanTitleForSearch(book.title);
     const cleanAuthor = book.author.replace(/-{2,}/g, " ").replace(/[^a-zA-Z0-9\s\u00C0-\u024F'-]/g, " ").replace(/\s+/g, " ").trim();
-    const query = cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle;
     const key = `${book.title}|${book.author}`;
-    try {
-      await rateLimitDelay();
-      const searchQuery = `{
-				search(
-					query: "${escapeGraphQL(query)}",
-					query_type: "books",
-					per_page: 5
-				) {
-					results
-				}
-			}`;
-      const searchResult = await hardcoverGraphQL(searchQuery, token);
-      const hits = (_c = (_b = (_a = searchResult.data) == null ? void 0 : _a.search) == null ? void 0 : _b.results) == null ? void 0 : _c.hits;
-      if (hits && Array.isArray(hits) && hits.length > 0) {
-        const validHits = hits.filter((h) => h.document);
-        if (validHits.length > 0) {
-          const doc = validHits.reduce((best, h) => {
-            var _a2;
-            return (((_a2 = h.document) == null ? void 0 : _a2.users_count) || 0) > ((best == null ? void 0 : best.users_count) || 0) ? h.document : best;
-          }, validHits[0].document);
-          const docId = (doc == null ? void 0 : doc.id) ? parseInt(String(doc.id), 10) : null;
-          if (docId) {
-            idToKeys.set(docId, key);
+    let foundId = null;
+    if (cleanAuthor) {
+      try {
+        await rateLimitDelay();
+        const exactQuery = `{
+					books(
+						where: {
+							contributions: { author: { name: { _eq: "${escapeGraphQL(cleanAuthor)}" } } },
+							title: { _eq: "${escapeGraphQL(cleanTitle)}" }
+						},
+						limit: 1,
+						order_by: { users_read_count: desc }
+					) { id }
+				}`;
+        const result = await hardcoverGraphQL(exactQuery, token);
+        if (((_b = (_a = result.data) == null ? void 0 : _a.books) == null ? void 0 : _b.length) > 0) {
+          foundId = result.data.books[0].id;
+        }
+      } catch (e) {
+      }
+    }
+    if (!foundId) {
+      try {
+        await rateLimitDelay();
+        const titleQuery = `{
+					books(
+						where: { title: { _eq: "${escapeGraphQL(cleanTitle)}" } },
+						limit: 1,
+						order_by: { users_read_count: desc }
+					) { id }
+				}`;
+        const result = await hardcoverGraphQL(titleQuery, token);
+        if (((_d = (_c = result.data) == null ? void 0 : _c.books) == null ? void 0 : _d.length) > 0) {
+          foundId = result.data.books[0].id;
+        }
+      } catch (e) {
+      }
+    }
+    if (!foundId) {
+      try {
+        await rateLimitDelay();
+        const query = cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle;
+        const searchQuery = `{
+					search(
+						query: "${escapeGraphQL(query)}",
+						query_type: "books",
+						per_page: 5
+					) {
+						results
+					}
+				}`;
+        const searchResult = await hardcoverGraphQL(searchQuery, token);
+        const hits = (_g = (_f = (_e = searchResult.data) == null ? void 0 : _e.search) == null ? void 0 : _f.results) == null ? void 0 : _g.hits;
+        if (hits && Array.isArray(hits) && hits.length > 0) {
+          const validHits = hits.filter((h) => h.document);
+          if (validHits.length > 0) {
+            const normalizedSearch = cleanTitle.toLowerCase();
+            const doc = validHits.reduce((best, h) => {
+              var _a2, _b2;
+              const bestTitle = ((best == null ? void 0 : best.title) || "").toLowerCase();
+              const hTitle = (((_a2 = h.document) == null ? void 0 : _a2.title) || "").toLowerCase();
+              const bestScore = bestTitle === normalizedSearch ? 3 : bestTitle.startsWith(normalizedSearch) || normalizedSearch.startsWith(bestTitle) ? 2 : bestTitle.includes(normalizedSearch) || normalizedSearch.includes(bestTitle) ? 1 : 0;
+              const hScore = hTitle === normalizedSearch ? 3 : hTitle.startsWith(normalizedSearch) || normalizedSearch.startsWith(hTitle) ? 2 : hTitle.includes(normalizedSearch) || normalizedSearch.includes(hTitle) ? 1 : 0;
+              if (hScore !== bestScore)
+                return hScore > bestScore ? h.document : best;
+              return (((_b2 = h.document) == null ? void 0 : _b2.users_count) || 0) > ((best == null ? void 0 : best.users_count) || 0) ? h.document : best;
+            }, validHits[0].document);
+            foundId = (doc == null ? void 0 : doc.id) ? parseInt(String(doc.id), 10) : null;
           }
         }
+      } catch (e) {
       }
-    } catch (e) {
+    }
+    if (foundId) {
+      idToKeys.set(foundId, key);
     }
     onProgress == null ? void 0 : onProgress(i + 1, books.length, book.title);
   }
