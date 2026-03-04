@@ -297,6 +297,47 @@ It also provides a library view that shows a breakdown of the following statisti
 
 <img src="assets/BaseScreenshot.png" alt="Base Gallery View" width="420">
 
+## FAQ
+
+**Do I need a Hardcover account?**
+No, but it's recommended. Hardcover provides significantly better metadata (titles, descriptions, genres, covers) than the fallback sources (Google Books, Open Library). You can use it for metadata only without syncing your reading progress.
+
+**Does MoonSync work on mobile?**
+Not currently. MoonSync requires access to Moon Reader's sync folder on disk (via Dropbox, WebDAV, or FTP), which is only available on desktop.
+
+**Does MoonSync work with Moon Reader Free or only Pro?**
+Both. However, Moon Reader Pro offers more highlight colors and better sync options, which MoonSync can take advantage of.
+
+**Can I use MoonSync with Kindle or other e-readers?**
+No. MoonSync is designed specifically for Moon Reader's sync format. It reads `.an`, `.po`, and `books.sync` files that are unique to Moon Reader.
+
+**Does MoonSync support PDFs?**
+Yes. Moon Reader supports PDFs, and MoonSync will pick up highlights and progress from PDF files just like EPUBs.
+
+**Will MoonSync overwrite my notes?**
+MoonSync preserves anything you write in the "My Notes" section of each book note. It only updates metadata, highlights, and progress. If you manually set metadata via "Fetch Book Metadata," it sets `custom_metadata: true` to prevent future syncs from overwriting your selection.
+
+**What happens if I delete a highlight in Moon Reader?**
+MoonSync reflects your Moon Reader data — if you delete a highlight in Moon Reader and sync, it will be removed from your Obsidian note as well.
+
+**What happens if I delete a book or its sync data from Moon Reader?**
+Nothing. Your Obsidian book notes are independent files — MoonSync will never delete or modify them just because the source data is gone. They remain in your vault as-is.
+
+**How often does MoonSync sync?**
+By default, MoonSync syncs once when Obsidian starts. You can also trigger a manual sync anytime via the ribbon icon or command palette. If you enable "Automatic Sync," it watches your sync folder for changes and syncs within a few seconds of Moon Reader updating its cache files.
+
+**Can I customize the book note format?**
+You can toggle individual sections on or off (description, progress, covers, highlight colors) and change the highlight sort order in settings. Full template customization is not currently supported.
+
+**Can I move my book notes to a different folder?**
+Yes. Change the "Output Folder" in MoonSync settings. Existing notes won't be moved automatically — you'll need to move them yourself, and MoonSync will find them in the new location on the next sync.
+
+**How does Hardcover progress sync work?**
+MoonSync maps your Moon Reader progress to Hardcover statuses: 0% → Want to Read, 1–98% → Currently Reading, 99%+ → Read. Progress only updates when it has increased, so it won't accidentally reset your progress.
+
+**Is my Hardcover API token stored securely?**
+Your token is stored locally in Obsidian's plugin settings, the same way other Obsidian plugins store credentials. It is never sent anywhere other than the Hardcover API.
+
 ## Privacy & Security
 
 - **Read-only access**: MoonSync only reads from your sync folder. It never modifies your Moon Reader data.
