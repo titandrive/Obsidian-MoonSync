@@ -1001,10 +1001,17 @@ async function processBook(
 				return cacheModified;
 			}
 		} else if (settings.trackBooksWithoutHighlights) {
-			// Keep note — skip if already cleaned up, otherwise fall through to update
+			// Keep note — skip only if highlights, progress, and last_read are all unchanged
 			if (existingData.highlightsCount === 0) {
-				result.booksSkipped++;
-				return cacheModified;
+				const progressUnchanged = existingData.progress === bookData.progress;
+				const newLastRead = bookData.lastReadTimestamp !== null
+					? new Date(bookData.lastReadTimestamp).toISOString().split("T")[0]
+					: null;
+				const lastReadUnchanged = existingData.lastRead === newLastRead;
+				if (progressUnchanged && lastReadUnchanged) {
+					result.booksSkipped++;
+					return cacheModified;
+				}
 			}
 		} else if (hasUserNotes(existingData.fullContent!)) {
 			// User has custom My Notes content — skip if already cleaned up, otherwise update

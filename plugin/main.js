@@ -9233,8 +9233,13 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       }
     } else if (settings.trackBooksWithoutHighlights) {
       if (existingData.highlightsCount === 0) {
-        result.booksSkipped++;
-        return cacheModified;
+        const progressUnchanged = existingData.progress === bookData.progress;
+        const newLastRead = bookData.lastReadTimestamp !== null ? new Date(bookData.lastReadTimestamp).toISOString().split("T")[0] : null;
+        const lastReadUnchanged = existingData.lastRead === newLastRead;
+        if (progressUnchanged && lastReadUnchanged) {
+          result.booksSkipped++;
+          return cacheModified;
+        }
       }
     } else if (hasUserNotes(existingData.fullContent)) {
       if (existingData.highlightsCount === 0) {
