@@ -2,6 +2,9 @@
 
 Sync your reading highlights, notes, and progress from Moon+ Reader to **Obsidian** and **[Hardcover.app](https://hardcover.app)**.
 
+> [!NOTE]
+> MoonSync is a **desktop-only** plugin. It requires access to Moon Reader's sync folder on disk (via Dropbox, WebDAV, or FTP), which is not available on mobile.
+
 <img src="assets/BookScreenshot.png" alt="Book note example" width="420">
 
 ## Features
