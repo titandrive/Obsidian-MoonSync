@@ -379,9 +379,9 @@ export async function syncFromMoonReader(
 								const existingIdMatch = content.match(/^hardcover_id: (.+)$/m);
 								const existingId = existingIdMatch ? existingIdMatch[1].trim() : null;
 								// Remove old hardcover fields before inserting updated ones
-								content = content.replace(/^hardcover_id: .*\n/m, "");
-								content = content.replace(/^hardcover_progress: .*\n/m, "");
-								content = content.replace(/^hardcover_url: .*\n/m, "");
+								content = content.replace(/^hardcover_id: .*\n/gm, "");
+								content = content.replace(/^hardcover_progress: .*\n/gm, "");
+								content = content.replace(/^hardcover_url: .*\n/gm, "");
 								// Build new fields: use new ID if discovered, otherwise preserve existing
 								const newId = newIdMap.get(title);
 								const hardcoverId = newId || existingId;

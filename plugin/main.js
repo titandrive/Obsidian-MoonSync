@@ -363,10 +363,10 @@ async function hydrateHardcoverBooks(ids, token) {
       return (_a3 = c.author) == null ? void 0 : _a3.name;
     }).filter(Boolean);
     const authorStr = authors.length > 0 ? authors.join(", ") : null;
-    const genres = (book.taggings || []).map((t) => {
+    const genres = [...new Set((book.taggings || []).map((t) => {
       var _a3;
       return (_a3 = t.tag) == null ? void 0 : _a3.tag;
-    }).filter(Boolean);
+    }).filter(Boolean))];
     const seriesEntry = (_b = book.book_series) == null ? void 0 : _b[0];
     let series = null;
     if ((_c = seriesEntry == null ? void 0 : seriesEntry.series) == null ? void 0 : _c.name) {
@@ -8828,9 +8828,9 @@ ${fields.join("\n")}
                 let content = await app.vault.adapter.read(fp);
                 const existingIdMatch = content.match(/^hardcover_id: (.+)$/m);
                 const existingId = existingIdMatch ? existingIdMatch[1].trim() : null;
-                content = content.replace(/^hardcover_id: .*\n/m, "");
-                content = content.replace(/^hardcover_progress: .*\n/m, "");
-                content = content.replace(/^hardcover_url: .*\n/m, "");
+                content = content.replace(/^hardcover_id: .*\n/gm, "");
+                content = content.replace(/^hardcover_progress: .*\n/gm, "");
+                content = content.replace(/^hardcover_url: .*\n/gm, "");
                 const newId = newIdMap.get(title);
                 const hardcoverId = newId || existingId;
                 const slug = hcResult.slugs.get(title) || newSlugMap.get(title);

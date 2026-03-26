@@ -284,9 +284,9 @@ async function hydrateHardcoverBooks(
 			.filter(Boolean);
 		const authorStr = authors.length > 0 ? authors.join(", ") : null;
 
-		const genres = (book.taggings || [])
+		const genres = [...new Set((book.taggings || [])
 			.map((t: any) => t.tag?.tag)
-			.filter(Boolean);
+			.filter(Boolean))] as string[];
 
 		const seriesEntry = book.book_series?.[0];
 		let series: string | null = null;
