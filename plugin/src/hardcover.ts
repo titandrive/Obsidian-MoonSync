@@ -750,6 +750,40 @@ mutation DeleteRead($id: Int!) {
 	}
 }`;
 
+const DELETE_USER_BOOK = `
+mutation DeleteUserBook($id: Int!) {
+	delete_user_book(id: $id) {
+		id
+	}
+}`;
+
+/**
+ * Remove a book from the user's Hardcover library by its book (catalog) ID.
+ */
+export async function removeHardcoverBook(bookId: number, token: string): Promise<boolean> {
+	try {
+		await rateLimitDelay();
+		const meResult = await hardcoverGraphQL(FIND_USER_BOOK, token, { bookId });
+		const userBook = meResult.data?.me?.[0]?.user_books?.[0];
+		if (!userBook) {
+			console.debug(`MoonSync: Hardcover book ${bookId} — not in library, nothing to remove`);
+			return true;
+		}
+		console.debug(`MoonSync: Hardcover book ${bookId} — deleting user_book id: ${userBook.id}`);
+		await rateLimitDelay();
+		const result = await hardcoverGraphQL(DELETE_USER_BOOK, token, { id: userBook.id });
+		if (!result.data?.delete_user_book?.id) {
+			console.debug(`MoonSync: Hardcover book ${bookId} — delete_user_book failed, no id returned`);
+			return false;
+		}
+		console.debug(`MoonSync: Hardcover book ${bookId} — removed from library`);
+		return true;
+	} catch (error) {
+		console.debug(`MoonSync: Hardcover book ${bookId} — failed to remove:`, error);
+		return false;
+	}
+}
+
 async function updateProgressForBook(
 	bookId: number,
 	myUserBook: any,

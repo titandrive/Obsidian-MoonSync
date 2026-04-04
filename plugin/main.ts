@@ -7,7 +7,7 @@ import { generateFilename, generateBookNote } from "./src/writer/markdown";
 import { fetchBookInfo, downloadCover, downloadAndResizeCover, BookInfoResult } from "./src/covers";
 import { parseManualExport } from "./src/parser/manual-export";
 import { parseFrontmatter, extractFrontmatter, parseFrontmatterField, escapeYaml } from "./src/utils";
-import { lookupBookBySlug, updateHardcoverBook } from "./src/hardcover";
+import { lookupBookBySlug, updateHardcoverBook, removeHardcoverBook } from "./src/hardcover";
 import { join } from "path";
 import { watch, FSWatcher } from "fs";
 
@@ -759,6 +759,9 @@ export default class MoonSyncPlugin extends Plugin {
 		}
 		const slug = slugMatch[1];
 
+		// Capture old hardcover_id before replacing
+		const oldIdMatch = content.match(/^hardcover_id: (\d+)/m);
+		const oldBookId = oldIdMatch ? parseInt(oldIdMatch[1], 10) : null;
 		const progressNotice = new Notice("MoonSync: Looking up book on Hardcover...", 0);
 
 		try {
@@ -769,11 +772,20 @@ export default class MoonSyncPlugin extends Plugin {
 				return;
 			}
 
+			// Remove old book from Hardcover library if it's a different book
+			if (oldBookId && oldBookId !== book.id) {
+				progressNotice.setMessage("MoonSync: Removing old book from Hardcover...");
+				const removed = await removeHardcoverBook(oldBookId, this.settings.hardcoverToken);
+				if (!removed) {
+					console.warn(`MoonSync: Failed to remove old book ${oldBookId} from Hardcover`);
+				}
+			}
+
 			// Update frontmatter
 			let updated = content;
-			updated = updated.replace(/^hardcover_id: .*\n/m, "");
-			updated = updated.replace(/^hardcover_progress: .*\n/m, "");
-			updated = updated.replace(/^hardcover_url: .*\n/m, "");
+			updated = updated.replace(/^hardcover_id: .*\n/gm, "");
+			updated = updated.replace(/^hardcover_progress: .*\n/gm, "");
+			updated = updated.replace(/^hardcover_url: .*\n/gm, "");
 			const fields = `hardcover_id: ${book.id}\nhardcover_url: "https://hardcover.app/books/${book.slug}"`;
 			updated = updated.replace(/\n---\n/, `\n${fields}\n---\n`);
 			await this.app.vault.modify(activeFile, updated);

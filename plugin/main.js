@@ -158,6 +158,7 @@ var hardcover_exports = {};
 __export(hardcover_exports, {
   batchSearchHardcover: () => batchSearchHardcover,
   lookupBookBySlug: () => lookupBookBySlug,
+  removeHardcoverBook: () => removeHardcoverBook,
   searchHardcoverBooks: () => searchHardcoverBooks,
   syncBooksToHardcover: () => syncBooksToHardcover,
   updateHardcoverBook: () => updateHardcoverBook,
@@ -637,6 +638,30 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
     return { success: false, badEdition: false };
   }
 }
+async function removeHardcoverBook(bookId, token) {
+  var _a, _b, _c, _d, _e, _f;
+  try {
+    await rateLimitDelay();
+    const meResult = await hardcoverGraphQL(FIND_USER_BOOK, token, { bookId });
+    const userBook = (_d = (_c = (_b = (_a = meResult.data) == null ? void 0 : _a.me) == null ? void 0 : _b[0]) == null ? void 0 : _c.user_books) == null ? void 0 : _d[0];
+    if (!userBook) {
+      console.debug(`MoonSync: Hardcover book ${bookId} \u2014 not in library, nothing to remove`);
+      return true;
+    }
+    console.debug(`MoonSync: Hardcover book ${bookId} \u2014 deleting user_book id: ${userBook.id}`);
+    await rateLimitDelay();
+    const result = await hardcoverGraphQL(DELETE_USER_BOOK, token, { id: userBook.id });
+    if (!((_f = (_e = result.data) == null ? void 0 : _e.delete_user_book) == null ? void 0 : _f.id)) {
+      console.debug(`MoonSync: Hardcover book ${bookId} \u2014 delete_user_book failed, no id returned`);
+      return false;
+    }
+    console.debug(`MoonSync: Hardcover book ${bookId} \u2014 removed from library`);
+    return true;
+  } catch (error) {
+    console.debug(`MoonSync: Hardcover book ${bookId} \u2014 failed to remove:`, error);
+    return false;
+  }
+}
 async function updateProgressForBook(bookId, myUserBook, progress, pages, today, token) {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
   if (progress <= 0) {
@@ -783,7 +808,7 @@ async function syncBooksToHardcover(books, token, onProgress) {
   }
   return result;
 }
-var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, MIN_USERS_THRESHOLD, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ;
+var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, MIN_USERS_THRESHOLD, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ, DELETE_USER_BOOK;
 var init_hardcover = __esm({
   "src/hardcover.ts"() {
     import_obsidian = require("obsidian");
@@ -894,6 +919,12 @@ query FindUserBook($bookId: Int!) {
 mutation DeleteRead($id: Int!) {
 	delete_user_book_read(id: $id) {
 		error
+	}
+}`;
+    DELETE_USER_BOOK = `
+mutation DeleteUserBook($id: Int!) {
+	delete_user_book(id: $id) {
+		id
 	}
 }`;
   }
@@ -10333,6 +10364,8 @@ ${coverEmbed}
       return;
     }
     const slug = slugMatch[1];
+    const oldIdMatch = content.match(/^hardcover_id: (\d+)/m);
+    const oldBookId = oldIdMatch ? parseInt(oldIdMatch[1], 10) : null;
     const progressNotice = new import_obsidian8.Notice("MoonSync: Looking up book on Hardcover...", 0);
     try {
       const book = await lookupBookBySlug(slug, this.settings.hardcoverToken);
@@ -10341,10 +10374,17 @@ ${coverEmbed}
         new import_obsidian8.Notice("MoonSync: Book not found on Hardcover");
         return;
       }
+      if (oldBookId && oldBookId !== book.id) {
+        progressNotice.setMessage("MoonSync: Removing old book from Hardcover...");
+        const removed = await removeHardcoverBook(oldBookId, this.settings.hardcoverToken);
+        if (!removed) {
+          console.warn(`MoonSync: Failed to remove old book ${oldBookId} from Hardcover`);
+        }
+      }
       let updated = content;
-      updated = updated.replace(/^hardcover_id: .*\n/m, "");
-      updated = updated.replace(/^hardcover_progress: .*\n/m, "");
-      updated = updated.replace(/^hardcover_url: .*\n/m, "");
+      updated = updated.replace(/^hardcover_id: .*\n/gm, "");
+      updated = updated.replace(/^hardcover_progress: .*\n/gm, "");
+      updated = updated.replace(/^hardcover_url: .*\n/gm, "");
       const fields = `hardcover_id: ${book.id}
 hardcover_url: "https://hardcover.app/books/${book.slug}"`;
       updated = updated.replace(/\n---\n/, `
