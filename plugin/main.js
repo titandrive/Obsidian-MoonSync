@@ -591,7 +591,8 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
       progressIncreased = incomingPages > existingPages;
       console.debug(`MoonSync: Hardcover book ${bookId} \u2014 existing progress: ${existingPages} pages, incoming: ${incomingPages} pages, increased: ${progressIncreased}`);
     }
-    const needsStatusChange = !myUserBook || myUserBook.status_id !== statusId && progressIncreased;
+    const isReread = (myUserBook == null ? void 0 : myUserBook.status_id) === STATUS_READ && statusId === STATUS_CURRENTLY_READING;
+    const needsStatusChange = !myUserBook || myUserBook.status_id !== statusId && (progressIncreased || isReread);
     if (needsStatusChange) {
       await rateLimitDelay();
       const insertVars = {
@@ -663,7 +664,7 @@ async function removeHardcoverBook(bookId, token) {
   }
 }
 async function updateProgressForBook(bookId, myUserBook, progress, pages, today, token) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
   if (progress <= 0) {
     return { success: true, badEdition: false };
   }
@@ -681,7 +682,11 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
   console.debug(`MoonSync: Hardcover book ${bookId} \u2014 ${allReads.length} total reads, ${unfinishedReads.length} unfinished, ${finishedReads.length} finished`);
   if (unfinishedReads.length > 1) {
     console.debug(`MoonSync: Hardcover book ${bookId} \u2014 cleaning up ${unfinishedReads.length - 1} duplicate unfinished reads`);
-    for (const dup of unfinishedReads.slice(0, -1)) {
+    const withProgress = unfinishedReads.filter((r) => r.progress_pages && r.progress_pages > 0);
+    const keepRead = withProgress.length > 0 ? withProgress[withProgress.length - 1] : unfinishedReads[unfinishedReads.length - 1];
+    for (const dup of unfinishedReads) {
+      if (dup.id === keepRead.id)
+        continue;
       try {
         await rateLimitDelay();
         await hardcoverGraphQL(DELETE_USER_BOOK_READ, token, { id: dup.id });
@@ -690,6 +695,8 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
         console.debug(`MoonSync: Hardcover book ${bookId} \u2014 failed to delete read ${dup.id}:`, err);
       }
     }
+    unfinishedReads.length = 0;
+    unfinishedReads.push(keepRead);
   }
   const currentRead = unfinishedReads.length > 0 ? unfinishedReads[unfinishedReads.length - 1] : null;
   const existingReadId = (_h = currentRead == null ? void 0 : currentRead.id) != null ? _h : null;
@@ -700,9 +707,12 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
     await rateLimitDelay();
     const vars = {
       id: existingReadId,
-      pages: progressPages,
-      editionId: editionId != null ? editionId : existingEditionId,
-      startedAt: existingStartedAt != null ? existingStartedAt : today
+      object: {
+        progress_pages: progressPages,
+        edition_id: editionId != null ? editionId : existingEditionId,
+        started_at: existingStartedAt != null ? existingStartedAt : today,
+        progress_seconds: 0
+      }
     };
     console.debug(`MoonSync: Hardcover update_user_book_read vars:`, JSON.stringify(vars));
     const updateResult = await hardcoverGraphQL(UPDATE_USER_BOOK_READ, token, vars);
@@ -711,6 +721,24 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
       console.debug(`MoonSync: Hardcover update_user_book_read error for book ${bookId}: ${updateData.error}`);
     }
     console.debug(`MoonSync: Hardcover update_user_book_read response:`, JSON.stringify(updateData == null ? void 0 : updateData.user_book_read));
+    if (finishedReads.length > 0) {
+      const firstRead = allReads[0];
+      if (firstRead && firstRead.id !== existingReadId) {
+        await rateLimitDelay();
+        const displayVars = {
+          id: firstRead.id,
+          object: {
+            progress_pages: progressPages,
+            edition_id: (_l = firstRead.edition_id) != null ? _l : editionId,
+            started_at: firstRead.started_at,
+            finished_at: firstRead.finished_at,
+            progress_seconds: 0
+          }
+        };
+        console.debug(`MoonSync: Hardcover book ${bookId} \u2014 updating first read ${firstRead.id} for display progress`);
+        await hardcoverGraphQL(UPDATE_USER_BOOK_READ, token, displayVars);
+      }
+    }
   } else {
     const userBookId = myUserBook.id;
     await rateLimitDelay();
@@ -722,7 +750,7 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
     };
     console.debug(`MoonSync: Hardcover insert_user_book_read vars:`, JSON.stringify(vars));
     const insertResult = await hardcoverGraphQL(INSERT_USER_BOOK_READ, token, vars);
-    const insertData = (_l = insertResult.data) == null ? void 0 : _l.insert_user_book_read;
+    const insertData = (_m = insertResult.data) == null ? void 0 : _m.insert_user_book_read;
     if (insertData == null ? void 0 : insertData.error) {
       console.debug(`MoonSync: Hardcover insert_user_book_read error for book ${bookId}: ${insertData.error}`);
     }
@@ -843,12 +871,8 @@ mutation InsertUserBook($object: UserBookCreateInput!) {
 	}
 }`;
     UPDATE_USER_BOOK_READ = `
-mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
-	update_user_book_read(id: $id, object: {
-		progress_pages: $pages,
-		edition_id: $editionId,
-		started_at: $startedAt,
-	}) {
+mutation UpdateBookProgress($id: Int!, $object: DatesReadInput!) {
+	update_user_book_read(id: $id, object: $object) {
 		error
 		user_book_read {
 			id

@@ -570,12 +570,8 @@ mutation InsertUserBook($object: UserBookCreateInput!) {
 }`;
 
 const UPDATE_USER_BOOK_READ = `
-mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
-	update_user_book_read(id: $id, object: {
-		progress_pages: $pages,
-		edition_id: $editionId,
-		started_at: $startedAt,
-	}) {
+mutation UpdateBookProgress($id: Int!, $object: DatesReadInput!) {
+	update_user_book_read(id: $id, object: $object) {
 		error
 		user_book_read {
 			id
@@ -687,8 +683,10 @@ export async function updateHardcoverBook(
 			console.debug(`MoonSync: Hardcover book ${bookId} — existing progress: ${existingPages} pages, incoming: ${incomingPages} pages, increased: ${progressIncreased}`);
 		}
 
-		// Only call insert_user_book if book isn't in library or status needs changing AND progress increased
-		const needsStatusChange = !myUserBook || (myUserBook.status_id !== statusId && progressIncreased);
+		// Only call insert_user_book if book isn't in library or status needs changing AND progress increased.
+		// Exception: always allow Read → Currently Reading (re-read scenario).
+		const isReread = myUserBook?.status_id === STATUS_READ && statusId === STATUS_CURRENTLY_READING;
+		const needsStatusChange = !myUserBook || (myUserBook.status_id !== statusId && (progressIncreased || isReread));
 
 		if (needsStatusChange) {
 			await rateLimitDelay();
@@ -815,11 +813,14 @@ async function updateProgressForBook(
 
 	console.debug(`MoonSync: Hardcover book ${bookId} — ${allReads.length} total reads, ${unfinishedReads.length} unfinished, ${finishedReads.length} finished`);
 
-	// If there are multiple unfinished reads, keep only the last one and delete the rest
+	// If there are multiple unfinished reads, keep the one with progress and delete the rest.
+	// insert_user_book can create empty reads; prefer keeping an existing read that has progress.
 	if (unfinishedReads.length > 1) {
 		console.debug(`MoonSync: Hardcover book ${bookId} — cleaning up ${unfinishedReads.length - 1} duplicate unfinished reads`);
-		// Keep the last one (highest ID), delete the rest
-		for (const dup of unfinishedReads.slice(0, -1)) {
+		const withProgress = unfinishedReads.filter((r: any) => r.progress_pages && r.progress_pages > 0);
+		const keepRead = withProgress.length > 0 ? withProgress[withProgress.length - 1] : unfinishedReads[unfinishedReads.length - 1];
+		for (const dup of unfinishedReads) {
+			if (dup.id === keepRead.id) continue;
 			try {
 				await rateLimitDelay();
 				await hardcoverGraphQL(DELETE_USER_BOOK_READ, token, { id: dup.id });
@@ -828,9 +829,11 @@ async function updateProgressForBook(
 				console.debug(`MoonSync: Hardcover book ${bookId} — failed to delete read ${dup.id}:`, err);
 			}
 		}
+		unfinishedReads.length = 0;
+		unfinishedReads.push(keepRead);
 	}
 
-	// Use the last unfinished read as the current one (like KOReader does)
+	// Use the remaining unfinished read as the current one
 	const currentRead = unfinishedReads.length > 0 ? unfinishedReads[unfinishedReads.length - 1] : null;
 	const existingReadId: number | null = currentRead?.id ?? null;
 	const existingStartedAt: string | null = currentRead?.started_at ?? null;
@@ -842,9 +845,12 @@ async function updateProgressForBook(
 		await rateLimitDelay();
 		const vars = {
 			id: existingReadId,
-			pages: progressPages,
-			editionId: editionId ?? existingEditionId,
-			startedAt: existingStartedAt ?? today,
+			object: {
+				progress_pages: progressPages,
+				edition_id: editionId ?? existingEditionId,
+				started_at: existingStartedAt ?? today,
+				progress_seconds: 0,
+			},
 		};
 		console.debug(`MoonSync: Hardcover update_user_book_read vars:`, JSON.stringify(vars));
 		const updateResult = await hardcoverGraphQL(UPDATE_USER_BOOK_READ, token, vars);
@@ -853,6 +859,27 @@ async function updateProgressForBook(
 			console.debug(`MoonSync: Hardcover update_user_book_read error for book ${bookId}: ${updateData.error}`);
 		}
 		console.debug(`MoonSync: Hardcover update_user_book_read response:`, JSON.stringify(updateData?.user_book_read));
+
+		// For re-reads: Hardcover's UI shows progress from the first read entry.
+		// Update the first read's progress_pages so the display reflects current progress.
+		if (finishedReads.length > 0) {
+			const firstRead = allReads[0];
+			if (firstRead && firstRead.id !== existingReadId) {
+				await rateLimitDelay();
+				const displayVars = {
+					id: firstRead.id,
+					object: {
+						progress_pages: progressPages,
+						edition_id: firstRead.edition_id ?? editionId,
+						started_at: firstRead.started_at,
+						finished_at: firstRead.finished_at,
+						progress_seconds: 0,
+					},
+				};
+				console.debug(`MoonSync: Hardcover book ${bookId} — updating first read ${firstRead.id} for display progress`);
+				await hardcoverGraphQL(UPDATE_USER_BOOK_READ, token, displayVars);
+			}
+		}
 	} else {
 		// No unfinished read exists — create new read entry
 		const userBookId = myUserBook.id;
