@@ -8249,13 +8249,21 @@ function mergeBookLists(moonReaderBooks, scannedBooks) {
   for (const book of result) {
     moonReaderMap.set(book.book.title.toLowerCase(), book);
   }
+  function normalizeTitleForMatch(title) {
+    return title.toLowerCase().replace(/[''`]/g, "").replace(/\s+/g, " ").trim();
+  }
   function findMoonReaderBook(scannedTitle) {
     const scannedLower = scannedTitle.toLowerCase();
     const exactMatch = moonReaderMap.get(scannedLower);
     if (exactMatch)
       return exactMatch;
+    const scannedNorm = normalizeTitleForMatch(scannedTitle);
     for (const [moonTitle, book] of moonReaderMap) {
       if (scannedLower.startsWith(moonTitle) || moonTitle.startsWith(scannedLower)) {
+        return book;
+      }
+      const moonNorm = normalizeTitleForMatch(moonTitle);
+      if (scannedNorm.startsWith(moonNorm) || moonNorm.startsWith(scannedNorm)) {
         return book;
       }
     }

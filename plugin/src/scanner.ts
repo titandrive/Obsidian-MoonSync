@@ -165,6 +165,10 @@ export function mergeBookLists(moonReaderBooks: BookData[], scannedBooks: Scanne
 
 	// Helper to find a Moon Reader book by title, with fuzzy matching
 	// Handles cases where titles differ (e.g., "We Are Legion" vs "We Are Legion (We Are Bob)")
+	function normalizeTitleForMatch(title: string): string {
+		return title.toLowerCase().replace(/[''`]/g, "").replace(/\s+/g, " ").trim();
+	}
+
 	function findMoonReaderBook(scannedTitle: string): BookData | undefined {
 		const scannedLower = scannedTitle.toLowerCase();
 
@@ -172,9 +176,16 @@ export function mergeBookLists(moonReaderBooks: BookData[], scannedBooks: Scanne
 		const exactMatch = moonReaderMap.get(scannedLower);
 		if (exactMatch) return exactMatch;
 
+		const scannedNorm = normalizeTitleForMatch(scannedTitle);
+
 		// Try prefix matching - one title starts with the other
 		for (const [moonTitle, book] of moonReaderMap) {
 			if (scannedLower.startsWith(moonTitle) || moonTitle.startsWith(scannedLower)) {
+				return book;
+			}
+			// Also try with normalized titles (strips apostrophes etc.)
+			const moonNorm = normalizeTitleForMatch(moonTitle);
+			if (scannedNorm.startsWith(moonNorm) || moonNorm.startsWith(scannedNorm)) {
 				return book;
 			}
 		}
