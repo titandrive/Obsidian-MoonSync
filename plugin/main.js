@@ -669,8 +669,9 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
   if (progress <= 0) {
     return { success: true, badEdition: false };
   }
-  const editionId = (_c = (_b = (_a = myUserBook.edition) == null ? void 0 : _a.id) != null ? _b : myUserBook.edition_id) != null ? _c : null;
-  const editionPages = ((_d = myUserBook.edition) == null ? void 0 : _d.pages) || pages;
+  const rawEditionPages = (_a = myUserBook.edition) == null ? void 0 : _a.pages;
+  const editionId = rawEditionPages && rawEditionPages > 0 ? (_d = (_c = (_b = myUserBook.edition) == null ? void 0 : _b.id) != null ? _c : myUserBook.edition_id) != null ? _d : null : null;
+  const editionPages = rawEditionPages || pages;
   console.debug(`MoonSync: Hardcover book ${bookId} \u2014 editionId: ${editionId}, edition pages: ${(_e = myUserBook.edition) == null ? void 0 : _e.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
   if (!editionPages || editionPages <= 0) {
     console.debug(`MoonSync: Hardcover book ${bookId} \u2014 no page count, skipping progress`);

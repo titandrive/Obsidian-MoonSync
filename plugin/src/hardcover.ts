@@ -798,9 +798,13 @@ async function updateProgressForBook(
 		return { success: true, badEdition: false };
 	}
 
-	// Use edition pages if available, fall back to book-level pages
-	const editionId: number | null = myUserBook.edition?.id ?? myUserBook.edition_id ?? null;
-	const editionPages = myUserBook.edition?.pages || pages;
+	// Use edition pages if available, fall back to book-level pages.
+	// Don't lock reads to a 0-page edition — pass null so Hardcover keeps whatever edition the user set.
+	const rawEditionPages = myUserBook.edition?.pages;
+	const editionId: number | null = (rawEditionPages && rawEditionPages > 0)
+		? (myUserBook.edition?.id ?? myUserBook.edition_id ?? null)
+		: null;
+	const editionPages = rawEditionPages || pages;
 	console.debug(`MoonSync: Hardcover book ${bookId} — editionId: ${editionId}, edition pages: ${myUserBook.edition?.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
 	if (!editionPages || editionPages <= 0) {
 		console.debug(`MoonSync: Hardcover book ${bookId} — no page count, skipping progress`);
