@@ -592,7 +592,8 @@ async function updateHardcoverBook(bookId, statusId, progress, pages, token) {
       console.debug(`MoonSync: Hardcover book ${bookId} \u2014 existing progress: ${existingPages} pages, incoming: ${incomingPages} pages, increased: ${progressIncreased}`);
     }
     const isReread = (myUserBook == null ? void 0 : myUserBook.status_id) === STATUS_READ && statusId === STATUS_CURRENTLY_READING;
-    const needsStatusChange = !myUserBook || myUserBook.status_id !== statusId && (progressIncreased || isReread);
+    const isDNF = (myUserBook == null ? void 0 : myUserBook.status_id) === STATUS_DNF;
+    const needsStatusChange = !myUserBook || myUserBook.status_id !== statusId && (!isDNF || progressIncreased || isReread);
     if (needsStatusChange) {
       await rateLimitDelay();
       const insertVars = {
@@ -664,19 +665,19 @@ async function removeHardcoverBook(bookId, token) {
   }
 }
 async function updateProgressForBook(bookId, myUserBook, progress, pages, today, token) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
   if (progress <= 0) {
     return { success: true, badEdition: false };
   }
   const editionId = (_c = (_b = (_a = myUserBook.edition) == null ? void 0 : _a.id) != null ? _b : myUserBook.edition_id) != null ? _c : null;
-  const editionPages = (_e = (_d = myUserBook.edition) == null ? void 0 : _d.pages) != null ? _e : pages;
-  console.debug(`MoonSync: Hardcover book ${bookId} \u2014 editionId: ${editionId}, edition pages: ${(_f = myUserBook.edition) == null ? void 0 : _f.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
+  const editionPages = ((_d = myUserBook.edition) == null ? void 0 : _d.pages) || pages;
+  console.debug(`MoonSync: Hardcover book ${bookId} \u2014 editionId: ${editionId}, edition pages: ${(_e = myUserBook.edition) == null ? void 0 : _e.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
   if (!editionPages || editionPages <= 0) {
     console.debug(`MoonSync: Hardcover book ${bookId} \u2014 no page count, skipping progress`);
     return { success: true, badEdition: false };
   }
   const progressPages = Math.round(progress / 100 * editionPages);
-  const allReads = (_g = myUserBook.user_book_reads) != null ? _g : [];
+  const allReads = (_f = myUserBook.user_book_reads) != null ? _f : [];
   const unfinishedReads = allReads.filter((r) => !r.finished_at);
   const finishedReads = allReads.filter((r) => r.finished_at);
   console.debug(`MoonSync: Hardcover book ${bookId} \u2014 ${allReads.length} total reads, ${unfinishedReads.length} unfinished, ${finishedReads.length} finished`);
@@ -699,9 +700,9 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
     unfinishedReads.push(keepRead);
   }
   const currentRead = unfinishedReads.length > 0 ? unfinishedReads[unfinishedReads.length - 1] : null;
-  const existingReadId = (_h = currentRead == null ? void 0 : currentRead.id) != null ? _h : null;
-  const existingStartedAt = (_i = currentRead == null ? void 0 : currentRead.started_at) != null ? _i : null;
-  const existingEditionId = (_j = currentRead == null ? void 0 : currentRead.edition_id) != null ? _j : null;
+  const existingReadId = (_g = currentRead == null ? void 0 : currentRead.id) != null ? _g : null;
+  const existingStartedAt = (_h = currentRead == null ? void 0 : currentRead.started_at) != null ? _h : null;
+  const existingEditionId = (_i = currentRead == null ? void 0 : currentRead.edition_id) != null ? _i : null;
   console.debug(`MoonSync: Hardcover book ${bookId} \u2014 target: ${progressPages}/${editionPages} pages, currentRead: id=${existingReadId}, started=${existingStartedAt}, edition=${existingEditionId}`);
   if (existingReadId) {
     await rateLimitDelay();
@@ -716,7 +717,7 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
     };
     console.debug(`MoonSync: Hardcover update_user_book_read vars:`, JSON.stringify(vars));
     const updateResult = await hardcoverGraphQL(UPDATE_USER_BOOK_READ, token, vars);
-    const updateData = (_k = updateResult.data) == null ? void 0 : _k.update_user_book_read;
+    const updateData = (_j = updateResult.data) == null ? void 0 : _j.update_user_book_read;
     if (updateData == null ? void 0 : updateData.error) {
       console.debug(`MoonSync: Hardcover update_user_book_read error for book ${bookId}: ${updateData.error}`);
     }
@@ -729,7 +730,7 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
           id: firstRead.id,
           object: {
             progress_pages: progressPages,
-            edition_id: (_l = firstRead.edition_id) != null ? _l : editionId,
+            edition_id: (_k = firstRead.edition_id) != null ? _k : editionId,
             started_at: firstRead.started_at,
             finished_at: firstRead.finished_at,
             progress_seconds: 0
@@ -750,7 +751,7 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
     };
     console.debug(`MoonSync: Hardcover insert_user_book_read vars:`, JSON.stringify(vars));
     const insertResult = await hardcoverGraphQL(INSERT_USER_BOOK_READ, token, vars);
-    const insertData = (_m = insertResult.data) == null ? void 0 : _m.insert_user_book_read;
+    const insertData = (_l = insertResult.data) == null ? void 0 : _l.insert_user_book_read;
     if (insertData == null ? void 0 : insertData.error) {
       console.debug(`MoonSync: Hardcover insert_user_book_read error for book ${bookId}: ${insertData.error}`);
     }
@@ -759,7 +760,7 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
   return { success: true, badEdition: false };
 }
 async function syncBooksToHardcover(books, token, onProgress) {
-  var _a, _b, _c, _d, _e, _f;
+  var _a, _b, _c, _d, _e, _f, _g;
   const result = {
     booksUpdated: 0,
     booksFailed: 0,
@@ -797,11 +798,11 @@ async function syncBooksToHardcover(books, token, onProgress) {
       } else if (!slug) {
         try {
           await rateLimitDelay();
-          const detailQuery = `{ books(where: { id: { _eq: ${hardcoverId} } }, limit: 1) { slug pages } }`;
+          const detailQuery = `{ books(where: { id: { _eq: ${hardcoverId} } }, limit: 1) { slug pages default_physical_edition { pages } default_ebook_edition { pages } } }`;
           const detailResult = await hardcoverGraphQL(detailQuery, token);
           const detail = (_d = (_c = detailResult.data) == null ? void 0 : _c.books) == null ? void 0 : _d[0];
-          pages = (_e = detail == null ? void 0 : detail.pages) != null ? _e : pages;
-          slug = (_f = detail == null ? void 0 : detail.slug) != null ? _f : "";
+          pages = (detail == null ? void 0 : detail.pages) || ((_e = detail == null ? void 0 : detail.default_physical_edition) == null ? void 0 : _e.pages) || ((_f = detail == null ? void 0 : detail.default_ebook_edition) == null ? void 0 : _f.pages) || pages;
+          slug = (_g = detail == null ? void 0 : detail.slug) != null ? _g : "";
         } catch (e) {
         }
       }
@@ -836,7 +837,7 @@ async function syncBooksToHardcover(books, token, onProgress) {
   }
   return result;
 }
-var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, MIN_USERS_THRESHOLD, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ, DELETE_USER_BOOK;
+var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, STATUS_DNF, MIN_USERS_THRESHOLD, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ, DELETE_USER_BOOK;
 var init_hardcover = __esm({
   "src/hardcover.ts"() {
     import_obsidian = require("obsidian");
@@ -845,6 +846,7 @@ var init_hardcover = __esm({
     STATUS_WANT_TO_READ = 1;
     STATUS_CURRENTLY_READING = 2;
     STATUS_READ = 3;
+    STATUS_DNF = 5;
     MIN_USERS_THRESHOLD = 10;
     lastRequestTime = 0;
     USER_BOOK_PARTS = `

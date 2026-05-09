@@ -7,6 +7,7 @@ const HARDCOVER_API = "https://api.hardcover.app/v1/graphql";
 const STATUS_WANT_TO_READ = 1;
 const STATUS_CURRENTLY_READING = 2;
 const STATUS_READ = 3;
+const STATUS_DNF = 5;
 
 export interface HardcoverSyncResult {
 	booksUpdated: number;
@@ -683,10 +684,13 @@ export async function updateHardcoverBook(
 			console.debug(`MoonSync: Hardcover book ${bookId} — existing progress: ${existingPages} pages, incoming: ${incomingPages} pages, increased: ${progressIncreased}`);
 		}
 
-		// Only call insert_user_book if book isn't in library or status needs changing AND progress increased.
+		// Only call insert_user_book if book isn't in library or status needs changing.
+		// Guard: don't override a DNF status unless progress has actually increased (the user may have
+		// deliberately marked it DNF and the cache was lost). For all other statuses, correct freely.
 		// Exception: always allow Read → Currently Reading (re-read scenario).
 		const isReread = myUserBook?.status_id === STATUS_READ && statusId === STATUS_CURRENTLY_READING;
-		const needsStatusChange = !myUserBook || (myUserBook.status_id !== statusId && (progressIncreased || isReread));
+		const isDNF = myUserBook?.status_id === STATUS_DNF;
+		const needsStatusChange = !myUserBook || (myUserBook.status_id !== statusId && (!isDNF || progressIncreased || isReread));
 
 		if (needsStatusChange) {
 			await rateLimitDelay();
@@ -796,7 +800,7 @@ async function updateProgressForBook(
 
 	// Use edition pages if available, fall back to book-level pages
 	const editionId: number | null = myUserBook.edition?.id ?? myUserBook.edition_id ?? null;
-	const editionPages = myUserBook.edition?.pages ?? pages;
+	const editionPages = myUserBook.edition?.pages || pages;
 	console.debug(`MoonSync: Hardcover book ${bookId} — editionId: ${editionId}, edition pages: ${myUserBook.edition?.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
 	if (!editionPages || editionPages <= 0) {
 		console.debug(`MoonSync: Hardcover book ${bookId} — no page count, skipping progress`);
@@ -965,10 +969,10 @@ export async function syncBooksToHardcover(
 				// Have ID but need pages and slug — only fetch if not cached
 				try {
 					await rateLimitDelay();
-					const detailQuery = `{ books(where: { id: { _eq: ${hardcoverId} } }, limit: 1) { slug pages } }`;
+					const detailQuery = `{ books(where: { id: { _eq: ${hardcoverId} } }, limit: 1) { slug pages default_physical_edition { pages } default_ebook_edition { pages } } }`;
 					const detailResult = await hardcoverGraphQL(detailQuery, token);
 					const detail = detailResult.data?.books?.[0];
-					pages = detail?.pages ?? pages;
+					pages = detail?.pages || detail?.default_physical_edition?.pages || detail?.default_ebook_edition?.pages || pages;
 					slug = detail?.slug ?? "";
 				} catch { /* ignore */ }
 			}
