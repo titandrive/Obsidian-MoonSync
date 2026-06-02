@@ -55,10 +55,14 @@ export interface BookData {
 	previousTitle: string | null; // title before enrichment (for finding old notes to rename)
 	hardcoverId: number | null; // Hardcover book ID (from metadata fetch)
 	hardcoverSlug: string | null; // Hardcover URL slug
+	source?: "moonreader" | "readest"; // which app this book came from
 }
 
 export interface MoonSyncSettings {
 	syncPath: string;
+	moonReaderEnabled: boolean;
+	readestEnabled: boolean;
+	readestSyncPath: string;
 	outputFolder: string;
 	syncOnStartup: boolean;
 	watchForChanges: boolean;
@@ -83,6 +87,9 @@ export interface MoonSyncSettings {
 
 export const DEFAULT_SETTINGS: MoonSyncSettings = {
 	syncPath: "",
+	moonReaderEnabled: true,
+	readestEnabled: false,
+	readestSyncPath: "",
 	outputFolder: "Books",
 	syncOnStartup: true,
 	watchForChanges: false,
