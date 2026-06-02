@@ -295,6 +295,8 @@ export async function syncFromMoonReader(
 		// Load book info cache
 		const cache = await loadCache(app, outputPath);
 		let cacheModified = false;
+		let readestCache: BookInfoCache | null = null;
+		let readestCacheModified = false;
 
 		// Build title cache once for efficient file matching
 		progressNotice.setMessage("MoonSync: Scanning existing notes...");
@@ -435,171 +437,7 @@ export async function syncFromMoonReader(
 			await saveCache(app, outputPath, cache);
 		}
 
-		// Write hardcover_id and hardcover_url to existing notes from cache
-		// This covers books that were matched during metadata fetch but skipped by progress sync
-		if (settings.hardcoverEnabled && settings.hardcoverToken) {
-			for (const bookData of booksWithHighlights) {
-				const cachedBook = getCachedInfo(cache, bookData.book.title, bookData.book.author);
-				if (!cachedBook?.hardcoverId || !cachedBook?.hardcoverSlug) continue;
-
-				const lookupTitle = (cachedBook.source === "hardcover" && cachedBook.title)
-					? cachedBook.title : bookData.book.title;
-				const filename = generateFilename(lookupTitle);
-				const filePath = normalizePath(`${outputPath}/${filename}.md`);
-				try {
-					if (!await app.vault.adapter.exists(filePath)) continue;
-					const content = await app.vault.adapter.read(filePath);
-					// Skip if already has hardcover_id
-					if (/^hardcover_id: /m.test(content)) continue;
-					// Insert hardcover fields before closing ---
-					const fields: string[] = [];
-					fields.push(`hardcover_id: ${cachedBook.hardcoverId}`);
-					fields.push(`hardcover_url: "https://hardcover.app/books/${cachedBook.hardcoverSlug}"`);
-					const updated = content.replace(/\n---\n/, `\n${fields.join("\n")}\n---\n`);
-					if (updated !== content) {
-						await app.vault.adapter.write(filePath, updated);
-					}
-				} catch {
-					// Ignore write errors for individual books
-				}
-			}
-		}
-
-		// Sync reading progress to Hardcover if enabled
-		if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
-			try {
-				progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
-				console.debug(`MoonSync: Hardcover sync starting — ${changedBookTitles.size} changed books, ${booksWithHighlights.length} total books`);
-				const hardcoverItems: HardcoverSyncItem[] = [];
-				const titleToFilename = new Map<string, string>();
-				for (const b of booksWithHighlights) {
-					if (b.progress === null) {
-						console.debug(`MoonSync: Hardcover skipping "${b.book.title}" — no progress data`);
-						continue;
-					}
-					// Read hardcover_id and last-synced progress from frontmatter
-					// Use cached Hardcover title for file lookup (file may have been renamed)
-					const cachedBook = getCachedInfo(cache, b.book.title, b.book.author);
-					const hcLookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title)
-						? cachedBook.title : b.book.title;
-					const filename = generateFilename(hcLookupTitle);
-					const filePath = normalizePath(`${outputPath}/${filename}.md`);
-					let hardcoverId: number | null = null;
-					let lastSyncedProgress: string | null = null;
-					try {
-						if (await app.vault.adapter.exists(filePath)) {
-							const content = await app.vault.adapter.read(filePath);
-							const fm = extractFrontmatter(content);
-							if (fm) {
-								const idStr = parseFrontmatterField(fm, "hardcover_id");
-								if (idStr) hardcoverId = parseInt(idStr, 10) || null;
-								lastSyncedProgress = parseFrontmatterField(fm, "hardcover_progress");
-							}
-						} else {
-							console.debug(`MoonSync: Hardcover "${b.book.title}" — note not found at ${filePath}`);
-						}
-					} catch { /* ignore read errors */ }
-
-					// Skip if progress hasn't changed since last Hardcover sync
-					const currentProgress = b.progress.toFixed(1);
-					if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress) {
-						console.debug(`MoonSync: Hardcover skipping "${b.book.title}" — progress unchanged (${currentProgress}%)`);
-						continue;
-					}
-
-					console.debug(`MoonSync: Hardcover queuing "${b.book.title}" — progress: ${b.progress}%, hardcoverId: ${hardcoverId}, lastSynced: ${lastSyncedProgress}`);
-					hardcoverItems.push({
-						title: b.book.title,
-						author: b.book.author,
-						progress: b.progress,
-						hardcoverId,
-						cachedSlug: cachedBook?.hardcoverSlug,
-						cachedPages: cachedBook?.hardcoverPages,
-					});
-					// Track the correct filename for write-back (may differ from Moon Reader title)
-					if (hcLookupTitle !== b.book.title) {
-						titleToFilename.set(b.book.title, hcLookupTitle);
-					}
-				}
-
-				console.debug(`MoonSync: Hardcover ${hardcoverItems.length} books queued for sync`);
-				if (hardcoverItems.length > 0) {
-					const hcResult = await syncBooksToHardcover(
-						hardcoverItems,
-						settings.hardcoverToken,
-						(msg) => progressNotice.setMessage(`MoonSync: ${msg}`)
-					);
-					result.hardcoverUpdated = hcResult.booksUpdated;
-
-					// Write hardcover_id, hardcover_url, and hardcover_progress to frontmatter
-					console.debug(`MoonSync: Hardcover write-back — ${hcResult.updatedTitles.length} updated, ${hcResult.newIds.length} new IDs, ${hcResult.slugs.size} slugs`);
-					const newIdMap = new Map(hcResult.newIds.map(n => [n.title, n.hardcoverId]));
-					const newSlugMap = new Map(hcResult.newIds.map(n => [n.title, n.slug]));
-					const progressMap = new Map(hardcoverItems.map(i => [i.title, i.progress]));
-					for (const title of hcResult.updatedTitles) {
-						try {
-							const wbTitle = titleToFilename.get(title) || title;
-							const fn = generateFilename(wbTitle);
-							const fp = normalizePath(`${outputPath}/${fn}.md`);
-							if (await app.vault.adapter.exists(fp)) {
-								let content = await app.vault.adapter.read(fp);
-								// Read existing hardcover_id before stripping
-								const existingIdMatch = content.match(/^hardcover_id: (.+)$/m);
-								const existingId = existingIdMatch ? existingIdMatch[1].trim() : null;
-								// Remove old hardcover fields before inserting updated ones
-								content = content.replace(/^hardcover_id: .*\n/gm, "");
-								content = content.replace(/^hardcover_progress: .*\n/gm, "");
-								content = content.replace(/^hardcover_url: .*\n/gm, "");
-								// Build new fields: use new ID if discovered, otherwise preserve existing
-								const newId = newIdMap.get(title);
-								const hardcoverId = newId || existingId;
-								const slug = hcResult.slugs.get(title) || newSlugMap.get(title);
-								const syncedProgress = progressMap.get(title);
-								const fields: string[] = [];
-								if (hardcoverId) fields.push(`hardcover_id: ${hardcoverId}`);
-								if (slug) fields.push(`hardcover_url: "https://hardcover.app/books/${slug}"`);
-								if (syncedProgress !== null && syncedProgress !== undefined) {
-									fields.push(`hardcover_progress: "${syncedProgress.toFixed(1)}%"`);
-								}
-								if (fields.length > 0) {
-									content = content.replace(/\n---\n/, `\n${fields.join("\n")}\n---\n`);
-								}
-								await app.vault.adapter.write(fp, content);
-							}
-						} catch (err) {
-							console.debug(`MoonSync: Failed to write hardcover data for "${title}"`, err);
-						}
-					}
-				// Write back slug/pages to metadata cache so future syncs skip the detail fetch
-					for (const item of hardcoverItems) {
-						const cachedEntry = getCachedInfo(cache, item.title, item.author);
-						if (cachedEntry) {
-							const slug = hcResult.slugs.get(item.title) || newSlugMap.get(item.title);
-							const pages = hcResult.pages.get(item.title);
-							const newId = newIdMap.get(item.title);
-							let modified = false;
-							if (slug && cachedEntry.hardcoverSlug !== slug) {
-								cachedEntry.hardcoverSlug = slug;
-								modified = true;
-							}
-							if (pages && cachedEntry.hardcoverPages !== pages) {
-								cachedEntry.hardcoverPages = pages;
-								modified = true;
-							}
-							if (newId && cachedEntry.hardcoverId !== newId) {
-								cachedEntry.hardcoverId = newId;
-								modified = true;
-							}
-							if (modified) cacheModified = true;
-						}
-					}
-				}
-			} catch (error) {
-				console.debug("MoonSync: Hardcover sync failed", error);
-			}
-		}
-
-		// Save MR cache again if Hardcover sync modified it
+		// Save MR cache
 		if (cacheModified) {
 			await saveCache(app, outputPath, cache);
 		}
@@ -616,8 +454,7 @@ export async function syncFromMoonReader(
 			const readestBooks = await parseReadestFiles(settings.readestSyncPath);
 
 			if (readestBooks.length > 0) {
-				const readestCache = await loadCache(app, readestOutputPath);
-				let readestCacheModified = false;
+				readestCache = await loadCache(app, readestOutputPath);
 				const readestTitleCache = await buildTitleCache(app, readestOutputPath);
 				const readestCoversFolder = normalizePath(`${readestOutputPath}/moonsync-covers`);
 				const hardcoverToken = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : undefined;
@@ -697,109 +534,169 @@ export async function syncFromMoonReader(
 
 				if (readestCacheModified) {
 					await saveCache(app, readestOutputPath, readestCache);
+					readestCacheModified = false;
 				}
 
-				// Readest Hardcover sync
-				if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
-					try {
-						const hcItems: HardcoverSyncItem[] = [];
-						const readestTitleToFilename = new Map<string, string>();
-						for (const b of readestBooks) {
-							if (b.progress === null) continue;
-							const cachedBook = getCachedInfo(readestCache, b.book.title, b.book.author);
-							const hcLookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title)
-								? cachedBook.title : b.book.title;
-							const filename = generateFilename(hcLookupTitle);
-							const filePath = normalizePath(`${readestOutputPath}/${filename}.md`);
-							let hardcoverId: number | null = null;
-							let lastSyncedProgress: string | null = null;
-							try {
-								if (await app.vault.adapter.exists(filePath)) {
-									const content = await app.vault.adapter.read(filePath);
-									const fm = extractFrontmatter(content);
-									if (fm) {
-										const idStr = parseFrontmatterField(fm, "hardcover_id");
-										if (idStr) hardcoverId = parseInt(idStr, 10) || null;
-										lastSyncedProgress = parseFrontmatterField(fm, "hardcover_progress");
-									}
+				readestBooksForIndex.push(...readestBooks);
+			}
+		}
+
+		// Combined Hardcover sync — deduplicates by hardcoverId across both sources
+		if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
+			try {
+				progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
+
+				// Internal entry type: one item per unique book, may map to notes in multiple source dirs
+				interface HcEntry {
+					item: HardcoverSyncItem;
+					notePaths: string[];
+					cacheRefs: Array<{ bookCache: BookInfoCache; title: string; author: string }>;
+				}
+
+				const buildEntries = async (
+					books: BookData[],
+					srcPath: string,
+					srcCache: BookInfoCache
+				): Promise<HcEntry[]> => {
+					const entries: HcEntry[] = [];
+					for (const b of books) {
+						if (b.progress === null) continue;
+						const cachedBook = getCachedInfo(srcCache, b.book.title, b.book.author);
+						const hcLookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title)
+							? cachedBook.title : b.book.title;
+						const filePath = normalizePath(`${srcPath}/${generateFilename(hcLookupTitle)}.md`);
+						let hardcoverId: number | null = null;
+						let lastSyncedProgress: string | null = null;
+						try {
+							if (await app.vault.adapter.exists(filePath)) {
+								const content = await app.vault.adapter.read(filePath);
+								const fm = extractFrontmatter(content);
+								if (fm) {
+									const idStr = parseFrontmatterField(fm, "hardcover_id");
+									if (idStr) hardcoverId = parseInt(idStr, 10) || null;
+									lastSyncedProgress = parseFrontmatterField(fm, "hardcover_progress");
 								}
-							} catch { /* ignore */ }
-							const currentProgress = b.progress.toFixed(1);
-							if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress) continue;
-							hcItems.push({
+							}
+						} catch { /* ignore */ }
+						const currentProgress = b.progress.toFixed(1);
+						if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress) continue;
+						entries.push({
+							item: {
 								title: b.book.title,
 								author: b.book.author,
 								progress: b.progress,
 								hardcoverId,
 								cachedSlug: cachedBook?.hardcoverSlug,
 								cachedPages: cachedBook?.hardcoverPages,
-							});
-							if (hcLookupTitle !== b.book.title) {
-								readestTitleToFilename.set(b.book.title, hcLookupTitle);
-							}
+							},
+							notePaths: [filePath],
+							cacheRefs: [{ bookCache: srcCache, title: b.book.title, author: b.book.author }],
+						});
+					}
+					return entries;
+				};
+
+				const mrEntries = settings.moonReaderEnabled
+					? await buildEntries(booksWithHighlights, outputPath, cache)
+					: [];
+				const readestEntries = readestBooksForIndex.length > 0 && readestCache
+					? await buildEntries(readestBooksForIndex, readestOutputPath, readestCache)
+					: [];
+
+				// Deduplicate: key by hardcoverId if known, else normalized title+author
+				const dedupMap = new Map<string, HcEntry>();
+				for (const entry of [...mrEntries, ...readestEntries]) {
+					const key = entry.item.hardcoverId
+						? `id:${entry.item.hardcoverId}`
+						: `ta:${entry.item.title.toLowerCase()}|${(entry.item.author ?? "").toLowerCase()}`;
+					const existing = dedupMap.get(key);
+					if (!existing) {
+						dedupMap.set(key, {
+							item: { ...entry.item },
+							notePaths: [...entry.notePaths],
+							cacheRefs: [...entry.cacheRefs],
+						});
+					} else {
+						// Keep higher progress; merge note paths and cache refs
+						if ((entry.item.progress ?? 0) > (existing.item.progress ?? 0)) {
+							existing.item.progress = entry.item.progress;
 						}
-
-						if (hcItems.length > 0) {
-							const hcResult = await syncBooksToHardcover(
-								hcItems,
-								settings.hardcoverToken,
-								(msg) => progressNotice.setMessage(`MoonSync: ${msg}`)
-							);
-							result.hardcoverUpdated = (result.hardcoverUpdated ?? 0) + hcResult.booksUpdated;
-
-							const newIdMap = new Map(hcResult.newIds.map(n => [n.title, n.hardcoverId]));
-							const newSlugMap = new Map(hcResult.newIds.map(n => [n.title, n.slug]));
-							const progressMap = new Map(hcItems.map(i => [i.title, i.progress]));
-							for (const title of hcResult.updatedTitles) {
-								try {
-									const wbTitle = readestTitleToFilename.get(title) || title;
-									const fn = generateFilename(wbTitle);
-									const fp = normalizePath(`${readestOutputPath}/${fn}.md`);
-									if (await app.vault.adapter.exists(fp)) {
-										let content = await app.vault.adapter.read(fp);
-										const existingIdMatch = content.match(/^hardcover_id: (.+)$/m);
-										const existingId = existingIdMatch ? existingIdMatch[1].trim() : null;
-										content = content.replace(/^hardcover_id: .*\n/gm, "");
-										content = content.replace(/^hardcover_progress: .*\n/gm, "");
-										content = content.replace(/^hardcover_url: .*\n/gm, "");
-										const newId = newIdMap.get(title);
-										const hardcoverId = newId || existingId;
-										const slug = hcResult.slugs.get(title) || newSlugMap.get(title);
-										const syncedProgress = progressMap.get(title);
-										const fields: string[] = [];
-										if (hardcoverId) fields.push(`hardcover_id: ${hardcoverId}`);
-										if (slug) fields.push(`hardcover_url: "https://hardcover.app/books/${slug}"`);
-										if (syncedProgress != null) fields.push(`hardcover_progress: "${syncedProgress.toFixed(1)}%"`);
-										if (fields.length > 0) {
-											content = content.replace(/\n---\n/, `\n${fields.join("\n")}\n---\n`);
-										}
-										await app.vault.adapter.write(fp, content);
-									}
-								} catch { /* ignore */ }
-							}
-
-							for (const item of hcItems) {
-								const cachedEntry = getCachedInfo(readestCache, item.title, item.author);
-								if (cachedEntry) {
-									const slug = hcResult.slugs.get(item.title) || newSlugMap.get(item.title);
-									const pages = hcResult.pages.get(item.title);
-									const newId = newIdMap.get(item.title);
-									if (slug) cachedEntry.hardcoverSlug = slug;
-									if (pages) cachedEntry.hardcoverPages = pages;
-									if (newId) cachedEntry.hardcoverId = newId;
-									readestCacheModified = true;
-								}
-							}
-							if (readestCacheModified) {
-								await saveCache(app, readestOutputPath, readestCache);
-							}
+						if (entry.item.hardcoverId && !existing.item.hardcoverId) {
+							existing.item.hardcoverId = entry.item.hardcoverId;
 						}
-					} catch (error) {
-						console.debug("MoonSync: Readest Hardcover sync failed", error);
+						for (const np of entry.notePaths) {
+							if (!existing.notePaths.includes(np)) existing.notePaths.push(np);
+						}
+						existing.cacheRefs.push(...entry.cacheRefs);
 					}
 				}
 
-				readestBooksForIndex.push(...readestBooks);
+				const allItems = [...dedupMap.values()].map(e => e.item);
+				if (allItems.length > 0) {
+					const hcResult = await syncBooksToHardcover(
+						allItems,
+						settings.hardcoverToken,
+						(msg) => progressNotice.setMessage(`MoonSync: ${msg}`)
+					);
+					result.hardcoverUpdated = hcResult.booksUpdated;
+
+					const newIdMap = new Map(hcResult.newIds.map(n => [n.title, n.hardcoverId]));
+					const newSlugMap = new Map(hcResult.newIds.map(n => [n.title, n.slug]));
+					const progressMap = new Map(allItems.map(i => [i.title, i.progress]));
+
+					for (const title of hcResult.updatedTitles) {
+						const entry = [...dedupMap.values()].find(
+							e => e.item.title === title
+						);
+						if (!entry) continue;
+
+						const newId = newIdMap.get(title);
+						const slug = hcResult.slugs.get(title) || newSlugMap.get(title);
+						const syncedProgress = progressMap.get(title);
+
+						// Write back to ALL note files for this book (MR + Readest)
+						for (const filePath of entry.notePaths) {
+							try {
+								if (!await app.vault.adapter.exists(filePath)) continue;
+								let content = await app.vault.adapter.read(filePath);
+								const existingIdMatch = content.match(/^hardcover_id: (.+)$/m);
+								const existingId = existingIdMatch ? existingIdMatch[1].trim() : null;
+								content = content.replace(/^hardcover_id: .*\n/gm, "");
+								content = content.replace(/^hardcover_progress: .*\n/gm, "");
+								content = content.replace(/^hardcover_url: .*\n/gm, "");
+								const hardcoverId = newId || existingId;
+								const fields: string[] = [];
+								if (hardcoverId) fields.push(`hardcover_id: ${hardcoverId}`);
+								if (slug) fields.push(`hardcover_url: "https://hardcover.app/books/${slug}"`);
+								if (syncedProgress != null) fields.push(`hardcover_progress: "${syncedProgress.toFixed(1)}%"`);
+								if (fields.length > 0) {
+									content = content.replace(/\n---\n/, `\n${fields.join("\n")}\n---\n`);
+								}
+								await app.vault.adapter.write(filePath, content);
+							} catch { /* ignore */ }
+						}
+
+						// Update all caches
+						for (const ref of entry.cacheRefs) {
+							const cachedEntry = getCachedInfo(ref.bookCache, ref.title, ref.author);
+							if (cachedEntry) {
+								if (slug) cachedEntry.hardcoverSlug = slug;
+								const pages = hcResult.pages.get(title);
+								if (pages) cachedEntry.hardcoverPages = pages;
+								if (newId) cachedEntry.hardcoverId = newId;
+								// Mark the right cache as modified
+								if (ref.bookCache === cache) cacheModified = true;
+								else readestCacheModified = true;
+							}
+						}
+					}
+
+					// Save caches if modified by Hardcover sync
+					if (cacheModified) await saveCache(app, outputPath, cache);
+					if (readestCacheModified && readestCache) await saveCache(app, readestOutputPath, readestCache);
+				}
+			} catch (error) {
+				console.debug("MoonSync: Hardcover sync failed", error);
 			}
 		}
 
