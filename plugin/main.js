@@ -9044,7 +9044,10 @@ async function hasNotesWithField(app, folderPath, field) {
 async function migrateToSubdirectories(app, settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
   const mrPath = (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
-  if (await app.vault.adapter.exists(mrPath))
+  const readestPath = (0, import_obsidian7.normalizePath)(`${base}/Readest`);
+  const mrExists = await app.vault.adapter.exists(mrPath);
+  const readestExists = await app.vault.adapter.exists(readestPath);
+  if (mrExists && readestExists)
     return;
   let listing;
   try {
@@ -9055,37 +9058,60 @@ async function migrateToSubdirectories(app, settings) {
   const mdFiles = listing.files.filter((f) => f.endsWith(".md"));
   if (mdFiles.length === 0)
     return;
-  await app.vault.createFolder(mrPath);
+  if (!mrExists)
+    await app.vault.createFolder(mrPath);
+  if (!readestExists)
+    await app.vault.createFolder(readestPath);
+  const mrCovers = [];
+  const readestCovers = [];
   for (const filePath of mdFiles) {
     try {
       const content = await app.vault.adapter.read(filePath);
-      if (!/^moon_reader_path:/m.test(content))
-        continue;
       const filename = filePath.split("/").pop();
-      await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${mrPath}/${filename}`), content);
-      await app.vault.adapter.remove(filePath);
+      const isMr = content.includes("book_source: moonreader") || /^moon_reader_path:/m.test(content);
+      const isReadest = content.includes("book_source: readest") || content.includes("readest_book: true");
+      if (isMr && !mrExists) {
+        await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${mrPath}/${filename}`), content);
+        await app.vault.adapter.remove(filePath);
+        const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
+        if (coverMatch)
+          mrCovers.push(coverMatch[1].split("/").pop());
+      } else if (isReadest && !readestExists) {
+        await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${readestPath}/${filename}`), content);
+        await app.vault.adapter.remove(filePath);
+        const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
+        if (coverMatch)
+          readestCovers.push(coverMatch[1].split("/").pop());
+      }
     } catch (e) {
     }
   }
-  const cacheSrc = (0, import_obsidian7.normalizePath)(`${base}/.moonsync-cache.json`);
-  if (await app.vault.adapter.exists(cacheSrc)) {
-    try {
-      const cacheContent = await app.vault.adapter.read(cacheSrc);
-      await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${mrPath}/.moonsync-cache.json`), cacheContent);
-      await app.vault.adapter.remove(cacheSrc);
-    } catch (e) {
+  for (const [destPath, shouldMove] of [[mrPath, !mrExists], [readestPath, !readestExists]]) {
+    if (!shouldMove)
+      continue;
+    const cacheSrc = (0, import_obsidian7.normalizePath)(`${base}/.moonsync-cache.json`);
+    if (await app.vault.adapter.exists(cacheSrc)) {
+      try {
+        const cacheContent = await app.vault.adapter.read(cacheSrc);
+        await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${destPath}/.moonsync-cache.json`), cacheContent);
+        await app.vault.adapter.remove(cacheSrc);
+      } catch (e) {
+      }
+      break;
     }
   }
   const coversSrc = (0, import_obsidian7.normalizePath)(`${base}/moonsync-covers`);
   if (await app.vault.adapter.exists(coversSrc)) {
     try {
-      const coversDst = (0, import_obsidian7.normalizePath)(`${mrPath}/moonsync-covers`);
-      await app.vault.createFolder(coversDst);
       const coversListing = await app.vault.adapter.list(coversSrc);
       for (const coverFile of coversListing.files) {
         const coverName = coverFile.split("/").pop();
         const data = await app.vault.adapter.readBinary(coverFile);
-        await app.vault.adapter.writeBinary((0, import_obsidian7.normalizePath)(`${coversDst}/${coverName}`), data);
+        const destDir = readestCovers.includes(coverName) && !readestExists ? (0, import_obsidian7.normalizePath)(`${readestPath}/moonsync-covers`) : (0, import_obsidian7.normalizePath)(`${mrPath}/moonsync-covers`);
+        if (!await app.vault.adapter.exists(destDir)) {
+          await app.vault.createFolder(destDir);
+        }
+        await app.vault.adapter.writeBinary((0, import_obsidian7.normalizePath)(`${destDir}/${coverName}`), data);
         await app.vault.adapter.remove(coverFile);
       }
     } catch (e) {

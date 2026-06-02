@@ -46,10 +46,12 @@ async function hasNotesWithField(app: App, folderPath: string, field: string): P
 async function migrateToSubdirectories(app: App, settings: MoonSyncSettings): Promise<void> {
 	const base = normalizePath(settings.outputFolder);
 	const mrPath = normalizePath(`${base}/MoonReader`);
+	const readestPath = normalizePath(`${base}/Readest`);
 
-	if (await app.vault.adapter.exists(mrPath)) return;
+	const mrExists = await app.vault.adapter.exists(mrPath);
+	const readestExists = await app.vault.adapter.exists(readestPath);
+	if (mrExists && readestExists) return; // already migrated
 
-	// Move all .md files with moon_reader_path in frontmatter, plus cache and covers
 	let listing: { files: string[]; folders: string[] };
 	try {
 		listing = await app.vault.adapter.list(base);
@@ -60,39 +62,64 @@ async function migrateToSubdirectories(app: App, settings: MoonSyncSettings): Pr
 	const mdFiles = listing.files.filter(f => f.endsWith(".md"));
 	if (mdFiles.length === 0) return;
 
-	await app.vault.createFolder(mrPath);
+	if (!mrExists) await app.vault.createFolder(mrPath);
+	if (!readestExists) await app.vault.createFolder(readestPath);
+
+	const mrCovers: string[] = [];
+	const readestCovers: string[] = [];
 
 	for (const filePath of mdFiles) {
 		try {
 			const content = await app.vault.adapter.read(filePath);
-			if (!/^moon_reader_path:/m.test(content)) continue;
 			const filename = filePath.split("/").pop()!;
-			await app.vault.adapter.write(normalizePath(`${mrPath}/${filename}`), content);
-			await app.vault.adapter.remove(filePath);
-		} catch { /* skip individual failures */ }
+			const isMr = content.includes("book_source: moonreader") || /^moon_reader_path:/m.test(content);
+			const isReadest = content.includes("book_source: readest") || content.includes("readest_book: true");
+
+			if (isMr && !mrExists) {
+				await app.vault.adapter.write(normalizePath(`${mrPath}/${filename}`), content);
+				await app.vault.adapter.remove(filePath);
+				// Track which cover this note expects
+				const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
+				if (coverMatch) mrCovers.push(coverMatch[1].split("/").pop()!);
+			} else if (isReadest && !readestExists) {
+				await app.vault.adapter.write(normalizePath(`${readestPath}/${filename}`), content);
+				await app.vault.adapter.remove(filePath);
+				const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
+				if (coverMatch) readestCovers.push(coverMatch[1].split("/").pop()!);
+			}
+		} catch { /* skip */ }
 	}
 
-	// Move cache
-	const cacheSrc = normalizePath(`${base}/.moonsync-cache.json`);
-	if (await app.vault.adapter.exists(cacheSrc)) {
-		try {
-			const cacheContent = await app.vault.adapter.read(cacheSrc);
-			await app.vault.adapter.write(normalizePath(`${mrPath}/.moonsync-cache.json`), cacheContent);
-			await app.vault.adapter.remove(cacheSrc);
-		} catch { /* ignore */ }
+	// Move cache files
+	for (const [destPath, shouldMove] of [[mrPath, !mrExists], [readestPath, !readestExists]] as [string, boolean][]) {
+		if (!shouldMove) continue;
+		const cacheSrc = normalizePath(`${base}/.moonsync-cache.json`);
+		if (await app.vault.adapter.exists(cacheSrc)) {
+			try {
+				const cacheContent = await app.vault.adapter.read(cacheSrc);
+				await app.vault.adapter.write(normalizePath(`${destPath}/.moonsync-cache.json`), cacheContent);
+				await app.vault.adapter.remove(cacheSrc);
+			} catch { /* ignore */ }
+			break; // only move cache once (to the first dir that needs it)
+		}
 	}
 
-	// Move covers folder
+	// Move covers to the appropriate subdir based on which notes referenced them
 	const coversSrc = normalizePath(`${base}/moonsync-covers`);
 	if (await app.vault.adapter.exists(coversSrc)) {
 		try {
-			const coversDst = normalizePath(`${mrPath}/moonsync-covers`);
-			await app.vault.createFolder(coversDst);
 			const coversListing = await app.vault.adapter.list(coversSrc);
 			for (const coverFile of coversListing.files) {
 				const coverName = coverFile.split("/").pop()!;
 				const data = await app.vault.adapter.readBinary(coverFile);
-				await app.vault.adapter.writeBinary(normalizePath(`${coversDst}/${coverName}`), data);
+				// Route to the correct subdir; default to MR if unidentifiable
+				const destDir = readestCovers.includes(coverName) && !readestExists
+					? normalizePath(`${readestPath}/moonsync-covers`)
+					: normalizePath(`${mrPath}/moonsync-covers`);
+				if (!await app.vault.adapter.exists(destDir)) {
+					await app.vault.createFolder(destDir);
+				}
+				await app.vault.adapter.writeBinary(normalizePath(`${destDir}/${coverName}`), data);
 				await app.vault.adapter.remove(coverFile);
 			}
 		} catch { /* ignore */ }
