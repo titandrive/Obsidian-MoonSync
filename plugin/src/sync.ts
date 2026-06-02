@@ -1341,7 +1341,7 @@ async function processBook(
 	const prefetchKey = `${originalTitle}|${originalAuthor}`;
 	const prefetchedBookInfo = prefetchedInfo.get(prefetchKey);
 	if (prefetchedBookInfo) {
-		const isCurated = prefetchedBookInfo.source === "hardcover";
+		const isCurated = prefetchedBookInfo.source === "hardcover" && bookData.source !== "readest";
 		setCachedInfo(cache, originalTitle, originalAuthor, {
 			title: (isCurated && prefetchedBookInfo.title) ? prefetchedBookInfo.title : originalTitle,
 			description: prefetchedBookInfo.description,
@@ -1452,7 +1452,7 @@ async function processBook(
 		if (cachedInfo) {
 			// Curated sources (Hardcover) can override epub metadata;
 			// other sources only fill empty fields
-			const isCurated = cachedInfo.source === "hardcover";
+			const isCurated = cachedInfo.source === "hardcover" && bookData.source !== "readest";
 
 			if (isCurated && cachedInfo.title) {
 				bookData.book.title = cachedInfo.title;
@@ -1511,7 +1511,7 @@ async function processBook(
 
 			// Curated sources (Hardcover) can override epub metadata;
 			// other sources (Google Books, OpenLibrary) only fill empty fields
-			const isCurated = bookInfo.source === "hardcover";
+			const isCurated = bookInfo.source === "hardcover" && bookData.source !== "readest";
 
 			if (isCurated && bookInfo.title) {
 				bookData.book.title = bookInfo.title;
