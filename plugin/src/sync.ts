@@ -42,20 +42,6 @@ async function hasNotesWithField(app: App, folderPath: string, field: string): P
 	return false;
 }
 
-async function hasNotesWithoutField(app: App, folderPath: string, field: string): Promise<boolean> {
-	try {
-		const listing = await app.vault.adapter.list(folderPath);
-		for (const filePath of listing.files) {
-			if (!filePath.endsWith(".md")) continue;
-			try {
-				const content = await app.vault.adapter.read(filePath);
-				// Only consider files that look like book notes (have frontmatter)
-				if (content.startsWith("---") && !content.includes(field)) return true;
-			} catch { /* skip */ }
-		}
-	} catch { /* folder unreadable */ }
-	return false;
-}
 
 async function migrateToSubdirectories(app: App, settings: MoonSyncSettings): Promise<void> {
 	const base = normalizePath(settings.outputFolder);
@@ -183,8 +169,8 @@ export async function syncFromMoonReader(
 			hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
 		}
 		if (settings.moonReaderEnabled && !readestSubdirExists) {
-			// Check if flat Books/ has any non-MR notes (no moon_reader_path = likely Readest)
-			hasFlatReadestNotes = await hasNotesWithoutField(app, baseOutputPath, "moon_reader_path:");
+			// Check if flat Books/ has any Readest notes (readest_book: true in frontmatter)
+			hasFlatReadestNotes = await hasNotesWithField(app, baseOutputPath, "readest_book:");
 		}
 
 		const useSeparateDirs =

@@ -8194,7 +8194,9 @@ function generateBookNote(bookData, settings) {
     lines.push(`reading_time: "${formatDuration(statistics.usedTime)}"`);
   }
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
-  if (bookData.source !== "readest") {
+  if (bookData.source === "readest") {
+    lines.push(`readest_book: true`);
+  } else {
     lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
   }
   lines.push(`highlights_count: ${highlights.length}`);
@@ -9036,23 +9038,6 @@ async function hasNotesWithField(app, folderPath, field) {
   }
   return false;
 }
-async function hasNotesWithoutField(app, folderPath, field) {
-  try {
-    const listing = await app.vault.adapter.list(folderPath);
-    for (const filePath of listing.files) {
-      if (!filePath.endsWith(".md"))
-        continue;
-      try {
-        const content = await app.vault.adapter.read(filePath);
-        if (content.startsWith("---") && !content.includes(field))
-          return true;
-      } catch (e) {
-      }
-    }
-  } catch (e) {
-  }
-  return false;
-}
 async function migrateToSubdirectories(app, settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
   const mrPath = (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
@@ -9140,7 +9125,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
     }
     if (settings.moonReaderEnabled && !readestSubdirExists) {
-      hasFlatReadestNotes = await hasNotesWithoutField(app, baseOutputPath, "moon_reader_path:");
+      hasFlatReadestNotes = await hasNotesWithField(app, baseOutputPath, "readest_book:");
     }
     const useSeparateDirs = settings.moonReaderEnabled && settings.readestEnabled || settings.readestEnabled && (mrSubdirExists || hasFlatMrNotes) || settings.moonReaderEnabled && (readestSubdirExists || hasFlatReadestNotes);
     if (useSeparateDirs && !mrSubdirExists && settings.moonReaderEnabled) {
