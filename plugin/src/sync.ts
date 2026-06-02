@@ -568,7 +568,10 @@ export async function syncFromMoonReader(
 					}
 				}
 
-				// Determine which Readest books need metadata fetch
+				// Determine which Readest books need metadata fetch.
+				// library.json already provides rich metadata, so only fetch when:
+				// - we have no cache entry yet AND don't have library.json metadata, OR
+				// - Hardcover ID lookup is needed
 				const readestToFetch: Array<{ title: string; author: string }> = [];
 				for (const bookData of readestBooks) {
 					const cachedInfo = getCachedInfo(readestCache, bookData.book.title, bookData.book.author);
@@ -581,7 +584,11 @@ export async function syncFromMoonReader(
 						settings.hardcoverEnabled && settings.hardcoverToken &&
 						cachedInfo!.source !== null && cachedInfo!.source !== "hardcover" &&
 						!cachedInfo!.hardcoverAttempted;
-					if (!hasAttemptedFetch || needsHardcoverRefetch) {
+					// Skip API fetch if library.json already gave us full metadata and no Hardcover lookup needed
+					const hasLibraryMetadata = !!(bookData.fetchedDescription || bookData.publishedDate || bookData.publisher);
+					const hardcoverPending = settings.hardcoverEnabled && settings.hardcoverToken &&
+						cachedInfo?.hardcoverAttempted !== true;
+					if (needsHardcoverRefetch || hardcoverPending || (!hasAttemptedFetch && !hasLibraryMetadata)) {
 						readestToFetch.push({ title: bookData.book.title, author: bookData.book.author });
 					}
 				}
