@@ -14,7 +14,8 @@ export interface ScannedBook {
 	coverPath: string | null;
 	lastReadTimestamp: number | null;
 	filePath: string;
-	isMoonReader: boolean; // Has moon_reader_path in frontmatter
+	isMoonReader: boolean;
+	isReadest: boolean;
 }
 
 /**
@@ -82,6 +83,7 @@ function parseBookFrontmatter(content: string, filePath: string): ScannedBook | 
 		lastReadTimestamp,
 		filePath,
 		isMoonReader: parsed.bookSource === "moonreader" || (parsed.bookSource === null && !!parsed.moonReaderPath),
+		isReadest: parsed.bookSource === "readest",
 	};
 }
 

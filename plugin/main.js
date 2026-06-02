@@ -8688,7 +8688,8 @@ function parseBookFrontmatter(content, filePath) {
     coverPath: parsed.coverPath,
     lastReadTimestamp,
     filePath,
-    isMoonReader: parsed.bookSource === "moonreader" || parsed.bookSource === null && !!parsed.moonReaderPath
+    isMoonReader: parsed.bookSource === "moonreader" || parsed.bookSource === null && !!parsed.moonReaderPath,
+    isReadest: parsed.bookSource === "readest"
   };
 }
 function scannedBookToBookData(scanned) {
@@ -9135,6 +9136,25 @@ function getMoonReaderOutputPath(settings) {
   }
   return base;
 }
+async function scanCustomBooks(app, baseOutputPath, mrOutputPath, readestOutputPath, indexFilename) {
+  const paths = Array.from(/* @__PURE__ */ new Set([baseOutputPath, mrOutputPath, readestOutputPath]));
+  const all = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const p of paths) {
+    const books = await scanAllBookNotes(app, p);
+    for (const b of books) {
+      if (b.isMoonReader || b.isReadest)
+        continue;
+      if (b.filePath.endsWith(indexFilename))
+        continue;
+      if (seen.has(b.filePath))
+        continue;
+      seen.add(b.filePath);
+      all.push(b);
+    }
+  }
+  return all;
+}
 async function hasNotesWithField(app, folderPath, field) {
   try {
     const listing = await app.vault.adapter.list(folderPath);
@@ -9423,10 +9443,12 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       }
     }
     const scannedBooks = await scanAllBookNotes(app, outputPath);
-    const baseScannedBooks = outputPath !== baseOutputPath ? await scanAllBookNotes(app, baseOutputPath) : [];
-    const allScannedBooks = [...scannedBooks, ...baseScannedBooks];
-    const customBooks = allScannedBooks.filter(
-      (book) => !book.isMoonReader && !book.filePath.endsWith(`${settings.indexNoteTitle}.md`)
+    const customBooks = await scanCustomBooks(
+      app,
+      baseOutputPath,
+      outputPath,
+      readestOutputPath,
+      `${settings.indexNoteTitle}.md`
     );
     if (customBooks.length > 0) {
       const totalCustom = customBooks.length;
@@ -9763,13 +9785,9 @@ hardcover_highlights_synced_at: ${hResult.newSyncedAt}
       const indexPath = (0, import_obsidian7.normalizePath)(`${baseOutputPath}/${settings.indexNoteTitle}.md`);
       const indexExists = await app.vault.adapter.exists(indexPath);
       const indexFilename = `${settings.indexNoteTitle}.md`;
-      const baseScanned = outputPath !== baseOutputPath ? await scanAllBookNotes(app, baseOutputPath) : scannedBooks;
-      const manualBooks = baseScanned.filter(
-        (b) => !b.filePath.endsWith(indexFilename) && !b.isMoonReader && !b.filePath.endsWith(`${settings.baseFileName}.md`)
-      );
-      const hasManualBooks = manualBooks.length > 0;
+      const hasManualBooks = customBooks.length > 0;
       if (hasManualBooks) {
-        result.manualBooksAdded = manualBooks.length;
+        result.manualBooksAdded = customBooks.length;
       }
       if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !indexExists || hasManualBooks || readestBooksForIndex.length > 0) {
         const mrCoversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
@@ -9794,7 +9812,8 @@ hardcover_highlights_synced_at: ${hResult.newSyncedAt}
           baseOutputPath,
           booksWithHighlights,
           settings,
-          readestBooksForIndex.length > 0 ? readestBooksForIndex : void 0
+          readestBooksForIndex.length > 0 ? readestBooksForIndex : void 0,
+          customBooks
         );
       }
     }
@@ -10423,12 +10442,9 @@ function updateCustomBookFrontmatter(content, bookInfo, settings) {
   lines.push("---");
   return lines.join("\n") + contentAfterFrontmatter;
 }
-async function updateIndexNote(app, outputPath, moonReaderBooks, settings, readestBooks) {
+async function updateIndexNote(app, outputPath, moonReaderBooks, settings, readestBooks, customBooks) {
   const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
-  const scannedBooks = await scanAllBookNotes(app, outputPath);
-  const indexFilename = `${settings.indexNoteTitle}.md`;
-  const filteredScanned = scannedBooks.filter((b) => !b.filePath.endsWith(indexFilename));
-  const allMrBooks = mergeBookLists(moonReaderBooks, filteredScanned);
+  const allMrBooks = customBooks && customBooks.length > 0 ? mergeBookLists(moonReaderBooks, customBooks) : moonReaderBooks;
   const markdown = generateIndexNote(allMrBooks, settings, readestBooks);
   if (await app.vault.adapter.exists(indexPath)) {
     await app.vault.adapter.write(indexPath, markdown);

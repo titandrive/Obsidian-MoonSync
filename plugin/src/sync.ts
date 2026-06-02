@@ -28,6 +28,29 @@ export function getReadestOutputPath(settings: MoonSyncSettings): string {
 	return base;
 }
 
+async function scanCustomBooks(
+	app: App,
+	baseOutputPath: string,
+	mrOutputPath: string,
+	readestOutputPath: string,
+	indexFilename: string
+): Promise<ReturnType<typeof scanAllBookNotes> extends Promise<infer T> ? T : never> {
+	const paths = Array.from(new Set([baseOutputPath, mrOutputPath, readestOutputPath]));
+	const all: Awaited<ReturnType<typeof scanAllBookNotes>> = [];
+	const seen = new Set<string>();
+	for (const p of paths) {
+		const books = await scanAllBookNotes(app, p);
+		for (const b of books) {
+			if (b.isMoonReader || b.isReadest) continue;
+			if (b.filePath.endsWith(indexFilename)) continue;
+			if (seen.has(b.filePath)) continue;
+			seen.add(b.filePath);
+			all.push(b);
+		}
+	}
+	return all;
+}
+
 async function hasNotesWithField(app: App, folderPath: string, field: string): Promise<boolean> {
 	try {
 		const listing = await app.vault.adapter.list(folderPath);
@@ -423,15 +446,11 @@ export async function syncFromMoonReader(
 			}
 		}
 
-		// Process custom books (books not from Moon Reader or Readest)
-		// Scan the MR folder AND the base folder so user-created notes in Books/ root are included
+		// Process custom books (books not from Moon Reader or Readest) across all three dirs
 		const scannedBooks = await scanAllBookNotes(app, outputPath);
-		const baseScannedBooks = outputPath !== baseOutputPath
-			? await scanAllBookNotes(app, baseOutputPath)
-			: [];
-		const allScannedBooks = [...scannedBooks, ...baseScannedBooks];
-		const customBooks = allScannedBooks.filter(
-			book => !book.isMoonReader && !book.filePath.endsWith(`${settings.indexNoteTitle}.md`)
+		const customBooks = await scanCustomBooks(
+			app, baseOutputPath, outputPath, readestOutputPath,
+			`${settings.indexNoteTitle}.md`
 		);
 
 		if (customBooks.length > 0) {
@@ -828,19 +847,9 @@ export async function syncFromMoonReader(
 			const indexExists = await app.vault.adapter.exists(indexPath);
 
 			const indexFilename = `${settings.indexNoteTitle}.md`;
-			// Count user-created notes: notes in base folder that aren't MR, Readest, or the index
-			const baseScanned = outputPath !== baseOutputPath
-				? await scanAllBookNotes(app, baseOutputPath)
-				: scannedBooks;
-			const manualBooks = baseScanned.filter(b =>
-				!b.filePath.endsWith(indexFilename) &&
-				!b.isMoonReader &&
-				!b.filePath.endsWith(`${settings.baseFileName}.md`)
-			);
-			const hasManualBooks = manualBooks.length > 0;
-
+			const hasManualBooks = customBooks.length > 0;
 			if (hasManualBooks) {
-				result.manualBooksAdded = manualBooks.length;
+				result.manualBooksAdded = customBooks.length;
 			}
 
 			if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !indexExists || hasManualBooks || readestBooksForIndex.length > 0) {
@@ -864,7 +873,8 @@ export async function syncFromMoonReader(
 				}
 
 				await updateIndexNote(app, baseOutputPath, booksWithHighlights, settings,
-					readestBooksForIndex.length > 0 ? readestBooksForIndex : undefined);
+					readestBooksForIndex.length > 0 ? readestBooksForIndex : undefined,
+					customBooks);
 			}
 		}
 
@@ -1849,15 +1859,15 @@ async function updateIndexNote(
 	outputPath: string,
 	moonReaderBooks: BookData[],
 	settings: MoonSyncSettings,
-	readestBooks?: BookData[]
+	readestBooks?: BookData[],
+	customBooks?: Awaited<ReturnType<typeof scanCustomBooks>>
 ): Promise<void> {
 	const indexPath = normalizePath(`${outputPath}/${settings.indexNoteTitle}.md`);
 
-	// Scan for manually-created book notes (from MR folder only)
-	const scannedBooks = await scanAllBookNotes(app, outputPath);
-	const indexFilename = `${settings.indexNoteTitle}.md`;
-	const filteredScanned = scannedBooks.filter((b) => !b.filePath.endsWith(indexFilename));
-	const allMrBooks = mergeBookLists(moonReaderBooks, filteredScanned);
+	// Merge MR books with any custom (user-created) books passed in
+	const allMrBooks = customBooks && customBooks.length > 0
+		? mergeBookLists(moonReaderBooks, customBooks)
+		: moonReaderBooks;
 
 	const markdown = generateIndexNote(allMrBooks, settings, readestBooks);
 
