@@ -9148,10 +9148,6 @@ async function migrateToSubdirectories(app, settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
   const mrPath = (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
   const readestPath = (0, import_obsidian7.normalizePath)(`${base}/Readest`);
-  const mrExists = await app.vault.adapter.exists(mrPath);
-  const readestExists = await app.vault.adapter.exists(readestPath);
-  if (mrExists && readestExists)
-    return;
   let listing;
   try {
     listing = await app.vault.adapter.list(base);
@@ -9161,27 +9157,22 @@ async function migrateToSubdirectories(app, settings) {
   const mdFiles = listing.files.filter((f) => f.endsWith(".md"));
   if (mdFiles.length === 0)
     return;
-  if (!mrExists)
-    await app.vault.createFolder(mrPath);
-  if (!readestExists)
-    await app.vault.createFolder(readestPath);
+  const mrFiles = [];
+  const readestFiles = [];
   const mrCovers = [];
   const readestCovers = [];
   for (const filePath of mdFiles) {
     try {
       const content = await app.vault.adapter.read(filePath);
-      const filename = filePath.split("/").pop();
       const isMr = content.includes("book_source: moonreader") || /^moon_reader_path:/m.test(content);
       const isReadest = content.includes("book_source: readest") || content.includes("readest_book: true");
-      if (isMr && !mrExists) {
-        await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${mrPath}/${filename}`), content);
-        await app.vault.adapter.remove(filePath);
+      if (isMr) {
+        mrFiles.push(filePath);
         const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
         if (coverMatch)
           mrCovers.push(coverMatch[1].split("/").pop());
-      } else if (isReadest && !readestExists) {
-        await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${readestPath}/${filename}`), content);
-        await app.vault.adapter.remove(filePath);
+      } else if (isReadest) {
+        readestFiles.push(filePath);
         const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
         if (coverMatch)
           readestCovers.push(coverMatch[1].split("/").pop());
@@ -9189,18 +9180,41 @@ async function migrateToSubdirectories(app, settings) {
     } catch (e) {
     }
   }
-  for (const [destPath, shouldMove] of [[mrPath, !mrExists], [readestPath, !readestExists]]) {
-    if (!shouldMove)
-      continue;
-    const cacheSrc = (0, import_obsidian7.normalizePath)(`${base}/.moonsync-cache.json`);
-    if (await app.vault.adapter.exists(cacheSrc)) {
-      try {
-        const cacheContent = await app.vault.adapter.read(cacheSrc);
-        await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${destPath}/.moonsync-cache.json`), cacheContent);
-        await app.vault.adapter.remove(cacheSrc);
-      } catch (e) {
-      }
-      break;
+  if (mrFiles.length === 0 && readestFiles.length === 0)
+    return;
+  if (mrFiles.length > 0 && !await app.vault.adapter.exists(mrPath)) {
+    await app.vault.createFolder(mrPath);
+  }
+  if (readestFiles.length > 0 && !await app.vault.adapter.exists(readestPath)) {
+    await app.vault.createFolder(readestPath);
+  }
+  for (const filePath of mrFiles) {
+    const filename = filePath.split("/").pop();
+    const dest = (0, import_obsidian7.normalizePath)(`${mrPath}/${filename}`);
+    try {
+      const content = await app.vault.adapter.read(filePath);
+      await app.vault.adapter.write(dest, content);
+      await app.vault.adapter.remove(filePath);
+    } catch (e) {
+    }
+  }
+  for (const filePath of readestFiles) {
+    const filename = filePath.split("/").pop();
+    const dest = (0, import_obsidian7.normalizePath)(`${readestPath}/${filename}`);
+    try {
+      const content = await app.vault.adapter.read(filePath);
+      await app.vault.adapter.write(dest, content);
+      await app.vault.adapter.remove(filePath);
+    } catch (e) {
+    }
+  }
+  const cacheSrc = (0, import_obsidian7.normalizePath)(`${base}/.moonsync-cache.json`);
+  if (mrFiles.length > 0 && await app.vault.adapter.exists(cacheSrc)) {
+    try {
+      const cacheContent = await app.vault.adapter.read(cacheSrc);
+      await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${mrPath}/.moonsync-cache.json`), cacheContent);
+      await app.vault.adapter.remove(cacheSrc);
+    } catch (e) {
     }
   }
   const coversSrc = (0, import_obsidian7.normalizePath)(`${base}/moonsync-covers`);
@@ -9210,7 +9224,7 @@ async function migrateToSubdirectories(app, settings) {
       for (const coverFile of coversListing.files) {
         const coverName = coverFile.split("/").pop();
         const data = await app.vault.adapter.readBinary(coverFile);
-        const destDir = readestCovers.includes(coverName) && !readestExists ? (0, import_obsidian7.normalizePath)(`${readestPath}/moonsync-covers`) : (0, import_obsidian7.normalizePath)(`${mrPath}/moonsync-covers`);
+        const destDir = readestCovers.includes(coverName) ? (0, import_obsidian7.normalizePath)(`${readestPath}/moonsync-covers`) : (0, import_obsidian7.normalizePath)(`${mrPath}/moonsync-covers`);
         if (!await app.vault.adapter.exists(destDir)) {
           await app.vault.createFolder(destDir);
         }
