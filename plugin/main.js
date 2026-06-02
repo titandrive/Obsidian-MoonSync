@@ -9114,6 +9114,7 @@ async function migrateToSubdirectories(app, settings) {
         await app.vault.adapter.writeBinary((0, import_obsidian7.normalizePath)(`${destDir}/${coverName}`), data);
         await app.vault.adapter.remove(coverFile);
       }
+      await app.vault.adapter.rmdir(coversSrc, false);
     } catch (e) {
     }
   }

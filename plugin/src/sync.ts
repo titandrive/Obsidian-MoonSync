@@ -122,6 +122,8 @@ async function migrateToSubdirectories(app: App, settings: MoonSyncSettings): Pr
 				await app.vault.adapter.writeBinary(normalizePath(`${destDir}/${coverName}`), data);
 				await app.vault.adapter.remove(coverFile);
 			}
+			// Remove the now-empty root covers folder
+			await app.vault.adapter.rmdir(coversSrc, false);
 		} catch { /* ignore */ }
 	}
 }
