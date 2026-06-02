@@ -745,7 +745,7 @@ export async function syncFromMoonReader(
 						bookData.book.title,
 						bookData.book.author
 					);
-					const lookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title)
+					const lookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title && bookData.source !== "readest")
 						? cachedBook.title : bookData.book.title;
 					const filePath = normalizePath(`${srcPath}/${generateFilename(lookupTitle)}.md`);
 
@@ -1311,7 +1311,8 @@ async function processBook(
 
 	// Check cache first — if a curated source overrode the title, use that for file lookup
 	const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
-	const lookupTitle = (cachedInfo?.source === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle)
+	// For Readest books, library.json is authoritative — never use a cached Hardcover title for lookup
+	const lookupTitle = (cachedInfo?.source === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle && bookData.source !== "readest")
 		? cachedInfo.title
 		: bookData.book.title;
 	const filename = generateFilename(lookupTitle);

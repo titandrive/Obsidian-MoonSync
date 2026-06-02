@@ -9686,7 +9686,7 @@ ${fields.join("\n")}
             bookData.book.title,
             bookData.book.author
           );
-          const lookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title ? cachedBook.title : bookData.book.title;
+          const lookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title && bookData.source !== "readest" ? cachedBook.title : bookData.book.title;
           const filePath = (0, import_obsidian7.normalizePath)(`${srcPath}/${generateFilename(lookupTitle)}.md`);
           let hardcoverId = null;
           let editionId = null;
@@ -10070,7 +10070,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
   const originalTitle = bookData.book.title;
   const originalAuthor = bookData.book.author;
   const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
-  const lookupTitle = (cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle ? cachedInfo.title : bookData.book.title;
+  const lookupTitle = (cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle && bookData.source !== "readest" ? cachedInfo.title : bookData.book.title;
   const filename = generateFilename(lookupTitle);
   let filePath = await findExistingFile(app, outputPath, filename, lookupTitle, titleCache, bookData.previousTitle);
   let cacheModified = false;
