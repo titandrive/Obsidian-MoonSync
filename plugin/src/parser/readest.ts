@@ -238,22 +238,13 @@ export async function parseReadestFiles(syncPath: string): Promise<BookData[]> {
 			const seriesIndex = entry.metadata?.belongsTo?.series?.position ?? entry.metadata?.seriesIndex ?? null;
 			const seriesStr = series && seriesIndex ? `${series} #${seriesIndex}` : series;
 
-			// Cover: try sync folder first, then fall back to local Readest app storage
+			// Cover: read from sync folder; if absent, processBook will fetch from metadata API
 			let localCoverData: Buffer | null = null;
 			for (const coverName of ["cover.png", "cover.jpg", "cover.jpeg"]) {
 				try {
 					localCoverData = await readFile(join(bookDir, coverName));
 					break;
 				} catch { /* try next */ }
-			}
-			if (!localCoverData && entry.coverImageUrl) {
-				// coverImageUrl is asset://localhost/<url-encoded-path>
-				try {
-					const localPath = decodeURIComponent(
-						entry.coverImageUrl.replace(/^asset:\/\/localhost/, "")
-					);
-					localCoverData = await readFile(localPath);
-				} catch { /* not available locally */ }
 			}
 
 			const bookData: BookData = {
