@@ -181,9 +181,12 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			}
 		}
 
+		// --- Output ---
+		new Setting(container).setName("Output").setHeading();
+
 		new Setting(container)
 			.setName("Output folder")
-			.setDesc("Folder in your vault where book notes will be created")
+			.setDesc("Top-level folder in your vault where book notes will be created. When both sources are enabled, notes go into MoonReader/ and Readest/ subfolders automatically.")
 			.addText((text) =>
 				text
 					.setPlaceholder("Books")

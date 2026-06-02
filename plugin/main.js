@@ -6184,7 +6184,8 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         this.validateReadestPath(this.plugin.settings.readestSyncPath, readestValidationEl);
       }
     }
-    new import_obsidian2.Setting(container).setName("Output folder").setDesc("Folder in your vault where book notes will be created").addText(
+    new import_obsidian2.Setting(container).setName("Output").setHeading();
+    new import_obsidian2.Setting(container).setName("Output folder").setDesc("Top-level folder in your vault where book notes will be created. When both sources are enabled, notes go into MoonReader/ and Readest/ subfolders automatically.").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.outputFolder).onChange(async (value) => {
         this.plugin.settings.outputFolder = value || "Books";
         await this.plugin.saveSettings();
