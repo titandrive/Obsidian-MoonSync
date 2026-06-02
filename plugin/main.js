@@ -8039,6 +8039,15 @@ async function parseReadestFiles(syncPath) {
         } catch (e) {
         }
       }
+      if (!localCoverData && entry.coverImageUrl) {
+        try {
+          const localPath = decodeURIComponent(
+            entry.coverImageUrl.replace(/^asset:\/\/localhost/, "")
+          );
+          localCoverData = await (0, import_promises2.readFile)(localPath);
+        } catch (e) {
+        }
+      }
       const bookData = {
         book: makeBook(title, author),
         highlights,
