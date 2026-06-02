@@ -41,7 +41,12 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 		lines.push(`reading_time: "${formatDuration(statistics.usedTime)}"`);
 	}
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
-	lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
+	if (bookData.source === "readest") {
+		lines.push(`book_source: readest`);
+	} else {
+		lines.push(`book_source: moonreader`);
+		lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
+	}
 	lines.push(`highlights_count: ${highlights.length}`);
 	lines.push(`highlights_hash: "${computeHighlightsHash(highlights)}"`);
 	const notesCount = highlights.filter((h) => h.note && h.note.trim()).length;
@@ -128,7 +133,7 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 
 	// Highlights section
 	if (highlights.length > 0) {
-		lines.push("## Moon Reader highlights");
+		lines.push(bookData.source === "readest" ? "## Readest highlights" : "## Moon Reader highlights");
 		lines.push("");
 
 		const reverse = settings.highlightSort.endsWith("-reverse");
@@ -225,21 +230,25 @@ export function generateFilename(title: string): string {
 /**
  * Generate the index note with summary stats and links to all books
  */
-export function generateIndexNote(books: BookData[], settings: MoonSyncSettings): string {
+export function generateIndexNote(
+	books: BookData[],
+	settings: MoonSyncSettings,
+	readestBooks?: BookData[]
+): string {
+	const allBooks = readestBooks ? [...books, ...readestBooks] : books;
+	const hasBothSources = !!(readestBooks && readestBooks.length > 0 && books.length > 0);
 	const lines: string[] = [];
 
 	// Header
 	lines.push(`# ${settings.indexNoteTitle}`);
 	lines.push("");
 
-	// Cover collage - show small thumbnails of books with covers
+	// Cover collage across all books
 	if (settings.showCoverCollage) {
-		const booksWithCovers = books.filter((b) => b.coverPath);
+		const booksWithCovers = allBooks.filter((b) => b.coverPath);
 		if (booksWithCovers.length > 0) {
-			// Sort based on setting
 			let sortedCovers: BookData[];
 			if (settings.coverCollageSort === "recent") {
-				// Sort by last read timestamp (most recent first), fallback to title
 				sortedCovers = [...booksWithCovers].sort((a, b) => {
 					const aTime = a.lastReadTimestamp || 0;
 					const bTime = b.lastReadTimestamp || 0;
@@ -247,18 +256,15 @@ export function generateIndexNote(books: BookData[], settings: MoonSyncSettings)
 					return a.book.title.toLowerCase().localeCompare(b.book.title.toLowerCase());
 				});
 			} else {
-				// Sort alphabetically
 				sortedCovers = [...booksWithCovers].sort((a, b) =>
 					a.book.title.toLowerCase().localeCompare(b.book.title.toLowerCase())
 				);
 			}
 
-			// Apply limit if set (0 = no limit)
 			const coversToShow = settings.coverCollageLimit > 0
 				? sortedCovers.slice(0, settings.coverCollageLimit)
 				: sortedCovers;
 
-			// Display covers with height constraint using HTML img tags, linked to book notes
 			const coverImgs = coversToShow.map(book => {
 				const noteFilename = generateFilename(book.book.title);
 				return `<a class="internal-link" href="${noteFilename}"><img src="${book.coverPath}" style="height: 120px; width: auto;"></a>`;
@@ -268,22 +274,25 @@ export function generateIndexNote(books: BookData[], settings: MoonSyncSettings)
 		}
 	}
 
-	// Calculate stats
-	const totalBooks = books.length;
-	const totalHighlights = books.reduce((sum, b) => sum + b.highlights.length, 0);
-	const totalNotes = books.reduce(
+	// Stats across all books
+	const totalBooks = allBooks.length;
+	const totalHighlights = allBooks.reduce((sum, b) => sum + b.highlights.length, 0);
+	const totalNotes = allBooks.reduce(
 		(sum, b) => sum + b.highlights.filter((h) => h.note && h.note.trim()).length,
 		0
 	);
-	const booksWithProgress = books.filter((b) => b.progress !== null);
+	const booksWithProgress = allBooks.filter((b) => b.progress !== null);
 	const avgProgress =
 		booksWithProgress.length > 0
 			? booksWithProgress.reduce((sum, b) => sum + (b.progress || 0), 0) / booksWithProgress.length
 			: 0;
 
-	// Stats summary
 	lines.push("## Summary");
 	lines.push(`- **Books:** ${totalBooks}`);
+	if (hasBothSources) {
+		lines.push(`  - Moon Reader: ${books.length}`);
+		lines.push(`  - Readest: ${readestBooks!.length}`);
+	}
 	lines.push(`- **Highlights:** ${totalHighlights}`);
 	lines.push(`- **Notes:** ${totalNotes}`);
 	if (booksWithProgress.length > 0) {
@@ -291,16 +300,26 @@ export function generateIndexNote(books: BookData[], settings: MoonSyncSettings)
 	}
 	lines.push("");
 
-	// Book list sorted alphabetically
-	lines.push("## Books");
+	if (hasBothSources) {
+		appendBookSection(lines, "## Moon Reader", books);
+		lines.push("");
+		appendBookSection(lines, "## Readest", readestBooks!);
+	} else {
+		appendBookSection(lines, "## Books", allBooks);
+	}
 
-	const sortedBooks = [...books].sort((a, b) =>
+	lines.push("");
+	return lines.join("\n");
+}
+
+function appendBookSection(lines: string[], heading: string, books: BookData[]): void {
+	lines.push(heading);
+
+	const sorted = [...books].sort((a, b) =>
 		a.book.title.toLowerCase().localeCompare(b.book.title.toLowerCase())
 	);
 
-	for (const bookData of sortedBooks) {
-		// Use actual filename if available (from scanned books), otherwise generate from title
-		// If filename looks like a path (contains /), generate from title instead
+	for (const bookData of sorted) {
 		const rawFilename = bookData.book.filename;
 		const filename = (rawFilename && !rawFilename.includes("/"))
 			? rawFilename
@@ -316,10 +335,6 @@ export function generateIndexNote(books: BookData[], settings: MoonSyncSettings)
 
 		lines.push(`- [[${filename}|${bookData.book.title}]]${author}${progress} — ${statsText}`);
 	}
-
-	lines.push("");
-
-	return lines.join("\n");
 }
 
 export function generateBaseFile(settings: MoonSyncSettings): string {

@@ -114,6 +114,7 @@ function parseFrontmatter(content) {
       highlightsHash: null,
       coverPath: null,
       moonReaderPath: null,
+      bookSource: null,
       lastRead: null,
       lastSynced: null,
       isManualNote: false,
@@ -130,6 +131,7 @@ function parseFrontmatter(content) {
     highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
     coverPath: parseFrontmatterField(frontmatter, "cover"),
     moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
+    bookSource: parseFrontmatterField(frontmatter, "book_source"),
     lastRead: parseFrontmatterField(frontmatter, "last_read"),
     lastSynced: parseFrontmatterField(frontmatter, "last_synced"),
     isManualNote: /^manual_note:\s*true/m.test(frontmatter),
@@ -6002,6 +6004,9 @@ var import_obsidian8 = require("obsidian");
 // src/types.ts
 var DEFAULT_SETTINGS = {
   syncPath: "",
+  moonReaderEnabled: true,
+  readestEnabled: false,
+  readestSyncPath: "",
   outputFolder: "Books",
   syncOnStartup: true,
   watchForChanges: false,
@@ -6108,34 +6113,81 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
     this.displayAboutTab(aboutTab);
   }
   displayConfigurationTab(container) {
-    new import_obsidian2.Setting(container).setName("Configuration").setDesc("Set up your Moon Reader backup location and note output folder.").setHeading();
-    let textComponent;
-    let validationEl;
-    const pathSetting = new import_obsidian2.Setting(container).setName("Moon Reader sync path").setDesc(
-      "Path to the folder containing your Moon Reader data. The .Moon+ folder will be detected automatically."
-    ).addText((text) => {
-      textComponent = text;
-      text.setPlaceholder("/path/to/sync/folder").setValue(this.plugin.settings.syncPath).onChange(async (value) => {
-        this.plugin.settings.syncPath = value;
+    new import_obsidian2.Setting(container).setName("Configuration").setDesc("Set up your reading app sync locations and note output folder.").setHeading();
+    new import_obsidian2.Setting(container).setName("Moon Reader").setHeading();
+    new import_obsidian2.Setting(container).setName("Enable Moon Reader sync").setDesc("Sync highlights and progress from Moon Reader").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.moonReaderEnabled).onChange(async (value) => {
+        this.plugin.settings.moonReaderEnabled = value;
         await this.plugin.saveSettings();
-        this.validateSyncPath(value, validationEl);
-      });
-    }).addButton(
-      (button) => button.setButtonText("Browse").onClick(async () => {
-        const folder = await this.openFolderPicker();
-        if (folder) {
-          this.plugin.settings.syncPath = folder;
-          textComponent.setValue(folder);
-          await this.plugin.saveSettings();
-          this.validateSyncPath(folder, validationEl);
-        }
+        this.display();
       })
     );
-    validationEl = pathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
-    if (this.plugin.settings.syncPath) {
-      this.validateSyncPath(this.plugin.settings.syncPath, validationEl);
+    if (this.plugin.settings.moonReaderEnabled) {
+      let textComponent;
+      let validationEl;
+      const pathSetting = new import_obsidian2.Setting(container).setName("Moon Reader sync path").setDesc(
+        "Path to the folder containing your Moon Reader data. The .Moon+ folder will be detected automatically."
+      ).addText((text) => {
+        textComponent = text;
+        text.setPlaceholder("/path/to/sync/folder").setValue(this.plugin.settings.syncPath).onChange(async (value) => {
+          this.plugin.settings.syncPath = value;
+          await this.plugin.saveSettings();
+          this.validateSyncPath(value, validationEl);
+        });
+      }).addButton(
+        (button) => button.setButtonText("Browse").onClick(async () => {
+          const folder = await this.openFolderPicker("Select Moon Reader sync folder");
+          if (folder) {
+            this.plugin.settings.syncPath = folder;
+            textComponent.setValue(folder);
+            await this.plugin.saveSettings();
+            this.validateSyncPath(folder, validationEl);
+          }
+        })
+      );
+      validationEl = pathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
+      if (this.plugin.settings.syncPath) {
+        this.validateSyncPath(this.plugin.settings.syncPath, validationEl);
+      }
     }
-    new import_obsidian2.Setting(container).setName("Output folder").setDesc("Folder in your vault where book notes will be created").addText(
+    new import_obsidian2.Setting(container).setName("Readest").setHeading();
+    new import_obsidian2.Setting(container).setName("Enable Readest sync").setDesc("Sync highlights and progress from Readest").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.readestEnabled).onChange(async (value) => {
+        this.plugin.settings.readestEnabled = value;
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    if (this.plugin.settings.readestEnabled) {
+      let readestTextComponent;
+      let readestValidationEl;
+      const readestPathSetting = new import_obsidian2.Setting(container).setName("Readest sync path").setDesc(
+        "Path to the folder where Readest stores its book data (contains subfolders, one per book)."
+      ).addText((text) => {
+        readestTextComponent = text;
+        text.setPlaceholder("/path/to/readest/data").setValue(this.plugin.settings.readestSyncPath).onChange(async (value) => {
+          this.plugin.settings.readestSyncPath = value;
+          await this.plugin.saveSettings();
+          this.validateReadestPath(value, readestValidationEl);
+        });
+      }).addButton(
+        (button) => button.setButtonText("Browse").onClick(async () => {
+          const folder = await this.openFolderPicker("Select Readest sync folder");
+          if (folder) {
+            this.plugin.settings.readestSyncPath = folder;
+            readestTextComponent.setValue(folder);
+            await this.plugin.saveSettings();
+            this.validateReadestPath(folder, readestValidationEl);
+          }
+        })
+      );
+      readestValidationEl = readestPathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
+      if (this.plugin.settings.readestSyncPath) {
+        this.validateReadestPath(this.plugin.settings.readestSyncPath, readestValidationEl);
+      }
+    }
+    new import_obsidian2.Setting(container).setName("Output").setHeading();
+    new import_obsidian2.Setting(container).setName("Output folder").setDesc("Top-level folder in your vault where book notes will be created. When both sources are enabled, notes go into MoonReader/ and Readest/ subfolders automatically.").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.outputFolder).onChange(async (value) => {
         this.plugin.settings.outputFolder = value || "Books";
         await this.plugin.saveSettings();
@@ -6444,10 +6496,49 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       });
     }
   }
-  async openFolderPicker() {
+  validateReadestPath(path, validationEl) {
+    validationEl.empty();
+    if (!path) {
+      return;
+    }
+    if (!(0, import_fs.existsSync)(path)) {
+      validationEl.createSpan({
+        text: "\u26A0 Folder not found",
+        attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
+      });
+      return;
+    }
+    const { readdirSync, statSync } = require("fs");
+    const pathsToCheck = [path, (0, import_path.join)(path, "books")];
+    const hasBookFolder = pathsToCheck.some((dir) => {
+      try {
+        return readdirSync(dir).some((entry) => {
+          try {
+            return statSync((0, import_path.join)(dir, entry)).isDirectory() && (0, import_fs.existsSync)((0, import_path.join)(dir, entry, "config.json"));
+          } catch (e) {
+            return false;
+          }
+        });
+      } catch (e) {
+        return false;
+      }
+    });
+    if (hasBookFolder) {
+      validationEl.createSpan({
+        text: "\u2713 Readest sync folder found",
+        attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" }
+      });
+    } else {
+      validationEl.createSpan({
+        text: "\u26A0 Folder exists but no Readest book data found",
+        attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
+      });
+    }
+  }
+  async openFolderPicker(prompt = "Select sync folder") {
     return new Promise((resolve) => {
       if ((0, import_os.platform)() === "darwin") {
-        const script = `osascript -e 'POSIX path of (choose folder with prompt "Select Moon Reader sync folder")'`;
+        const script = `osascript -e 'POSIX path of (choose folder with prompt "${prompt}")'`;
         (0, import_child_process.exec)(script, (error, stdout) => {
           if (error) {
             resolve(null);
@@ -6456,7 +6547,7 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
           }
         });
       } else if ((0, import_os.platform)() === "win32") {
-        const script = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.ShowDialog() | Out-Null; $f.SelectedPath"`;
+        const script = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = '${prompt}'; $f.ShowDialog() | Out-Null; $f.SelectedPath"`;
         (0, import_child_process.exec)(script, (error, stdout) => {
           if (error) {
             resolve(null);
@@ -6466,7 +6557,7 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         });
       } else {
         (0, import_child_process.exec)(
-          'zenity --file-selection --directory --title="Select Moon Reader folder"',
+          `zenity --file-selection --directory --title="${prompt}"`,
           (error, stdout) => {
             if (error) {
               resolve(null);
@@ -7794,6 +7885,288 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
   }
 }
 
+// src/parser/readest.ts
+var import_promises2 = require("fs/promises");
+var import_path3 = require("path");
+var COLOR_MAP = {
+  yellow: 4294967040,
+  blue: 4278190335,
+  green: 4278255360,
+  red: 4294901760,
+  violet: 4286578943,
+  purple: 4286578943,
+  pink: 4294928820,
+  orange: 4294937600
+};
+function colorToArgb(color) {
+  var _a;
+  if (!color)
+    return 4294967040;
+  return (_a = COLOR_MAP[color.toLowerCase()]) != null ? _a : 4294967040;
+}
+function cfiToChapter(cfi) {
+  const match = cfi.match(/\/6\/(\d+)/);
+  if (match)
+    return Math.floor(parseInt(match[1], 10) / 2);
+  return 0;
+}
+function cleanComicTitle(title) {
+  let cleaned = title.replace(/(\s*\([^)]*\))+\s*$/, "").trim();
+  cleaned = cleaned.replace(/\s*[-–]\s*$/, "").trim();
+  return cleaned || title;
+}
+function stripHtml(html) {
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim();
+}
+function resolveAuthor(entry) {
+  var _a, _b;
+  if (entry.author)
+    return entry.author;
+  const meta = (_a = entry.metadata) == null ? void 0 : _a.author;
+  if (!meta)
+    return "";
+  if (typeof meta === "string")
+    return meta;
+  return (_b = meta.name) != null ? _b : "";
+}
+function resolveGenres(entry) {
+  var _a;
+  const subject = (_a = entry.metadata) == null ? void 0 : _a.subject;
+  if (!subject)
+    return null;
+  if (Array.isArray(subject))
+    return subject.filter(Boolean);
+  if (typeof subject === "string" && subject.trim())
+    return [subject.trim()];
+  return null;
+}
+function resolveSeries(entry) {
+  var _a, _b, _c, _d;
+  const series = ((_c = (_b = (_a = entry.metadata) == null ? void 0 : _a.belongsTo) == null ? void 0 : _b.series) == null ? void 0 : _c.name) || ((_d = entry.metadata) == null ? void 0 : _d.series);
+  return series != null ? series : null;
+}
+function makeBook(title, author) {
+  return {
+    id: 0,
+    title,
+    filename: title,
+    author,
+    description: "",
+    category: "",
+    thumbFile: "",
+    coverFile: "",
+    addTime: "",
+    favorite: ""
+  };
+}
+async function resolveBooksDir(syncPath) {
+  const booksSubdir = (0, import_path3.join)(syncPath, "books");
+  try {
+    const info = await (0, import_promises2.stat)(booksSubdir);
+    if (info.isDirectory())
+      return booksSubdir;
+  } catch (e) {
+  }
+  return syncPath;
+}
+async function parseReadestFiles(syncPath) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D;
+  const results = [];
+  const booksDir = await resolveBooksDir(syncPath);
+  const libraryPath = (0, import_path3.join)(syncPath, "library.json");
+  let library = null;
+  try {
+    const raw = await (0, import_promises2.readFile)(libraryPath, "utf-8");
+    library = JSON.parse(raw);
+  } catch (e) {
+  }
+  if ((_a = library == null ? void 0 : library.books) == null ? void 0 : _a.length) {
+    for (const entry of library.books) {
+      if (entry.deletedAt !== null)
+        continue;
+      const bookDir = (0, import_path3.join)(booksDir, entry.hash);
+      let bookConfig = null;
+      try {
+        const raw = await (0, import_promises2.readFile)((0, import_path3.join)(bookDir, "config.json"), "utf-8");
+        bookConfig = JSON.parse(raw);
+      } catch (e) {
+      }
+      let title = entry.title || entry.sourceTitle || entry.hash;
+      const isRawFilename = entry.format !== "EPUB" && entry.format !== "MOBI" && !((_b = entry.metadata) == null ? void 0 : _b.description) && !((_c = entry.metadata) == null ? void 0 : _c.publisher);
+      if (isRawFilename)
+        title = cleanComicTitle(title);
+      const author = resolveAuthor(entry);
+      let progress = null;
+      const progressArr = (_e = entry.progress) != null ? _e : (_d = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _d.progress;
+      if (progressArr && progressArr[1] > 0) {
+        progress = progressArr[0] / progressArr[1] * 100;
+      }
+      const lastReadTimestamp = (_i = (_h = (_g = (_f = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _f.updatedAt) != null ? _g : bookConfig == null ? void 0 : bookConfig.updatedAt) != null ? _h : entry.updatedAt) != null ? _i : null;
+      const annotations = ((_j = bookConfig == null ? void 0 : bookConfig.booknotes) != null ? _j : []).filter((n) => n.deletedAt === null);
+      const highlights = annotations.map((ann, idx) => {
+        var _a2, _b2, _c2, _d2;
+        return {
+          id: idx,
+          book: title,
+          filename: title,
+          chapter: cfiToChapter(ann.cfi),
+          position: ann.page,
+          highlightLength: (_b2 = (_a2 = ann.text) == null ? void 0 : _a2.length) != null ? _b2 : 0,
+          highlightColor: colorToArgb(ann.color),
+          timestamp: ann.createdAt,
+          bookmark: "",
+          note: (_c2 = ann.note) != null ? _c2 : "",
+          originalText: (_d2 = ann.text) != null ? _d2 : "",
+          underline: false,
+          strikethrough: false
+        };
+      });
+      const meta = (_k = entry.metadata) != null ? _k : {};
+      const description = meta.description ? stripHtml(meta.description) : null;
+      const publisher = (_l = meta.publisher) != null ? _l : null;
+      const publishedDate = (_m = meta.published) != null ? _m : null;
+      const isbn = (_n = meta.isbn) != null ? _n : null;
+      const language = (_o = entry.primaryLanguage) != null ? _o : typeof meta.language === "string" ? meta.language.split("-")[0].toLowerCase() : null;
+      const genres = resolveGenres(entry);
+      const series = resolveSeries(entry);
+      const seriesIndex = (_u = (_t = (_r = (_q = (_p = entry.metadata) == null ? void 0 : _p.belongsTo) == null ? void 0 : _q.series) == null ? void 0 : _r.position) != null ? _t : (_s = entry.metadata) == null ? void 0 : _s.seriesIndex) != null ? _u : null;
+      const seriesStr = series && seriesIndex ? `${series} #${seriesIndex}` : series;
+      let localCoverData = null;
+      for (const coverName of ["cover.png", "cover.jpg", "cover.jpeg"]) {
+        try {
+          localCoverData = await (0, import_promises2.readFile)((0, import_path3.join)(bookDir, coverName));
+          break;
+        } catch (e) {
+        }
+      }
+      const bookData = {
+        book: makeBook(title, author),
+        highlights,
+        statistics: null,
+        progress,
+        currentChapter: null,
+        lastReadTimestamp,
+        coverPath: null,
+        fetchedDescription: description,
+        publishedDate,
+        publisher,
+        pageCount: (_v = progressArr == null ? void 0 : progressArr[1]) != null ? _v : null,
+        genres,
+        series: seriesStr,
+        isbn10: null,
+        isbn13: isbn != null ? isbn : null,
+        language,
+        previousTitle: entry.hash,
+        // rename any old hash-named notes to title-based names
+        hardcoverId: null,
+        hardcoverSlug: null,
+        source: "readest"
+      };
+      if (localCoverData) {
+        bookData._readestCoverData = localCoverData;
+      }
+      results.push(bookData);
+    }
+    return results;
+  }
+  let entries;
+  try {
+    entries = await (0, import_promises2.readdir)(booksDir);
+  } catch (e) {
+    return results;
+  }
+  for (const entry of entries) {
+    const bookDir = (0, import_path3.join)(booksDir, entry);
+    try {
+      const info = await (0, import_promises2.stat)(bookDir);
+      if (!info.isDirectory())
+        continue;
+    } catch (e) {
+      continue;
+    }
+    const configPath = (0, import_path3.join)(bookDir, "config.json");
+    let raw;
+    try {
+      raw = await (0, import_promises2.readFile)(configPath, "utf-8");
+    } catch (e) {
+      continue;
+    }
+    let config;
+    try {
+      config = JSON.parse(raw);
+    } catch (e) {
+      continue;
+    }
+    let title = entry;
+    try {
+      const dirEntries = await (0, import_promises2.readdir)(bookDir);
+      const epubFile = dirEntries.find((f) => /\.(epub|mobi|pdf|azw3?|fb2|txt)$/i.test(f));
+      if (epubFile)
+        title = epubFile.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
+    } catch (e) {
+    }
+    let progress = null;
+    if (((_w = config.config) == null ? void 0 : _w.progress) && config.config.progress[1] > 0) {
+      progress = config.config.progress[0] / config.config.progress[1] * 100;
+    }
+    const lastReadTimestamp = (_z = (_y = (_x = config.config) == null ? void 0 : _x.updatedAt) != null ? _y : config.updatedAt) != null ? _z : null;
+    const annotations = ((_A = config.booknotes) != null ? _A : []).filter((n) => n.deletedAt === null);
+    const highlights = annotations.map((ann, idx) => {
+      var _a2, _b2, _c2, _d2;
+      return {
+        id: idx,
+        book: title,
+        filename: title,
+        chapter: cfiToChapter(ann.cfi),
+        position: ann.page,
+        highlightLength: (_b2 = (_a2 = ann.text) == null ? void 0 : _a2.length) != null ? _b2 : 0,
+        highlightColor: colorToArgb(ann.color),
+        timestamp: ann.createdAt,
+        bookmark: "",
+        note: (_c2 = ann.note) != null ? _c2 : "",
+        originalText: (_d2 = ann.text) != null ? _d2 : "",
+        underline: false,
+        strikethrough: false
+      };
+    });
+    let localCoverData = null;
+    for (const coverName of ["cover.png", "cover.jpg", "cover.jpeg"]) {
+      try {
+        localCoverData = await (0, import_promises2.readFile)((0, import_path3.join)(bookDir, coverName));
+        break;
+      } catch (e) {
+      }
+    }
+    const bookData = {
+      book: makeBook(title, ""),
+      highlights,
+      statistics: null,
+      progress,
+      currentChapter: null,
+      lastReadTimestamp,
+      coverPath: null,
+      fetchedDescription: null,
+      publishedDate: null,
+      publisher: null,
+      pageCount: (_D = (_C = (_B = config.config) == null ? void 0 : _B.progress) == null ? void 0 : _C[1]) != null ? _D : null,
+      genres: null,
+      series: null,
+      isbn10: null,
+      isbn13: null,
+      language: null,
+      previousTitle: null,
+      hardcoverId: null,
+      hardcoverSlug: null,
+      source: "readest"
+    };
+    if (localCoverData) {
+      bookData._readestCoverData = localCoverData;
+    }
+    results.push(bookData);
+  }
+  return results;
+}
+
 // src/writer/markdown.ts
 init_utils();
 function generateBookNote(bookData, settings) {
@@ -7823,7 +8196,12 @@ function generateBookNote(bookData, settings) {
     lines.push(`reading_time: "${formatDuration(statistics.usedTime)}"`);
   }
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
-  lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
+  if (bookData.source === "readest") {
+    lines.push(`book_source: readest`);
+  } else {
+    lines.push(`book_source: moonreader`);
+    lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
+  }
   lines.push(`highlights_count: ${highlights.length}`);
   lines.push(`highlights_hash: "${computeHighlightsHash(highlights)}"`);
   const notesCount = highlights.filter((h) => h.note && h.note.trim()).length;
@@ -7897,7 +8275,7 @@ function generateBookNote(bookData, settings) {
     lines.push("");
   }
   if (highlights.length > 0) {
-    lines.push("## Moon Reader highlights");
+    lines.push(bookData.source === "readest" ? "## Readest highlights" : "## Moon Reader highlights");
     lines.push("");
     const reverse = settings.highlightSort.endsWith("-reverse");
     const sortByDate = settings.highlightSort.startsWith("date");
@@ -7950,12 +8328,14 @@ function parseCategory(categoryField) {
 function generateFilename(title) {
   return title.replace(/[<>:"/\\|?*]/g, "").replace(/\s+/g, " ").trim().substring(0, 100);
 }
-function generateIndexNote(books, settings) {
+function generateIndexNote(books, settings, readestBooks) {
+  const allBooks = readestBooks ? [...books, ...readestBooks] : books;
+  const hasBothSources = !!(readestBooks && readestBooks.length > 0 && books.length > 0);
   const lines = [];
   lines.push(`# ${settings.indexNoteTitle}`);
   lines.push("");
   if (settings.showCoverCollage) {
-    const booksWithCovers = books.filter((b) => b.coverPath);
+    const booksWithCovers = allBooks.filter((b) => b.coverPath);
     if (booksWithCovers.length > 0) {
       let sortedCovers;
       if (settings.coverCollageSort === "recent") {
@@ -7980,27 +8360,42 @@ function generateIndexNote(books, settings) {
       lines.push("");
     }
   }
-  const totalBooks = books.length;
-  const totalHighlights = books.reduce((sum, b) => sum + b.highlights.length, 0);
-  const totalNotes = books.reduce(
+  const totalBooks = allBooks.length;
+  const totalHighlights = allBooks.reduce((sum, b) => sum + b.highlights.length, 0);
+  const totalNotes = allBooks.reduce(
     (sum, b) => sum + b.highlights.filter((h) => h.note && h.note.trim()).length,
     0
   );
-  const booksWithProgress = books.filter((b) => b.progress !== null);
+  const booksWithProgress = allBooks.filter((b) => b.progress !== null);
   const avgProgress = booksWithProgress.length > 0 ? booksWithProgress.reduce((sum, b) => sum + (b.progress || 0), 0) / booksWithProgress.length : 0;
   lines.push("## Summary");
   lines.push(`- **Books:** ${totalBooks}`);
+  if (hasBothSources) {
+    lines.push(`  - Moon Reader: ${books.length}`);
+    lines.push(`  - Readest: ${readestBooks.length}`);
+  }
   lines.push(`- **Highlights:** ${totalHighlights}`);
   lines.push(`- **Notes:** ${totalNotes}`);
   if (booksWithProgress.length > 0) {
     lines.push(`- **Average progress:** ${avgProgress.toFixed(1)}%`);
   }
   lines.push("");
-  lines.push("## Books");
-  const sortedBooks = [...books].sort(
+  if (hasBothSources) {
+    appendBookSection(lines, "## Moon Reader", books);
+    lines.push("");
+    appendBookSection(lines, "## Readest", readestBooks);
+  } else {
+    appendBookSection(lines, "## Books", allBooks);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+function appendBookSection(lines, heading, books) {
+  lines.push(heading);
+  const sorted = [...books].sort(
     (a, b) => a.book.title.toLowerCase().localeCompare(b.book.title.toLowerCase())
   );
-  for (const bookData of sortedBooks) {
+  for (const bookData of sorted) {
     const rawFilename = bookData.book.filename;
     const filename = rawFilename && !rawFilename.includes("/") ? rawFilename : generateFilename(bookData.book.title);
     const author = bookData.book.author ? ` by ${bookData.book.author}` : "";
@@ -8010,8 +8405,6 @@ function generateIndexNote(books, settings) {
     const statsText = noteCount > 0 ? `${highlightCount} highlights, ${noteCount} ${noteCount === 1 ? "note" : "notes"}` : `${highlightCount} highlights`;
     lines.push(`- [[${filename}|${bookData.book.title}]]${author}${progress} \u2014 ${statsText}`);
   }
-  lines.push("");
-  return lines.join("\n");
 }
 function generateBaseFile(settings) {
   const outputFolder = settings.outputFolder;
@@ -8184,7 +8577,7 @@ function parseBookFrontmatter(content, filePath) {
     coverPath: parsed.coverPath,
     lastReadTimestamp,
     filePath,
-    isMoonReader: !!parsed.moonReaderPath
+    isMoonReader: parsed.bookSource === "moonreader" || parsed.bookSource === null && !!parsed.moonReaderPath
   };
 }
 function scannedBookToBookData(scanned) {
@@ -8292,13 +8685,13 @@ init_utils();
 init_hardcover();
 
 // src/parser/books-sync.ts
-var import_promises2 = require("fs/promises");
-var import_path3 = require("path");
+var import_promises3 = require("fs/promises");
+var import_path4 = require("path");
 var import_zlib2 = require("zlib");
 async function parseBooksSyncFile(syncPath) {
-  const filePath = (0, import_path3.join)(syncPath, ".Moon+", "books.sync");
+  const filePath = (0, import_path4.join)(syncPath, ".Moon+", "books.sync");
   try {
-    const data = await (0, import_promises2.readFile)(filePath);
+    const data = await (0, import_promises3.readFile)(filePath);
     const decompressed = (0, import_zlib2.inflateSync)(data).toString("utf-8");
     const entries = JSON.parse(decompressed);
     const map = /* @__PURE__ */ new Map();
@@ -8333,13 +8726,13 @@ function parseCategoryField(category) {
 }
 
 // src/parser/local-covers.ts
-var import_promises3 = require("fs/promises");
-var import_path4 = require("path");
+var import_promises4 = require("fs/promises");
+var import_path5 = require("path");
 async function scanLocalCovers(syncPath) {
-  const coverDir = (0, import_path4.join)(syncPath, ".Moon+", "Cover");
+  const coverDir = (0, import_path5.join)(syncPath, ".Moon+", "Cover");
   const available = /* @__PURE__ */ new Set();
   try {
-    const files = await (0, import_promises3.readdir)(coverDir);
+    const files = await (0, import_promises4.readdir)(coverDir);
     for (const f of files) {
       if (f.endsWith("_2.png")) {
         const bookFilename = f.slice(0, -6);
@@ -8351,9 +8744,9 @@ async function scanLocalCovers(syncPath) {
   return available;
 }
 async function getLocalCover(syncPath, bookFilename) {
-  const coverPath = (0, import_path4.join)(syncPath, ".Moon+", "Cover", `${bookFilename}_2.png`);
+  const coverPath = (0, import_path5.join)(syncPath, ".Moon+", "Cover", `${bookFilename}_2.png`);
   try {
-    const data = await (0, import_promises3.readFile)(coverPath);
+    const data = await (0, import_promises4.readFile)(coverPath);
     return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
   } catch (e) {
     return null;
@@ -8362,19 +8755,19 @@ async function getLocalCover(syncPath, bookFilename) {
 
 // src/parser/mrpro.ts
 var import_jszip = __toESM(require_jszip_min());
-var import_promises4 = require("fs/promises");
-var import_path5 = require("path");
+var import_promises5 = require("fs/promises");
+var import_path6 = require("path");
 async function findLatestBackup(backupDir) {
   try {
-    const files = await (0, import_promises4.readdir)(backupDir);
+    const files = await (0, import_promises5.readdir)(backupDir);
     const mrproFiles = files.filter((f) => f.endsWith(".mrpro"));
     if (mrproFiles.length === 0) {
       return null;
     }
     const filesWithStats = await Promise.all(
       mrproFiles.map(async (f) => {
-        const filePath = (0, import_path5.join)(backupDir, f);
-        const stats = await (0, import_promises4.stat)(filePath);
+        const filePath = (0, import_path6.join)(backupDir, f);
+        const stats = await (0, import_promises5.stat)(filePath);
         return { path: filePath, mtime: stats.mtime.getTime() };
       })
     );
@@ -8396,7 +8789,7 @@ function parseNamesList(content) {
   return mapping;
 }
 async function extractMrpro(mrproPath) {
-  const fileBuffer = await (0, import_promises4.readFile)(mrproPath);
+  const fileBuffer = await (0, import_promises5.readFile)(mrproPath);
   const zip = await import_jszip.default.loadAsync(fileBuffer);
   const namesListFile = zip.file(/.*_names\.list$/);
   if (!namesListFile || namesListFile.length === 0) {
@@ -8427,11 +8820,11 @@ async function extractMrpro(mrproPath) {
 
 // src/parser/database.ts
 var import_sql = __toESM(require_sql_wasm());
-var import_promises5 = require("fs/promises");
+var import_promises6 = require("fs/promises");
 var SQL = null;
 async function initDatabase(wasmPath) {
   if (!SQL) {
-    const wasmBinary = await (0, import_promises5.readFile)(wasmPath);
+    const wasmBinary = await (0, import_promises6.readFile)(wasmPath);
     SQL = await (0, import_sql.default)({
       wasmBinary
     });
@@ -8443,9 +8836,9 @@ function getSqlJs() {
 
 // src/enrichment.ts
 init_utils();
-var import_path6 = require("path");
+var import_path7 = require("path");
 async function extractBackupStatistics(syncPath, wasmPath) {
-  const backupDir = (0, import_path6.join)(syncPath, ".Moon+", "Backup");
+  const backupDir = (0, import_path7.join)(syncPath, ".Moon+", "Backup");
   try {
     const latestBackup = await findLatestBackup(backupDir);
     if (!latestBackup)
@@ -8624,7 +9017,110 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
 }
 
 // src/sync.ts
+function getMoonReaderOutputPath(settings) {
+  const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+  if (settings.moonReaderEnabled && settings.readestEnabled) {
+    return (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
+  }
+  return base;
+}
+async function hasNotesWithField(app, folderPath, field) {
+  try {
+    const listing = await app.vault.adapter.list(folderPath);
+    for (const filePath of listing.files) {
+      if (!filePath.endsWith(".md"))
+        continue;
+      try {
+        const content = await app.vault.adapter.read(filePath);
+        if (content.includes(field))
+          return true;
+      } catch (e) {
+      }
+    }
+  } catch (e) {
+  }
+  return false;
+}
+async function migrateToSubdirectories(app, settings) {
+  const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+  const mrPath = (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
+  const readestPath = (0, import_obsidian7.normalizePath)(`${base}/Readest`);
+  const mrExists = await app.vault.adapter.exists(mrPath);
+  const readestExists = await app.vault.adapter.exists(readestPath);
+  if (mrExists && readestExists)
+    return;
+  let listing;
+  try {
+    listing = await app.vault.adapter.list(base);
+  } catch (e) {
+    return;
+  }
+  const mdFiles = listing.files.filter((f) => f.endsWith(".md"));
+  if (mdFiles.length === 0)
+    return;
+  if (!mrExists)
+    await app.vault.createFolder(mrPath);
+  if (!readestExists)
+    await app.vault.createFolder(readestPath);
+  const mrCovers = [];
+  const readestCovers = [];
+  for (const filePath of mdFiles) {
+    try {
+      const content = await app.vault.adapter.read(filePath);
+      const filename = filePath.split("/").pop();
+      const isMr = content.includes("book_source: moonreader") || /^moon_reader_path:/m.test(content);
+      const isReadest = content.includes("book_source: readest") || content.includes("readest_book: true");
+      if (isMr && !mrExists) {
+        await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${mrPath}/${filename}`), content);
+        await app.vault.adapter.remove(filePath);
+        const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
+        if (coverMatch)
+          mrCovers.push(coverMatch[1].split("/").pop());
+      } else if (isReadest && !readestExists) {
+        await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${readestPath}/${filename}`), content);
+        await app.vault.adapter.remove(filePath);
+        const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
+        if (coverMatch)
+          readestCovers.push(coverMatch[1].split("/").pop());
+      }
+    } catch (e) {
+    }
+  }
+  for (const [destPath, shouldMove] of [[mrPath, !mrExists], [readestPath, !readestExists]]) {
+    if (!shouldMove)
+      continue;
+    const cacheSrc = (0, import_obsidian7.normalizePath)(`${base}/.moonsync-cache.json`);
+    if (await app.vault.adapter.exists(cacheSrc)) {
+      try {
+        const cacheContent = await app.vault.adapter.read(cacheSrc);
+        await app.vault.adapter.write((0, import_obsidian7.normalizePath)(`${destPath}/.moonsync-cache.json`), cacheContent);
+        await app.vault.adapter.remove(cacheSrc);
+      } catch (e) {
+      }
+      break;
+    }
+  }
+  const coversSrc = (0, import_obsidian7.normalizePath)(`${base}/moonsync-covers`);
+  if (await app.vault.adapter.exists(coversSrc)) {
+    try {
+      const coversListing = await app.vault.adapter.list(coversSrc);
+      for (const coverFile of coversListing.files) {
+        const coverName = coverFile.split("/").pop();
+        const data = await app.vault.adapter.readBinary(coverFile);
+        const destDir = readestCovers.includes(coverName) && !readestExists ? (0, import_obsidian7.normalizePath)(`${readestPath}/moonsync-covers`) : (0, import_obsidian7.normalizePath)(`${mrPath}/moonsync-covers`);
+        if (!await app.vault.adapter.exists(destDir)) {
+          await app.vault.createFolder(destDir);
+        }
+        await app.vault.adapter.writeBinary((0, import_obsidian7.normalizePath)(`${destDir}/${coverName}`), data);
+        await app.vault.adapter.remove(coverFile);
+      }
+      await app.vault.adapter.rmdir(coversSrc, false);
+    } catch (e) {
+    }
+  }
+}
 async function syncFromMoonReader(app, settings, wasmPath) {
+  var _a, _b, _c, _d, _e;
   const result = {
     success: false,
     booksProcessed: 0,
@@ -8641,28 +9137,59 @@ async function syncFromMoonReader(app, settings, wasmPath) {
   };
   const progressNotice = new import_obsidian7.Notice("MoonSync: Syncing...", 0);
   try {
-    if (!settings.syncPath) {
-      result.errors.push("Sync path not configured");
+    if (!settings.moonReaderEnabled && !settings.readestEnabled) {
+      result.errors.push("No sync source enabled. Enable Moon Reader or Readest in settings.");
       progressNotice.hide();
       return result;
     }
-    const booksWithHighlights = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
-    progressNotice.setMessage("MoonSync: Enriching book metadata...");
-    const { enrichmentResult, booksWithSufficientMetadata } = await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath, settings.trackBooksWithoutHighlights);
-    if (enrichmentResult.booksEnriched > 0) {
-      console.debug(
-        `MoonSync: Enriched ${enrichmentResult.booksEnriched} books from sync data (${enrichmentResult.coversFound} covers, ${enrichmentResult.statisticsFound} statistics)`
-      );
+    const baseOutputPath = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+    if (!await app.vault.adapter.exists(baseOutputPath)) {
+      await app.vault.createFolder(baseOutputPath);
+      result.isFirstSync = true;
     }
-    if (booksWithHighlights.length === 0) {
-      result.errors.push("No books found in .Moon+/Cache folder or books.sync");
-      progressNotice.hide();
-      return result;
+    const mrSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`));
+    const readestSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/Readest`));
+    let hasFlatMrNotes = false;
+    let hasFlatReadestNotes = false;
+    if (settings.readestEnabled && !mrSubdirExists) {
+      hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "book_source: moonreader") || await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
     }
-    const outputPath = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+    if (settings.moonReaderEnabled && !readestSubdirExists) {
+      hasFlatReadestNotes = await hasNotesWithField(app, baseOutputPath, "book_source: readest") || await hasNotesWithField(app, baseOutputPath, "readest_book:");
+    }
+    const useSeparateDirs = settings.moonReaderEnabled && settings.readestEnabled || settings.readestEnabled && (mrSubdirExists || hasFlatMrNotes) || settings.moonReaderEnabled && (readestSubdirExists || hasFlatReadestNotes);
+    if (useSeparateDirs && !mrSubdirExists && settings.moonReaderEnabled) {
+      await migrateToSubdirectories(app, settings);
+    } else if (useSeparateDirs && hasFlatMrNotes) {
+      await migrateToSubdirectories(app, settings);
+    }
+    const outputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
+    const readestOutputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/Readest`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
+    let booksWithHighlights = [];
+    let booksWithSufficientMetadata = /* @__PURE__ */ new Set();
+    if (settings.moonReaderEnabled) {
+      if (!settings.syncPath) {
+        result.errors.push("Moon Reader sync path not configured");
+      } else {
+        booksWithHighlights = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
+        booksWithHighlights.forEach((b) => {
+          b.source = "moonreader";
+        });
+        progressNotice.setMessage("MoonSync: Enriching book metadata...");
+        const { enrichmentResult, booksWithSufficientMetadata: enrichedSet } = await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath, settings.trackBooksWithoutHighlights);
+        booksWithSufficientMetadata = enrichedSet;
+        if (enrichmentResult.booksEnriched > 0) {
+          console.debug(
+            `MoonSync: Enriched ${enrichmentResult.booksEnriched} books from sync data (${enrichmentResult.coversFound} covers, ${enrichmentResult.statisticsFound} statistics)`
+          );
+        }
+      }
+    }
     const outputFolderExisted = await app.vault.adapter.exists(outputPath);
-    result.isFirstSync = !outputFolderExisted;
-    if (!outputFolderExisted) {
+    if (!result.isFirstSync) {
+      result.isFirstSync = settings.moonReaderEnabled && !outputFolderExisted;
+    }
+    if (settings.moonReaderEnabled && !outputFolderExisted) {
       await app.vault.createFolder(outputPath);
     }
     const seenFiles = /* @__PURE__ */ new Map();
@@ -8692,6 +9219,8 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     );
     const cache = await loadCache(app, outputPath);
     let cacheModified = false;
+    let readestCache = null;
+    let readestCacheModified = false;
     progressNotice.setMessage("MoonSync: Scanning existing notes...");
     const titleCache = await buildTitleCache(app, outputPath);
     progressNotice.setMessage("MoonSync: Fetching book metadata...");
@@ -8793,200 +9322,272 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     if (cacheModified) {
       await saveCache(app, outputPath, cache);
     }
-    if (settings.hardcoverEnabled && settings.hardcoverToken) {
-      for (const bookData of booksWithHighlights) {
-        const cachedBook = getCachedInfo(cache, bookData.book.title, bookData.book.author);
-        if (!(cachedBook == null ? void 0 : cachedBook.hardcoverId) || !(cachedBook == null ? void 0 : cachedBook.hardcoverSlug))
-          continue;
-        const lookupTitle = cachedBook.source === "hardcover" && cachedBook.title ? cachedBook.title : bookData.book.title;
-        const filename = generateFilename(lookupTitle);
-        const filePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${filename}.md`);
-        try {
-          if (!await app.vault.adapter.exists(filePath))
-            continue;
-          const content = await app.vault.adapter.read(filePath);
-          if (/^hardcover_id: /m.test(content))
-            continue;
-          const fields = [];
-          fields.push(`hardcover_id: ${cachedBook.hardcoverId}`);
-          fields.push(`hardcover_url: "https://hardcover.app/books/${cachedBook.hardcoverSlug}"`);
-          const updated = content.replace(/\n---\n/, `
-${fields.join("\n")}
----
-`);
-          if (updated !== content) {
-            await app.vault.adapter.write(filePath, updated);
+    if (cacheModified) {
+      await saveCache(app, outputPath, cache);
+    }
+    const readestBooksForIndex = [];
+    if (settings.readestEnabled && settings.readestSyncPath) {
+      progressNotice.setMessage("MoonSync: Parsing Readest books...");
+      if (!await app.vault.adapter.exists(readestOutputPath)) {
+        await app.vault.createFolder(readestOutputPath);
+      }
+      const readestBooks = await parseReadestFiles(settings.readestSyncPath);
+      if (readestBooks.length > 0) {
+        readestCache = await loadCache(app, readestOutputPath);
+        const readestTitleCache = await buildTitleCache(app, readestOutputPath);
+        const readestCoversFolder = (0, import_obsidian7.normalizePath)(`${readestOutputPath}/moonsync-covers`);
+        const hardcoverToken2 = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : void 0;
+        for (const bookData of readestBooks) {
+          const coverData = bookData._readestCoverData;
+          if (coverData) {
+            if (!await app.vault.adapter.exists(readestCoversFolder)) {
+              await app.vault.createFolder(readestCoversFolder);
+            }
+            const isPng = coverData[0] === 137 && coverData[1] === 80;
+            const ext = isPng ? "png" : "jpg";
+            const coverFilename = `${generateFilename(bookData.book.title)}.${ext}`;
+            const coverVaultPath = (0, import_obsidian7.normalizePath)(`${readestCoversFolder}/${coverFilename}`);
+            if (!await app.vault.adapter.exists(coverVaultPath)) {
+              await app.vault.adapter.writeBinary(coverVaultPath, coverData);
+            }
+            bookData.coverPath = `moonsync-covers/${coverFilename}`;
           }
-        } catch (e) {
         }
+        const readestToFetch = [];
+        for (const bookData of readestBooks) {
+          const cachedInfo = getCachedInfo(readestCache, bookData.book.title, bookData.book.author);
+          const hasAttemptedFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0);
+          const needsHardcoverRefetch = hasAttemptedFetch && settings.hardcoverEnabled && settings.hardcoverToken && cachedInfo.source !== null && cachedInfo.source !== "hardcover" && !cachedInfo.hardcoverAttempted;
+          const hasLibraryMetadata = !!(bookData.fetchedDescription || bookData.publishedDate || bookData.publisher);
+          const hardcoverPending = settings.hardcoverEnabled && settings.hardcoverToken && (cachedInfo == null ? void 0 : cachedInfo.hardcoverAttempted) !== true;
+          if (needsHardcoverRefetch || hardcoverPending || !hasAttemptedFetch && !hasLibraryMetadata) {
+            readestToFetch.push({ title: bookData.book.title, author: bookData.book.author });
+          }
+        }
+        if (readestToFetch.length > 0) {
+          progressNotice.setMessage(`MoonSync: Fetching Readest metadata (0/${readestToFetch.length})...`);
+        }
+        const prefetchedReadest = readestToFetch.length > 0 ? await batchFetchBookInfo(readestToFetch, 5, (done, total, title) => {
+          progressNotice.setMessage(`MoonSync: Fetching Readest metadata (${done}/${total})${title ? ` \u2014 ${title}` : ""}...`);
+        }, hardcoverToken2) : /* @__PURE__ */ new Map();
+        const readestChangedTitles = /* @__PURE__ */ new Set();
+        progressNotice.setMessage("MoonSync: Processing Readest books...");
+        for (const bookData of readestBooks) {
+          try {
+            const prevCreated = result.booksCreated;
+            const prevUpdated = result.booksUpdated;
+            const processed = await processBook(app, readestOutputPath, bookData, settings, result, readestCache, prefetchedReadest, readestTitleCache);
+            if (processed)
+              readestCacheModified = true;
+            if (result.booksCreated > prevCreated || result.booksUpdated > prevUpdated) {
+              readestChangedTitles.add(bookData.book.title);
+            }
+            result.booksProcessed++;
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            result.failedBooks.push({ title: bookData.book.title, error: errorMsg });
+            result.errors.push(`Error processing Readest "${bookData.book.title}": ${errorMsg}`);
+          }
+        }
+        if (readestCacheModified) {
+          await saveCache(app, readestOutputPath, readestCache);
+          readestCacheModified = false;
+        }
+        readestBooksForIndex.push(...readestBooks);
       }
     }
     if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
       try {
         progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
-        console.debug(`MoonSync: Hardcover sync starting \u2014 ${changedBookTitles.size} changed books, ${booksWithHighlights.length} total books`);
-        const hardcoverItems = [];
-        const titleToFilename = /* @__PURE__ */ new Map();
-        for (const b of booksWithHighlights) {
-          if (b.progress === null) {
-            console.debug(`MoonSync: Hardcover skipping "${b.book.title}" \u2014 no progress data`);
-            continue;
-          }
-          const cachedBook = getCachedInfo(cache, b.book.title, b.book.author);
-          const hcLookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title ? cachedBook.title : b.book.title;
-          const filename = generateFilename(hcLookupTitle);
-          const filePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${filename}.md`);
-          let hardcoverId = null;
-          let lastSyncedProgress = null;
-          try {
-            if (await app.vault.adapter.exists(filePath)) {
-              const content = await app.vault.adapter.read(filePath);
-              const fm = extractFrontmatter(content);
-              if (fm) {
-                const idStr = parseFrontmatterField(fm, "hardcover_id");
-                if (idStr)
-                  hardcoverId = parseInt(idStr, 10) || null;
-                lastSyncedProgress = parseFrontmatterField(fm, "hardcover_progress");
+        const buildEntries = async (books, srcPath, srcCache) => {
+          const entries = [];
+          for (const b of books) {
+            if (b.progress === null)
+              continue;
+            const cachedBook = getCachedInfo(srcCache, b.book.title, b.book.author);
+            const hcLookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title ? cachedBook.title : b.book.title;
+            const filePath = (0, import_obsidian7.normalizePath)(`${srcPath}/${generateFilename(hcLookupTitle)}.md`);
+            let hardcoverId = null;
+            let lastSyncedProgress = null;
+            try {
+              if (await app.vault.adapter.exists(filePath)) {
+                const content = await app.vault.adapter.read(filePath);
+                const fm = extractFrontmatter(content);
+                if (fm) {
+                  const idStr = parseFrontmatterField(fm, "hardcover_id");
+                  if (idStr)
+                    hardcoverId = parseInt(idStr, 10) || null;
+                  lastSyncedProgress = parseFrontmatterField(fm, "hardcover_progress");
+                }
               }
-            } else {
-              console.debug(`MoonSync: Hardcover "${b.book.title}" \u2014 note not found at ${filePath}`);
+            } catch (e) {
             }
-          } catch (e) {
+            const currentProgress = b.progress.toFixed(1);
+            if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress)
+              continue;
+            entries.push({
+              item: {
+                title: b.book.title,
+                author: b.book.author,
+                progress: b.progress,
+                hardcoverId,
+                cachedSlug: cachedBook == null ? void 0 : cachedBook.hardcoverSlug,
+                cachedPages: cachedBook == null ? void 0 : cachedBook.hardcoverPages
+              },
+              lastReadTimestamp: b.lastReadTimestamp,
+              notePaths: [filePath],
+              cacheRefs: [{ bookCache: srcCache, title: b.book.title, author: b.book.author }]
+            });
           }
-          const currentProgress = b.progress.toFixed(1);
-          if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress) {
-            console.debug(`MoonSync: Hardcover skipping "${b.book.title}" \u2014 progress unchanged (${currentProgress}%)`);
-            continue;
-          }
-          console.debug(`MoonSync: Hardcover queuing "${b.book.title}" \u2014 progress: ${b.progress}%, hardcoverId: ${hardcoverId}, lastSynced: ${lastSyncedProgress}`);
-          hardcoverItems.push({
-            title: b.book.title,
-            author: b.book.author,
-            progress: b.progress,
-            hardcoverId,
-            cachedSlug: cachedBook == null ? void 0 : cachedBook.hardcoverSlug,
-            cachedPages: cachedBook == null ? void 0 : cachedBook.hardcoverPages
-          });
-          if (hcLookupTitle !== b.book.title) {
-            titleToFilename.set(b.book.title, hcLookupTitle);
+          return entries;
+        };
+        const mrEntries = settings.moonReaderEnabled ? await buildEntries(booksWithHighlights, outputPath, cache) : [];
+        const readestEntries = readestBooksForIndex.length > 0 && readestCache ? await buildEntries(readestBooksForIndex, readestOutputPath, readestCache) : [];
+        const dedupMap = /* @__PURE__ */ new Map();
+        for (const entry of [...mrEntries, ...readestEntries]) {
+          const key = entry.item.hardcoverId ? `id:${entry.item.hardcoverId}` : `ta:${entry.item.title.toLowerCase()}|${((_a = entry.item.author) != null ? _a : "").toLowerCase()}`;
+          const existing = dedupMap.get(key);
+          if (!existing) {
+            dedupMap.set(key, {
+              item: { ...entry.item },
+              lastReadTimestamp: entry.lastReadTimestamp,
+              notePaths: [...entry.notePaths],
+              cacheRefs: [...entry.cacheRefs]
+            });
+          } else {
+            const entryTs = (_b = entry.lastReadTimestamp) != null ? _b : 0;
+            const existingTs = (_c = existing.lastReadTimestamp) != null ? _c : 0;
+            const entryWins = entryTs !== existingTs ? entryTs > existingTs : ((_d = entry.item.progress) != null ? _d : 0) > ((_e = existing.item.progress) != null ? _e : 0);
+            if (entryWins) {
+              existing.item.progress = entry.item.progress;
+              existing.lastReadTimestamp = entry.lastReadTimestamp;
+            }
+            if (entry.item.hardcoverId && !existing.item.hardcoverId) {
+              existing.item.hardcoverId = entry.item.hardcoverId;
+            }
+            for (const np of entry.notePaths) {
+              if (!existing.notePaths.includes(np))
+                existing.notePaths.push(np);
+            }
+            existing.cacheRefs.push(...entry.cacheRefs);
           }
         }
-        console.debug(`MoonSync: Hardcover ${hardcoverItems.length} books queued for sync`);
-        if (hardcoverItems.length > 0) {
+        const allItems = [...dedupMap.values()].map((e) => e.item);
+        if (allItems.length > 0) {
           const hcResult = await syncBooksToHardcover(
-            hardcoverItems,
+            allItems,
             settings.hardcoverToken,
             (msg) => progressNotice.setMessage(`MoonSync: ${msg}`)
           );
           result.hardcoverUpdated = hcResult.booksUpdated;
-          console.debug(`MoonSync: Hardcover write-back \u2014 ${hcResult.updatedTitles.length} updated, ${hcResult.newIds.length} new IDs, ${hcResult.slugs.size} slugs`);
           const newIdMap = new Map(hcResult.newIds.map((n) => [n.title, n.hardcoverId]));
           const newSlugMap = new Map(hcResult.newIds.map((n) => [n.title, n.slug]));
-          const progressMap = new Map(hardcoverItems.map((i) => [i.title, i.progress]));
+          const progressMap = new Map(allItems.map((i) => [i.title, i.progress]));
           for (const title of hcResult.updatedTitles) {
-            try {
-              const wbTitle = titleToFilename.get(title) || title;
-              const fn = generateFilename(wbTitle);
-              const fp = (0, import_obsidian7.normalizePath)(`${outputPath}/${fn}.md`);
-              if (await app.vault.adapter.exists(fp)) {
-                let content = await app.vault.adapter.read(fp);
+            const entry = [...dedupMap.values()].find(
+              (e) => e.item.title === title
+            );
+            if (!entry)
+              continue;
+            const newId = newIdMap.get(title);
+            const slug = hcResult.slugs.get(title) || newSlugMap.get(title);
+            const syncedProgress = progressMap.get(title);
+            for (const filePath of entry.notePaths) {
+              try {
+                if (!await app.vault.adapter.exists(filePath))
+                  continue;
+                let content = await app.vault.adapter.read(filePath);
                 const existingIdMatch = content.match(/^hardcover_id: (.+)$/m);
                 const existingId = existingIdMatch ? existingIdMatch[1].trim() : null;
                 content = content.replace(/^hardcover_id: .*\n/gm, "");
                 content = content.replace(/^hardcover_progress: .*\n/gm, "");
                 content = content.replace(/^hardcover_url: .*\n/gm, "");
-                const newId = newIdMap.get(title);
                 const hardcoverId = newId || existingId;
-                const slug = hcResult.slugs.get(title) || newSlugMap.get(title);
-                const syncedProgress = progressMap.get(title);
                 const fields = [];
                 if (hardcoverId)
                   fields.push(`hardcover_id: ${hardcoverId}`);
                 if (slug)
                   fields.push(`hardcover_url: "https://hardcover.app/books/${slug}"`);
-                if (syncedProgress !== null && syncedProgress !== void 0) {
+                if (syncedProgress != null)
                   fields.push(`hardcover_progress: "${syncedProgress.toFixed(1)}%"`);
-                }
                 if (fields.length > 0) {
                   content = content.replace(/\n---\n/, `
 ${fields.join("\n")}
 ---
 `);
                 }
-                await app.vault.adapter.write(fp, content);
+                await app.vault.adapter.write(filePath, content);
+              } catch (e) {
               }
-            } catch (err) {
-              console.debug(`MoonSync: Failed to write hardcover data for "${title}"`, err);
+            }
+            for (const ref of entry.cacheRefs) {
+              const cachedEntry = getCachedInfo(ref.bookCache, ref.title, ref.author);
+              if (cachedEntry) {
+                if (slug)
+                  cachedEntry.hardcoverSlug = slug;
+                const pages = hcResult.pages.get(title);
+                if (pages)
+                  cachedEntry.hardcoverPages = pages;
+                if (newId)
+                  cachedEntry.hardcoverId = newId;
+                if (ref.bookCache === cache)
+                  cacheModified = true;
+                else
+                  readestCacheModified = true;
+              }
             }
           }
-          for (const item of hardcoverItems) {
-            const cachedEntry = getCachedInfo(cache, item.title, item.author);
-            if (cachedEntry) {
-              const slug = hcResult.slugs.get(item.title) || newSlugMap.get(item.title);
-              const pages = hcResult.pages.get(item.title);
-              const newId = newIdMap.get(item.title);
-              let modified = false;
-              if (slug && cachedEntry.hardcoverSlug !== slug) {
-                cachedEntry.hardcoverSlug = slug;
-                modified = true;
-              }
-              if (pages && cachedEntry.hardcoverPages !== pages) {
-                cachedEntry.hardcoverPages = pages;
-                modified = true;
-              }
-              if (newId && cachedEntry.hardcoverId !== newId) {
-                cachedEntry.hardcoverId = newId;
-                modified = true;
-              }
-              if (modified)
-                cacheModified = true;
-            }
-          }
+          if (cacheModified)
+            await saveCache(app, outputPath, cache);
+          if (readestCacheModified && readestCache)
+            await saveCache(app, readestOutputPath, readestCache);
         }
       } catch (error) {
         console.debug("MoonSync: Hardcover sync failed", error);
       }
     }
-    if (cacheModified) {
-      await saveCache(app, outputPath, cache);
-    }
     if (settings.showIndex) {
-      const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
+      const indexPath = (0, import_obsidian7.normalizePath)(`${baseOutputPath}/${settings.indexNoteTitle}.md`);
       const indexExists = await app.vault.adapter.exists(indexPath);
       const indexFilename = `${settings.indexNoteTitle}.md`;
       const filteredScanned = scannedBooks.filter((b) => !b.filePath.endsWith(indexFilename));
-      const totalBookNotes = filteredScanned.length;
-      const manualBookCount = totalBookNotes - booksWithHighlights.length;
+      const manualBookCount = filteredScanned.length - booksWithHighlights.length;
       const hasManualBooks = manualBookCount > 0;
       if (hasManualBooks) {
         result.manualBooksAdded = manualBookCount;
       }
-      if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !indexExists || hasManualBooks) {
-        const coversFolder2 = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
-        let existingCovers = /* @__PURE__ */ new Set();
+      if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !indexExists || hasManualBooks || readestBooksForIndex.length > 0) {
+        const mrCoversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
+        let mrExistingCovers = /* @__PURE__ */ new Set();
         try {
-          if (await app.vault.adapter.exists(coversFolder2)) {
-            const listing = await app.vault.adapter.list(coversFolder2);
-            existingCovers = new Set(listing.files.map((f) => f.split("/").pop() || ""));
+          if (await app.vault.adapter.exists(mrCoversFolder)) {
+            const listing = await app.vault.adapter.list(mrCoversFolder);
+            mrExistingCovers = new Set(listing.files.map((f) => f.split("/").pop() || ""));
           }
         } catch (e) {
         }
         for (const bookData of booksWithHighlights) {
           if (!bookData.coverPath) {
             const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-            if (existingCovers.has(coverFilename)) {
+            if (mrExistingCovers.has(coverFilename)) {
               bookData.coverPath = `moonsync-covers/${coverFilename}`;
             }
           }
         }
-        await updateIndexNote(app, outputPath, booksWithHighlights, settings);
+        await updateIndexNote(
+          app,
+          baseOutputPath,
+          booksWithHighlights,
+          settings,
+          readestBooksForIndex.length > 0 ? readestBooksForIndex : void 0
+        );
       }
     }
     if (settings.generateBaseFile) {
-      const baseFilePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.baseFileName}.base`);
+      const baseFilePath = (0, import_obsidian7.normalizePath)(`${baseOutputPath}/${settings.baseFileName}.base`);
       const baseExists = await app.vault.adapter.exists(baseFilePath);
       if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !baseExists) {
-        await updateBaseFile(app, outputPath, settings);
+        await updateBaseFile(app, baseOutputPath, settings);
       }
     }
     progressNotice.hide();
@@ -9335,8 +9936,8 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
     const coverFilename = `${filename}.jpg`;
     const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
     const coverPath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
-    let coverExists = await app.vault.adapter.exists(coverPath);
-    if (bookData.book.coverFile) {
+    let coverExists = bookData.coverPath ? true : await app.vault.adapter.exists(coverPath);
+    if (bookData.book.coverFile && !bookData.coverPath) {
       const localCoverData = await getLocalCover(settings.syncPath, bookData.book.coverFile);
       if (localCoverData) {
         if (!await app.vault.adapter.exists(coversFolder)) {
@@ -9460,7 +10061,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       });
       cacheModified = true;
     }
-    if (coverExists) {
+    if (coverExists && !bookData.coverPath) {
       bookData.coverPath = `moonsync-covers/${coverFilename}`;
     }
   }
@@ -9607,15 +10208,13 @@ function updateCustomBookFrontmatter(content, bookInfo, settings) {
   lines.push("---");
   return lines.join("\n") + contentAfterFrontmatter;
 }
-async function updateIndexNote(app, outputPath, moonReaderBooks, settings) {
+async function updateIndexNote(app, outputPath, moonReaderBooks, settings, readestBooks) {
   const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
   const scannedBooks = await scanAllBookNotes(app, outputPath);
   const indexFilename = `${settings.indexNoteTitle}.md`;
-  const filteredScanned = scannedBooks.filter(
-    (b) => !b.filePath.endsWith(indexFilename)
-  );
-  const allBooks = mergeBookLists(moonReaderBooks, filteredScanned);
-  const markdown = generateIndexNote(allBooks, settings);
+  const filteredScanned = scannedBooks.filter((b) => !b.filePath.endsWith(indexFilename));
+  const allMrBooks = mergeBookLists(moonReaderBooks, filteredScanned);
+  const markdown = generateIndexNote(allMrBooks, settings, readestBooks);
   if (await app.vault.adapter.exists(indexPath)) {
     await app.vault.adapter.write(indexPath, markdown);
   } else {
@@ -9627,30 +10226,38 @@ async function refreshIndexNote(app, settings) {
     new import_obsidian7.Notice("MoonSync: Index generation is disabled in settings");
     return;
   }
-  const outputPath = (0, import_obsidian7.normalizePath)(settings.outputFolder);
-  if (!await app.vault.adapter.exists(outputPath)) {
+  const baseOutputPath = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+  if (!await app.vault.adapter.exists(baseOutputPath)) {
     new import_obsidian7.Notice("MoonSync: Output folder does not exist");
     return;
   }
   try {
+    const mrOutputPath = getMoonReaderOutputPath(settings);
     let moonReaderBooks = [];
-    if (settings.syncPath) {
+    if (settings.moonReaderEnabled && settings.syncPath) {
       try {
         moonReaderBooks = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
       } catch (e) {
       }
     }
-    const coversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
+    const mrCoversFolder = (0, import_obsidian7.normalizePath)(`${mrOutputPath}/moonsync-covers`);
     for (const bookData of moonReaderBooks) {
       if (!bookData.coverPath) {
         const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-        const coverPath = (0, import_obsidian7.normalizePath)(`${coversFolder}/${coverFilename}`);
+        const coverPath = (0, import_obsidian7.normalizePath)(`${mrCoversFolder}/${coverFilename}`);
         if (await app.vault.adapter.exists(coverPath)) {
           bookData.coverPath = `moonsync-covers/${coverFilename}`;
         }
       }
     }
-    await updateIndexNote(app, outputPath, moonReaderBooks, settings);
+    let readestBooks;
+    if (settings.readestEnabled && settings.readestSyncPath) {
+      try {
+        readestBooks = await parseReadestFiles(settings.readestSyncPath);
+      } catch (e) {
+      }
+    }
+    await updateIndexNote(app, baseOutputPath, moonReaderBooks, settings, readestBooks);
     new import_obsidian7.Notice("MoonSync: Index refreshed");
   } catch (error) {
     console.error("MoonSync: Failed to refresh index", error);
@@ -9784,7 +10391,7 @@ function parseManualExport(content) {
 // main.ts
 init_utils();
 init_hardcover();
-var import_path7 = require("path");
+var import_path8 = require("path");
 var import_fs2 = require("fs");
 var MoonSyncPlugin = class extends import_obsidian8.Plugin {
   constructor() {
@@ -9916,7 +10523,7 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
     this.stopFileWatcher();
     if (!this.settings.syncPath)
       return;
-    const cachePath = (0, import_path7.join)(this.settings.syncPath, ".Moon+", "Cache");
+    const cachePath = (0, import_path8.join)(this.settings.syncPath, ".Moon+", "Cache");
     try {
       this.fileWatcher = (0, import_fs2.watch)(cachePath, { persistent: false }, (_event, filename) => {
         if (!filename)
@@ -9958,7 +10565,7 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
     const pluginDir = this.app.vault.adapter.getBasePath();
     const pluginPath = this.manifest.dir;
     if (pluginPath) {
-      return (0, import_path7.join)(pluginDir, pluginPath, "sql-wasm.wasm");
+      return (0, import_path8.join)(pluginDir, pluginPath, "sql-wasm.wasm");
     }
     throw new Error("Could not determine plugin directory");
   }

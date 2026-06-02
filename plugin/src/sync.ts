@@ -1,6 +1,7 @@
 import { App, Notice, normalizePath } from "obsidian";
 import { SyncSummaryModal } from "./modal";
 import { parseAnnotationFiles } from "./parser/annotations";
+import { parseReadestFiles } from "./parser/readest";
 import { generateBookNote, generateFilename, generateIndexNote, generateBaseFile, formatHighlight } from "./writer/markdown";
 import { fetchBookInfo, downloadCover, batchFetchBookInfo, BookInfoResult } from "./covers";
 import { MoonSyncSettings, BookData } from "./types";
@@ -10,6 +11,122 @@ import { computeHighlightsHash, parseFrontmatter, parseFrontmatterField, extract
 import { syncBooksToHardcover, HardcoverSyncItem } from "./hardcover";
 import { enrichBooksWithSyncData } from "./enrichment";
 import { getLocalCover } from "./parser/local-covers";
+
+export function getMoonReaderOutputPath(settings: MoonSyncSettings): string {
+	const base = normalizePath(settings.outputFolder);
+	if (settings.moonReaderEnabled && settings.readestEnabled) {
+		return normalizePath(`${base}/MoonReader`);
+	}
+	return base;
+}
+
+export function getReadestOutputPath(settings: MoonSyncSettings): string {
+	const base = normalizePath(settings.outputFolder);
+	if (settings.moonReaderEnabled && settings.readestEnabled) {
+		return normalizePath(`${base}/Readest`);
+	}
+	return base;
+}
+
+async function hasNotesWithField(app: App, folderPath: string, field: string): Promise<boolean> {
+	try {
+		const listing = await app.vault.adapter.list(folderPath);
+		for (const filePath of listing.files) {
+			if (!filePath.endsWith(".md")) continue;
+			try {
+				const content = await app.vault.adapter.read(filePath);
+				if (content.includes(field)) return true;
+			} catch { /* skip */ }
+		}
+	} catch { /* folder unreadable */ }
+	return false;
+}
+
+
+async function migrateToSubdirectories(app: App, settings: MoonSyncSettings): Promise<void> {
+	const base = normalizePath(settings.outputFolder);
+	const mrPath = normalizePath(`${base}/MoonReader`);
+	const readestPath = normalizePath(`${base}/Readest`);
+
+	const mrExists = await app.vault.adapter.exists(mrPath);
+	const readestExists = await app.vault.adapter.exists(readestPath);
+	if (mrExists && readestExists) return; // already migrated
+
+	let listing: { files: string[]; folders: string[] };
+	try {
+		listing = await app.vault.adapter.list(base);
+	} catch {
+		return;
+	}
+
+	const mdFiles = listing.files.filter(f => f.endsWith(".md"));
+	if (mdFiles.length === 0) return;
+
+	if (!mrExists) await app.vault.createFolder(mrPath);
+	if (!readestExists) await app.vault.createFolder(readestPath);
+
+	const mrCovers: string[] = [];
+	const readestCovers: string[] = [];
+
+	for (const filePath of mdFiles) {
+		try {
+			const content = await app.vault.adapter.read(filePath);
+			const filename = filePath.split("/").pop()!;
+			const isMr = content.includes("book_source: moonreader") || /^moon_reader_path:/m.test(content);
+			const isReadest = content.includes("book_source: readest") || content.includes("readest_book: true");
+
+			if (isMr && !mrExists) {
+				await app.vault.adapter.write(normalizePath(`${mrPath}/${filename}`), content);
+				await app.vault.adapter.remove(filePath);
+				// Track which cover this note expects
+				const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
+				if (coverMatch) mrCovers.push(coverMatch[1].split("/").pop()!);
+			} else if (isReadest && !readestExists) {
+				await app.vault.adapter.write(normalizePath(`${readestPath}/${filename}`), content);
+				await app.vault.adapter.remove(filePath);
+				const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
+				if (coverMatch) readestCovers.push(coverMatch[1].split("/").pop()!);
+			}
+		} catch { /* skip */ }
+	}
+
+	// Move cache files
+	for (const [destPath, shouldMove] of [[mrPath, !mrExists], [readestPath, !readestExists]] as [string, boolean][]) {
+		if (!shouldMove) continue;
+		const cacheSrc = normalizePath(`${base}/.moonsync-cache.json`);
+		if (await app.vault.adapter.exists(cacheSrc)) {
+			try {
+				const cacheContent = await app.vault.adapter.read(cacheSrc);
+				await app.vault.adapter.write(normalizePath(`${destPath}/.moonsync-cache.json`), cacheContent);
+				await app.vault.adapter.remove(cacheSrc);
+			} catch { /* ignore */ }
+			break; // only move cache once (to the first dir that needs it)
+		}
+	}
+
+	// Move covers to the appropriate subdir based on which notes referenced them
+	const coversSrc = normalizePath(`${base}/moonsync-covers`);
+	if (await app.vault.adapter.exists(coversSrc)) {
+		try {
+			const coversListing = await app.vault.adapter.list(coversSrc);
+			for (const coverFile of coversListing.files) {
+				const coverName = coverFile.split("/").pop()!;
+				const data = await app.vault.adapter.readBinary(coverFile);
+				// Route to the correct subdir; default to MR if unidentifiable
+				const destDir = readestCovers.includes(coverName) && !readestExists
+					? normalizePath(`${readestPath}/moonsync-covers`)
+					: normalizePath(`${mrPath}/moonsync-covers`);
+				if (!await app.vault.adapter.exists(destDir)) {
+					await app.vault.createFolder(destDir);
+				}
+				await app.vault.adapter.writeBinary(normalizePath(`${destDir}/${coverName}`), data);
+				await app.vault.adapter.remove(coverFile);
+			}
+			// Remove the now-empty root covers folder
+			await app.vault.adapter.rmdir(coversSrc, false);
+		} catch { /* ignore */ }
+	}
+}
 
 export interface SyncResult {
 	success: boolean;
@@ -54,42 +171,93 @@ export async function syncFromMoonReader(
 	const progressNotice = new Notice("MoonSync: Syncing...", 0);
 
 	try {
-		// Validate settings
-		if (!settings.syncPath) {
-			result.errors.push("Sync path not configured");
+		// Validate that at least one source is enabled
+		if (!settings.moonReaderEnabled && !settings.readestEnabled) {
+			result.errors.push("No sync source enabled. Enable Moon Reader or Readest in settings.");
 			progressNotice.hide();
 			return result;
 		}
 
-		// Parse annotation files from Cache folder (real-time sync)
-		const booksWithHighlights = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
-
-		// Enrich books with data from books.sync, local covers, and backup statistics.
-		// This may also discover new books from books.sync when trackBooksWithoutHighlights is on.
-		progressNotice.setMessage("MoonSync: Enriching book metadata...");
-		const { enrichmentResult, booksWithSufficientMetadata } =
-			await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath, settings.trackBooksWithoutHighlights);
-
-		if (enrichmentResult.booksEnriched > 0) {
-			console.debug(
-				`MoonSync: Enriched ${enrichmentResult.booksEnriched} books from sync data ` +
-				`(${enrichmentResult.coversFound} covers, ${enrichmentResult.statisticsFound} statistics)`
-			);
+		// Base output folder (root of Books/)
+		const baseOutputPath = normalizePath(settings.outputFolder);
+		if (!await app.vault.adapter.exists(baseOutputPath)) {
+			await app.vault.createFolder(baseOutputPath);
+			result.isFirstSync = true;
 		}
 
-		if (booksWithHighlights.length === 0) {
-			result.errors.push("No books found in .Moon+/Cache folder or books.sync");
-			progressNotice.hide();
-			return result;
+		// Determine whether to use per-source subdirectories.
+		// Use subdirs when both are enabled, OR when flat notes from the other source already exist,
+		// OR when Books/MoonReader/ already exists from a prior migration.
+		const mrSubdirExists = await app.vault.adapter.exists(normalizePath(`${baseOutputPath}/MoonReader`));
+		const readestSubdirExists = await app.vault.adapter.exists(normalizePath(`${baseOutputPath}/Readest`));
+
+		let hasFlatMrNotes = false;
+		let hasFlatReadestNotes = false;
+		if (settings.readestEnabled && !mrSubdirExists) {
+			// Check for MR notes: book_source: moonreader (new) or moon_reader_path (legacy)
+			hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "book_source: moonreader") ||
+				await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
+		}
+		if (settings.moonReaderEnabled && !readestSubdirExists) {
+			// Check for Readest notes: book_source: readest (new) or readest_book (legacy)
+			hasFlatReadestNotes = await hasNotesWithField(app, baseOutputPath, "book_source: readest") ||
+				await hasNotesWithField(app, baseOutputPath, "readest_book:");
 		}
 
-		// Check if output folder exists (for first sync detection)
-		const outputPath = normalizePath(settings.outputFolder);
+		const useSeparateDirs =
+			(settings.moonReaderEnabled && settings.readestEnabled) ||
+			(settings.readestEnabled && (mrSubdirExists || hasFlatMrNotes)) ||
+			(settings.moonReaderEnabled && (readestSubdirExists || hasFlatReadestNotes));
+
+		// Run migration if needed
+		if (useSeparateDirs && !mrSubdirExists && settings.moonReaderEnabled) {
+			await migrateToSubdirectories(app, settings);
+		} else if (useSeparateDirs && hasFlatMrNotes) {
+			await migrateToSubdirectories(app, settings);
+		}
+
+		const outputPath = useSeparateDirs
+			? normalizePath(`${baseOutputPath}/MoonReader`)
+			: normalizePath(settings.outputFolder);
+		const readestOutputPath = useSeparateDirs
+			? normalizePath(`${baseOutputPath}/Readest`)
+			: normalizePath(settings.outputFolder);
+
+		// --- Moon Reader source ---
+		let booksWithHighlights: BookData[] = [];
+		let booksWithSufficientMetadata = new Set<number>();
+
+		if (settings.moonReaderEnabled) {
+			if (!settings.syncPath) {
+				result.errors.push("Moon Reader sync path not configured");
+			} else {
+				// Parse annotation files from Cache folder (real-time sync)
+				booksWithHighlights = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
+				booksWithHighlights.forEach(b => { b.source = "moonreader"; });
+
+				// Enrich books with data from books.sync, local covers, and backup statistics.
+				progressNotice.setMessage("MoonSync: Enriching book metadata...");
+				const { enrichmentResult, booksWithSufficientMetadata: enrichedSet } =
+					await enrichBooksWithSyncData(booksWithHighlights, settings.syncPath, wasmPath, settings.trackBooksWithoutHighlights);
+				booksWithSufficientMetadata = enrichedSet;
+
+				if (enrichmentResult.booksEnriched > 0) {
+					console.debug(
+						`MoonSync: Enriched ${enrichmentResult.booksEnriched} books from sync data ` +
+						`(${enrichmentResult.coversFound} covers, ${enrichmentResult.statisticsFound} statistics)`
+					);
+				}
+			}
+		}
+
+		// Check if Moon Reader output folder exists (for first sync detection)
 		const outputFolderExisted = await app.vault.adapter.exists(outputPath);
-		result.isFirstSync = !outputFolderExisted;
+		if (!result.isFirstSync) {
+			result.isFirstSync = settings.moonReaderEnabled && !outputFolderExisted;
+		}
 
-		// Ensure output folder exists
-		if (!outputFolderExisted) {
+		// Ensure Moon Reader output folder exists
+		if (settings.moonReaderEnabled && !outputFolderExisted) {
 			await app.vault.createFolder(outputPath);
 		}
 
@@ -127,6 +295,8 @@ export async function syncFromMoonReader(
 		// Load book info cache
 		const cache = await loadCache(app, outputPath);
 		let cacheModified = false;
+		let readestCache: BookInfoCache | null = null;
+		let readestCacheModified = false;
 
 		// Build title cache once for efficient file matching
 		progressNotice.setMessage("MoonSync: Scanning existing notes...");
@@ -267,228 +437,324 @@ export async function syncFromMoonReader(
 			await saveCache(app, outputPath, cache);
 		}
 
-		// Write hardcover_id and hardcover_url to existing notes from cache
-		// This covers books that were matched during metadata fetch but skipped by progress sync
-		if (settings.hardcoverEnabled && settings.hardcoverToken) {
-			for (const bookData of booksWithHighlights) {
-				const cachedBook = getCachedInfo(cache, bookData.book.title, bookData.book.author);
-				if (!cachedBook?.hardcoverId || !cachedBook?.hardcoverSlug) continue;
+		// Save MR cache
+		if (cacheModified) {
+			await saveCache(app, outputPath, cache);
+		}
 
-				const lookupTitle = (cachedBook.source === "hardcover" && cachedBook.title)
-					? cachedBook.title : bookData.book.title;
-				const filename = generateFilename(lookupTitle);
-				const filePath = normalizePath(`${outputPath}/${filename}.md`);
-				try {
-					if (!await app.vault.adapter.exists(filePath)) continue;
-					const content = await app.vault.adapter.read(filePath);
-					// Skip if already has hardcover_id
-					if (/^hardcover_id: /m.test(content)) continue;
-					// Insert hardcover fields before closing ---
-					const fields: string[] = [];
-					fields.push(`hardcover_id: ${cachedBook.hardcoverId}`);
-					fields.push(`hardcover_url: "https://hardcover.app/books/${cachedBook.hardcoverSlug}"`);
-					const updated = content.replace(/\n---\n/, `\n${fields.join("\n")}\n---\n`);
-					if (updated !== content) {
-						await app.vault.adapter.write(filePath, updated);
+		// --- Readest source ---
+		const readestBooksForIndex: BookData[] = [];
+		if (settings.readestEnabled && settings.readestSyncPath) {
+			progressNotice.setMessage("MoonSync: Parsing Readest books...");
+
+			if (!await app.vault.adapter.exists(readestOutputPath)) {
+				await app.vault.createFolder(readestOutputPath);
+			}
+
+			const readestBooks = await parseReadestFiles(settings.readestSyncPath);
+
+			if (readestBooks.length > 0) {
+				readestCache = await loadCache(app, readestOutputPath);
+				const readestTitleCache = await buildTitleCache(app, readestOutputPath);
+				const readestCoversFolder = normalizePath(`${readestOutputPath}/moonsync-covers`);
+				const hardcoverToken = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : undefined;
+
+				// Write Readest covers to vault before processing
+				for (const bookData of readestBooks) {
+					const coverData = (bookData as BookData & { _readestCoverData?: Buffer })._readestCoverData;
+					if (coverData) {
+						if (!await app.vault.adapter.exists(readestCoversFolder)) {
+							await app.vault.createFolder(readestCoversFolder);
+						}
+						// Detect png vs jpeg from magic bytes
+						const isPng = coverData[0] === 0x89 && coverData[1] === 0x50;
+						const ext = isPng ? "png" : "jpg";
+						const coverFilename = `${generateFilename(bookData.book.title)}.${ext}`;
+						const coverVaultPath = normalizePath(`${readestCoversFolder}/${coverFilename}`);
+						if (!await app.vault.adapter.exists(coverVaultPath)) {
+							await app.vault.adapter.writeBinary(coverVaultPath, coverData);
+						}
+						bookData.coverPath = `moonsync-covers/${coverFilename}`;
 					}
-				} catch {
-					// Ignore write errors for individual books
 				}
+
+				// Determine which Readest books need metadata fetch.
+				// library.json already provides rich metadata, so only fetch when:
+				// - we have no cache entry yet AND don't have library.json metadata, OR
+				// - Hardcover ID lookup is needed
+				const readestToFetch: Array<{ title: string; author: string }> = [];
+				for (const bookData of readestBooks) {
+					const cachedInfo = getCachedInfo(readestCache, bookData.book.title, bookData.book.author);
+					const hasAttemptedFetch = cachedInfo && (
+						cachedInfo.publishedDate !== undefined &&
+						cachedInfo.publisher !== undefined &&
+						cachedInfo.pageCount !== undefined
+					);
+					const needsHardcoverRefetch = hasAttemptedFetch &&
+						settings.hardcoverEnabled && settings.hardcoverToken &&
+						cachedInfo!.source !== null && cachedInfo!.source !== "hardcover" &&
+						!cachedInfo!.hardcoverAttempted;
+					// Skip API fetch if library.json already gave us full metadata and no Hardcover lookup needed
+					const hasLibraryMetadata = !!(bookData.fetchedDescription || bookData.publishedDate || bookData.publisher);
+					const hardcoverPending = settings.hardcoverEnabled && settings.hardcoverToken &&
+						cachedInfo?.hardcoverAttempted !== true;
+					if (needsHardcoverRefetch || hardcoverPending || (!hasAttemptedFetch && !hasLibraryMetadata)) {
+						readestToFetch.push({ title: bookData.book.title, author: bookData.book.author });
+					}
+				}
+
+				if (readestToFetch.length > 0) {
+					progressNotice.setMessage(`MoonSync: Fetching Readest metadata (0/${readestToFetch.length})...`);
+				}
+				const prefetchedReadest = readestToFetch.length > 0
+					? await batchFetchBookInfo(readestToFetch, 5, (done, total, title) => {
+						progressNotice.setMessage(`MoonSync: Fetching Readest metadata (${done}/${total})${title ? ` — ${title}` : ""}...`);
+					}, hardcoverToken)
+					: new Map<string, BookInfoResult>();
+
+				// Process each Readest book
+				const readestChangedTitles = new Set<string>();
+				progressNotice.setMessage("MoonSync: Processing Readest books...");
+				for (const bookData of readestBooks) {
+					try {
+						const prevCreated = result.booksCreated;
+						const prevUpdated = result.booksUpdated;
+						const processed = await processBook(app, readestOutputPath, bookData, settings, result, readestCache, prefetchedReadest, readestTitleCache);
+						if (processed) readestCacheModified = true;
+						if (result.booksCreated > prevCreated || result.booksUpdated > prevUpdated) {
+							readestChangedTitles.add(bookData.book.title);
+						}
+						result.booksProcessed++;
+					} catch (error) {
+						const errorMsg = error instanceof Error ? error.message : String(error);
+						result.failedBooks.push({ title: bookData.book.title, error: errorMsg });
+						result.errors.push(`Error processing Readest "${bookData.book.title}": ${errorMsg}`);
+					}
+				}
+
+				if (readestCacheModified) {
+					await saveCache(app, readestOutputPath, readestCache);
+					readestCacheModified = false;
+				}
+
+				readestBooksForIndex.push(...readestBooks);
 			}
 		}
 
-		// Sync reading progress to Hardcover if enabled
+		// Combined Hardcover sync — deduplicates by hardcoverId across both sources
 		if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
 			try {
 				progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
-				console.debug(`MoonSync: Hardcover sync starting — ${changedBookTitles.size} changed books, ${booksWithHighlights.length} total books`);
-				const hardcoverItems: HardcoverSyncItem[] = [];
-				const titleToFilename = new Map<string, string>();
-				for (const b of booksWithHighlights) {
-					if (b.progress === null) {
-						console.debug(`MoonSync: Hardcover skipping "${b.book.title}" — no progress data`);
-						continue;
-					}
-					// Read hardcover_id and last-synced progress from frontmatter
-					// Use cached Hardcover title for file lookup (file may have been renamed)
-					const cachedBook = getCachedInfo(cache, b.book.title, b.book.author);
-					const hcLookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title)
-						? cachedBook.title : b.book.title;
-					const filename = generateFilename(hcLookupTitle);
-					const filePath = normalizePath(`${outputPath}/${filename}.md`);
-					let hardcoverId: number | null = null;
-					let lastSyncedProgress: string | null = null;
-					try {
-						if (await app.vault.adapter.exists(filePath)) {
-							const content = await app.vault.adapter.read(filePath);
-							const fm = extractFrontmatter(content);
-							if (fm) {
-								const idStr = parseFrontmatterField(fm, "hardcover_id");
-								if (idStr) hardcoverId = parseInt(idStr, 10) || null;
-								lastSyncedProgress = parseFrontmatterField(fm, "hardcover_progress");
+
+				// Internal entry type: one item per unique book, may map to notes in multiple source dirs
+				interface HcEntry {
+					item: HardcoverSyncItem;
+					lastReadTimestamp: number | null;
+					notePaths: string[];
+					cacheRefs: Array<{ bookCache: BookInfoCache; title: string; author: string }>;
+				}
+
+				const buildEntries = async (
+					books: BookData[],
+					srcPath: string,
+					srcCache: BookInfoCache
+				): Promise<HcEntry[]> => {
+					const entries: HcEntry[] = [];
+					for (const b of books) {
+						if (b.progress === null) continue;
+						const cachedBook = getCachedInfo(srcCache, b.book.title, b.book.author);
+						const hcLookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title)
+							? cachedBook.title : b.book.title;
+						const filePath = normalizePath(`${srcPath}/${generateFilename(hcLookupTitle)}.md`);
+						let hardcoverId: number | null = null;
+						let lastSyncedProgress: string | null = null;
+						try {
+							if (await app.vault.adapter.exists(filePath)) {
+								const content = await app.vault.adapter.read(filePath);
+								const fm = extractFrontmatter(content);
+								if (fm) {
+									const idStr = parseFrontmatterField(fm, "hardcover_id");
+									if (idStr) hardcoverId = parseInt(idStr, 10) || null;
+									lastSyncedProgress = parseFrontmatterField(fm, "hardcover_progress");
+								}
 							}
-						} else {
-							console.debug(`MoonSync: Hardcover "${b.book.title}" — note not found at ${filePath}`);
-						}
-					} catch { /* ignore read errors */ }
-
-					// Skip if progress hasn't changed since last Hardcover sync
-					const currentProgress = b.progress.toFixed(1);
-					if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress) {
-						console.debug(`MoonSync: Hardcover skipping "${b.book.title}" — progress unchanged (${currentProgress}%)`);
-						continue;
+						} catch { /* ignore */ }
+						const currentProgress = b.progress.toFixed(1);
+						if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress) continue;
+						entries.push({
+							item: {
+								title: b.book.title,
+								author: b.book.author,
+								progress: b.progress,
+								hardcoverId,
+								cachedSlug: cachedBook?.hardcoverSlug,
+								cachedPages: cachedBook?.hardcoverPages,
+							},
+							lastReadTimestamp: b.lastReadTimestamp,
+							notePaths: [filePath],
+							cacheRefs: [{ bookCache: srcCache, title: b.book.title, author: b.book.author }],
+						});
 					}
+					return entries;
+				};
 
-					console.debug(`MoonSync: Hardcover queuing "${b.book.title}" — progress: ${b.progress}%, hardcoverId: ${hardcoverId}, lastSynced: ${lastSyncedProgress}`);
-					hardcoverItems.push({
-						title: b.book.title,
-						author: b.book.author,
-						progress: b.progress,
-						hardcoverId,
-						cachedSlug: cachedBook?.hardcoverSlug,
-						cachedPages: cachedBook?.hardcoverPages,
-					});
-					// Track the correct filename for write-back (may differ from Moon Reader title)
-					if (hcLookupTitle !== b.book.title) {
-						titleToFilename.set(b.book.title, hcLookupTitle);
+				const mrEntries = settings.moonReaderEnabled
+					? await buildEntries(booksWithHighlights, outputPath, cache)
+					: [];
+				const readestEntries = readestBooksForIndex.length > 0 && readestCache
+					? await buildEntries(readestBooksForIndex, readestOutputPath, readestCache)
+					: [];
+
+				// Deduplicate: key by hardcoverId if known, else normalized title+author
+				const dedupMap = new Map<string, HcEntry>();
+				for (const entry of [...mrEntries, ...readestEntries]) {
+					const key = entry.item.hardcoverId
+						? `id:${entry.item.hardcoverId}`
+						: `ta:${entry.item.title.toLowerCase()}|${(entry.item.author ?? "").toLowerCase()}`;
+					const existing = dedupMap.get(key);
+					if (!existing) {
+						dedupMap.set(key, {
+							item: { ...entry.item },
+							lastReadTimestamp: entry.lastReadTimestamp,
+							notePaths: [...entry.notePaths],
+							cacheRefs: [...entry.cacheRefs],
+						});
+					} else {
+						// Most recently read wins (handles restarts where progress is intentionally lower).
+						// Fall back to higher progress when neither has a timestamp.
+						const entryTs = entry.lastReadTimestamp ?? 0;
+						const existingTs = existing.lastReadTimestamp ?? 0;
+						const entryWins = entryTs !== existingTs
+							? entryTs > existingTs
+							: (entry.item.progress ?? 0) > (existing.item.progress ?? 0);
+						if (entryWins) {
+							existing.item.progress = entry.item.progress;
+							existing.lastReadTimestamp = entry.lastReadTimestamp;
+						}
+						if (entry.item.hardcoverId && !existing.item.hardcoverId) {
+							existing.item.hardcoverId = entry.item.hardcoverId;
+						}
+						for (const np of entry.notePaths) {
+							if (!existing.notePaths.includes(np)) existing.notePaths.push(np);
+						}
+						existing.cacheRefs.push(...entry.cacheRefs);
 					}
 				}
 
-				console.debug(`MoonSync: Hardcover ${hardcoverItems.length} books queued for sync`);
-				if (hardcoverItems.length > 0) {
+				const allItems = [...dedupMap.values()].map(e => e.item);
+				if (allItems.length > 0) {
 					const hcResult = await syncBooksToHardcover(
-						hardcoverItems,
+						allItems,
 						settings.hardcoverToken,
 						(msg) => progressNotice.setMessage(`MoonSync: ${msg}`)
 					);
 					result.hardcoverUpdated = hcResult.booksUpdated;
 
-					// Write hardcover_id, hardcover_url, and hardcover_progress to frontmatter
-					console.debug(`MoonSync: Hardcover write-back — ${hcResult.updatedTitles.length} updated, ${hcResult.newIds.length} new IDs, ${hcResult.slugs.size} slugs`);
 					const newIdMap = new Map(hcResult.newIds.map(n => [n.title, n.hardcoverId]));
 					const newSlugMap = new Map(hcResult.newIds.map(n => [n.title, n.slug]));
-					const progressMap = new Map(hardcoverItems.map(i => [i.title, i.progress]));
+					const progressMap = new Map(allItems.map(i => [i.title, i.progress]));
+
 					for (const title of hcResult.updatedTitles) {
-						try {
-							const wbTitle = titleToFilename.get(title) || title;
-							const fn = generateFilename(wbTitle);
-							const fp = normalizePath(`${outputPath}/${fn}.md`);
-							if (await app.vault.adapter.exists(fp)) {
-								let content = await app.vault.adapter.read(fp);
-								// Read existing hardcover_id before stripping
+						const entry = [...dedupMap.values()].find(
+							e => e.item.title === title
+						);
+						if (!entry) continue;
+
+						const newId = newIdMap.get(title);
+						const slug = hcResult.slugs.get(title) || newSlugMap.get(title);
+						const syncedProgress = progressMap.get(title);
+
+						// Write back to ALL note files for this book (MR + Readest)
+						for (const filePath of entry.notePaths) {
+							try {
+								if (!await app.vault.adapter.exists(filePath)) continue;
+								let content = await app.vault.adapter.read(filePath);
 								const existingIdMatch = content.match(/^hardcover_id: (.+)$/m);
 								const existingId = existingIdMatch ? existingIdMatch[1].trim() : null;
-								// Remove old hardcover fields before inserting updated ones
 								content = content.replace(/^hardcover_id: .*\n/gm, "");
 								content = content.replace(/^hardcover_progress: .*\n/gm, "");
 								content = content.replace(/^hardcover_url: .*\n/gm, "");
-								// Build new fields: use new ID if discovered, otherwise preserve existing
-								const newId = newIdMap.get(title);
 								const hardcoverId = newId || existingId;
-								const slug = hcResult.slugs.get(title) || newSlugMap.get(title);
-								const syncedProgress = progressMap.get(title);
 								const fields: string[] = [];
 								if (hardcoverId) fields.push(`hardcover_id: ${hardcoverId}`);
 								if (slug) fields.push(`hardcover_url: "https://hardcover.app/books/${slug}"`);
-								if (syncedProgress !== null && syncedProgress !== undefined) {
-									fields.push(`hardcover_progress: "${syncedProgress.toFixed(1)}%"`);
-								}
+								if (syncedProgress != null) fields.push(`hardcover_progress: "${syncedProgress.toFixed(1)}%"`);
 								if (fields.length > 0) {
 									content = content.replace(/\n---\n/, `\n${fields.join("\n")}\n---\n`);
 								}
-								await app.vault.adapter.write(fp, content);
+								await app.vault.adapter.write(filePath, content);
+							} catch { /* ignore */ }
+						}
+
+						// Update all caches
+						for (const ref of entry.cacheRefs) {
+							const cachedEntry = getCachedInfo(ref.bookCache, ref.title, ref.author);
+							if (cachedEntry) {
+								if (slug) cachedEntry.hardcoverSlug = slug;
+								const pages = hcResult.pages.get(title);
+								if (pages) cachedEntry.hardcoverPages = pages;
+								if (newId) cachedEntry.hardcoverId = newId;
+								// Mark the right cache as modified
+								if (ref.bookCache === cache) cacheModified = true;
+								else readestCacheModified = true;
 							}
-						} catch (err) {
-							console.debug(`MoonSync: Failed to write hardcover data for "${title}"`, err);
 						}
 					}
-				// Write back slug/pages to metadata cache so future syncs skip the detail fetch
-					for (const item of hardcoverItems) {
-						const cachedEntry = getCachedInfo(cache, item.title, item.author);
-						if (cachedEntry) {
-							const slug = hcResult.slugs.get(item.title) || newSlugMap.get(item.title);
-							const pages = hcResult.pages.get(item.title);
-							const newId = newIdMap.get(item.title);
-							let modified = false;
-							if (slug && cachedEntry.hardcoverSlug !== slug) {
-								cachedEntry.hardcoverSlug = slug;
-								modified = true;
-							}
-							if (pages && cachedEntry.hardcoverPages !== pages) {
-								cachedEntry.hardcoverPages = pages;
-								modified = true;
-							}
-							if (newId && cachedEntry.hardcoverId !== newId) {
-								cachedEntry.hardcoverId = newId;
-								modified = true;
-							}
-							if (modified) cacheModified = true;
-						}
-					}
+
+					// Save caches if modified by Hardcover sync
+					if (cacheModified) await saveCache(app, outputPath, cache);
+					if (readestCacheModified && readestCache) await saveCache(app, readestOutputPath, readestCache);
 				}
 			} catch (error) {
 				console.debug("MoonSync: Hardcover sync failed", error);
 			}
 		}
 
-		// Save cache again if Hardcover sync modified it
-		if (cacheModified) {
-			await saveCache(app, outputPath, cache);
-		}
-
-		// Update index note if enabled
+		// Update index note if enabled (written to base output folder)
 		if (settings.showIndex) {
-			const indexPath = normalizePath(`${outputPath}/${settings.indexNoteTitle}.md`);
+			const indexPath = normalizePath(`${baseOutputPath}/${settings.indexNoteTitle}.md`);
 			const indexExists = await app.vault.adapter.exists(indexPath);
 
-			// Check if there are manually-created book notes by comparing counts
-			// Reuse scannedBooks from earlier scan instead of scanning again
 			const indexFilename = `${settings.indexNoteTitle}.md`;
 			const filteredScanned = scannedBooks.filter((b) => !b.filePath.endsWith(indexFilename));
-			const totalBookNotes = filteredScanned.length;
-			const manualBookCount = totalBookNotes - booksWithHighlights.length;
+			const manualBookCount = filteredScanned.length - booksWithHighlights.length;
 			const hasManualBooks = manualBookCount > 0;
 
-			// Track manual books for reporting
 			if (hasManualBooks) {
 				result.manualBooksAdded = manualBookCount;
 			}
 
-			// Regenerate if: books changed, index doesn't exist, or manual books detected
-			if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !indexExists || hasManualBooks) {
-				// Populate cover paths for all books (for the collage)
-				// Get directory listing once instead of checking each file individually
-				const coversFolder = normalizePath(`${outputPath}/moonsync-covers`);
-				let existingCovers = new Set<string>();
+			if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !indexExists || hasManualBooks || readestBooksForIndex.length > 0) {
+				// Populate MR cover paths
+				const mrCoversFolder = normalizePath(`${outputPath}/moonsync-covers`);
+				let mrExistingCovers = new Set<string>();
 				try {
-					if (await app.vault.adapter.exists(coversFolder)) {
-						const listing = await app.vault.adapter.list(coversFolder);
-						existingCovers = new Set(listing.files.map(f => f.split("/").pop() || ""));
+					if (await app.vault.adapter.exists(mrCoversFolder)) {
+						const listing = await app.vault.adapter.list(mrCoversFolder);
+						mrExistingCovers = new Set(listing.files.map(f => f.split("/").pop() || ""));
 					}
-				} catch {
-					// Folder doesn't exist or can't be read, use empty set
-				}
+				} catch { /* ignore */ }
 
 				for (const bookData of booksWithHighlights) {
 					if (!bookData.coverPath) {
 						const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-						if (existingCovers.has(coverFilename)) {
+						if (mrExistingCovers.has(coverFilename)) {
 							bookData.coverPath = `moonsync-covers/${coverFilename}`;
 						}
 					}
 				}
-				await updateIndexNote(app, outputPath, booksWithHighlights, settings);
+
+				await updateIndexNote(app, baseOutputPath, booksWithHighlights, settings,
+					readestBooksForIndex.length > 0 ? readestBooksForIndex : undefined);
 			}
 		}
 
 		// Update base file if enabled
 		if (settings.generateBaseFile) {
-			const baseFilePath = normalizePath(`${outputPath}/${settings.baseFileName}.base`);
+			const baseFilePath = normalizePath(`${baseOutputPath}/${settings.baseFileName}.base`);
 			const baseExists = await app.vault.adapter.exists(baseFilePath);
-
-			// Regenerate if: books changed or file doesn't exist
 			if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !baseExists) {
-				await updateBaseFile(app, outputPath, settings);
+				await updateBaseFile(app, baseOutputPath, settings);
 			}
 		}
 
@@ -1062,10 +1328,11 @@ async function processBook(
 		const coversFolder = normalizePath(`${outputPath}/moonsync-covers`);
 		const coverPath = normalizePath(`${coversFolder}/${coverFilename}`);
 
-		let coverExists = await app.vault.adapter.exists(coverPath);
+		// Skip cover download if already handled before processBook (e.g. Readest pre-processing)
+		let coverExists = bookData.coverPath ? true : await app.vault.adapter.exists(coverPath);
 
 		// Always prefer local Moon Reader cover (extracted from epub, usually higher quality)
-		if (bookData.book.coverFile) {
+		if (bookData.book.coverFile && !bookData.coverPath) {
 			const localCoverData = await getLocalCover(settings.syncPath, bookData.book.coverFile);
 			if (localCoverData) {
 				if (!(await app.vault.adapter.exists(coversFolder))) {
@@ -1216,8 +1483,8 @@ async function processBook(
 			cacheModified = true;
 		}
 
-		// Set cover path if cover already exists
-		if (coverExists) {
+		// Set cover path if cover already exists (don't overwrite if pre-set, e.g. by Readest)
+		if (coverExists && !bookData.coverPath) {
 			bookData.coverPath = `moonsync-covers/${coverFilename}`;
 		}
 	}
@@ -1457,22 +1724,22 @@ function updateCustomBookFrontmatter(
  * Update the index note with summary and links to all books
  * Merges Moon+ Reader books with any manually-created book notes in the folder
  */
-async function updateIndexNote(app: App, outputPath: string, moonReaderBooks: BookData[], settings: MoonSyncSettings): Promise<void> {
+async function updateIndexNote(
+	app: App,
+	outputPath: string,
+	moonReaderBooks: BookData[],
+	settings: MoonSyncSettings,
+	readestBooks?: BookData[]
+): Promise<void> {
 	const indexPath = normalizePath(`${outputPath}/${settings.indexNoteTitle}.md`);
 
-	// Scan for manually-created book notes
+	// Scan for manually-created book notes (from MR folder only)
 	const scannedBooks = await scanAllBookNotes(app, outputPath);
-
-	// Filter out the index note itself from scanned books
 	const indexFilename = `${settings.indexNoteTitle}.md`;
-	const filteredScanned = scannedBooks.filter(
-		(b) => !b.filePath.endsWith(indexFilename)
-	);
+	const filteredScanned = scannedBooks.filter((b) => !b.filePath.endsWith(indexFilename));
+	const allMrBooks = mergeBookLists(moonReaderBooks, filteredScanned);
 
-	// Merge Moon+ Reader books with manually-created ones
-	const allBooks = mergeBookLists(moonReaderBooks, filteredScanned);
-
-	const markdown = generateIndexNote(allBooks, settings);
+	const markdown = generateIndexNote(allMrBooks, settings, readestBooks);
 
 	if (await app.vault.adapter.exists(indexPath)) {
 		await app.vault.adapter.write(indexPath, markdown);
@@ -1491,39 +1758,41 @@ export async function refreshIndexNote(app: App, settings: MoonSyncSettings): Pr
 		return;
 	}
 
-	const outputPath = normalizePath(settings.outputFolder);
+	const baseOutputPath = normalizePath(settings.outputFolder);
 
-	// Check if output folder exists
-	if (!(await app.vault.adapter.exists(outputPath))) {
+	if (!(await app.vault.adapter.exists(baseOutputPath))) {
 		new Notice("MoonSync: Output folder does not exist");
 		return;
 	}
 
 	try {
-		// Get Moon+ Reader books if sync path is configured
+		const mrOutputPath = getMoonReaderOutputPath(settings);
 		let moonReaderBooks: BookData[] = [];
-		if (settings.syncPath) {
+		if (settings.moonReaderEnabled && settings.syncPath) {
 			try {
 				moonReaderBooks = await parseAnnotationFiles(settings.syncPath, settings.trackBooksWithoutHighlights);
-			} catch {
-				// Sync path might not be accessible, that's ok for manual-only use
-			}
+			} catch { /* sync path not accessible */ }
 		}
 
-		const coversFolder = normalizePath(`${outputPath}/moonsync-covers`);
-
-		// Populate cover paths for Moon+ Reader books
+		const mrCoversFolder = normalizePath(`${mrOutputPath}/moonsync-covers`);
 		for (const bookData of moonReaderBooks) {
 			if (!bookData.coverPath) {
 				const coverFilename = `${generateFilename(bookData.book.title)}.jpg`;
-				const coverPath = normalizePath(`${coversFolder}/${coverFilename}`);
+				const coverPath = normalizePath(`${mrCoversFolder}/${coverFilename}`);
 				if (await app.vault.adapter.exists(coverPath)) {
 					bookData.coverPath = `moonsync-covers/${coverFilename}`;
 				}
 			}
 		}
 
-		await updateIndexNote(app, outputPath, moonReaderBooks, settings);
+		let readestBooks: BookData[] | undefined;
+		if (settings.readestEnabled && settings.readestSyncPath) {
+			try {
+				readestBooks = await parseReadestFiles(settings.readestSyncPath);
+			} catch { /* sync path not accessible */ }
+		}
+
+		await updateIndexNote(app, baseOutputPath, moonReaderBooks, settings, readestBooks);
 		new Notice("MoonSync: Index refreshed");
 	} catch (error) {
 		console.error("MoonSync: Failed to refresh index", error);

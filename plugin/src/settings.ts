@@ -71,50 +71,122 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 	}
 
 	private displayConfigurationTab(container: HTMLElement): void {
-		new Setting(container).setName("Configuration").setDesc("Set up your Moon Reader backup location and note output folder.").setHeading();
+		new Setting(container).setName("Configuration").setDesc("Set up your reading app sync locations and note output folder.").setHeading();
 
-		let textComponent: TextComponent;
-		let validationEl: HTMLElement;
+		// --- Moon Reader ---
+		new Setting(container).setName("Moon Reader").setHeading();
 
-		const pathSetting = new Setting(container)
-			.setName("Moon Reader sync path")
-			.setDesc(
-				"Path to the folder containing your Moon Reader data. The .Moon+ folder will be detected automatically."
-			)
-			.addText((text) => {
-				textComponent = text;
-				text
-					.setPlaceholder("/path/to/sync/folder")
-					.setValue(this.plugin.settings.syncPath)
+		new Setting(container)
+			.setName("Enable Moon Reader sync")
+			.setDesc("Sync highlights and progress from Moon Reader")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.moonReaderEnabled)
 					.onChange(async (value) => {
-						this.plugin.settings.syncPath = value;
+						this.plugin.settings.moonReaderEnabled = value;
 						await this.plugin.saveSettings();
-						this.validateSyncPath(value, validationEl);
-					});
-			})
-			.addButton((button) =>
-				button.setButtonText("Browse").onClick(async () => {
-					const folder = await this.openFolderPicker();
-					if (folder) {
-						this.plugin.settings.syncPath = folder;
-						textComponent.setValue(folder);
-						await this.plugin.saveSettings();
-						this.validateSyncPath(folder, validationEl);
-					}
-				})
+						this.display();
+					})
 			);
 
-		// Add validation message element
-		validationEl = pathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
+		if (this.plugin.settings.moonReaderEnabled) {
+			let textComponent: TextComponent;
+			let validationEl: HTMLElement;
 
-		// Validate on display
-		if (this.plugin.settings.syncPath) {
-			this.validateSyncPath(this.plugin.settings.syncPath, validationEl);
+			const pathSetting = new Setting(container)
+				.setName("Moon Reader sync path")
+				.setDesc(
+					"Path to the folder containing your Moon Reader data. The .Moon+ folder will be detected automatically."
+				)
+				.addText((text) => {
+					textComponent = text;
+					text
+						.setPlaceholder("/path/to/sync/folder")
+						.setValue(this.plugin.settings.syncPath)
+						.onChange(async (value) => {
+							this.plugin.settings.syncPath = value;
+							await this.plugin.saveSettings();
+							this.validateSyncPath(value, validationEl);
+						});
+				})
+				.addButton((button) =>
+					button.setButtonText("Browse").onClick(async () => {
+						const folder = await this.openFolderPicker("Select Moon Reader sync folder");
+						if (folder) {
+							this.plugin.settings.syncPath = folder;
+							textComponent.setValue(folder);
+							await this.plugin.saveSettings();
+							this.validateSyncPath(folder, validationEl);
+						}
+					})
+				);
+
+			validationEl = pathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
+			if (this.plugin.settings.syncPath) {
+				this.validateSyncPath(this.plugin.settings.syncPath, validationEl);
+			}
 		}
+
+		// --- Readest ---
+		new Setting(container).setName("Readest").setHeading();
+
+		new Setting(container)
+			.setName("Enable Readest sync")
+			.setDesc("Sync highlights and progress from Readest")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.readestEnabled)
+					.onChange(async (value) => {
+						this.plugin.settings.readestEnabled = value;
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
+
+		if (this.plugin.settings.readestEnabled) {
+			let readestTextComponent: TextComponent;
+			let readestValidationEl: HTMLElement;
+
+			const readestPathSetting = new Setting(container)
+				.setName("Readest sync path")
+				.setDesc(
+					"Path to the folder where Readest stores its book data (contains subfolders, one per book)."
+				)
+				.addText((text) => {
+					readestTextComponent = text;
+					text
+						.setPlaceholder("/path/to/readest/data")
+						.setValue(this.plugin.settings.readestSyncPath)
+						.onChange(async (value) => {
+							this.plugin.settings.readestSyncPath = value;
+							await this.plugin.saveSettings();
+							this.validateReadestPath(value, readestValidationEl);
+						});
+				})
+				.addButton((button) =>
+					button.setButtonText("Browse").onClick(async () => {
+						const folder = await this.openFolderPicker("Select Readest sync folder");
+						if (folder) {
+							this.plugin.settings.readestSyncPath = folder;
+							readestTextComponent.setValue(folder);
+							await this.plugin.saveSettings();
+							this.validateReadestPath(folder, readestValidationEl);
+						}
+					})
+				);
+
+			readestValidationEl = readestPathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
+			if (this.plugin.settings.readestSyncPath) {
+				this.validateReadestPath(this.plugin.settings.readestSyncPath, readestValidationEl);
+			}
+		}
+
+		// --- Output ---
+		new Setting(container).setName("Output").setHeading();
 
 		new Setting(container)
 			.setName("Output folder")
-			.setDesc("Folder in your vault where book notes will be created")
+			.setDesc("Top-level folder in your vault where book notes will be created. When both sources are enabled, notes go into MoonReader/ and Readest/ subfolders automatically.")
 			.addText((text) =>
 				text
 					.setPlaceholder("Books")
@@ -611,12 +683,57 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 		}
 	}
 
-	private async openFolderPicker(): Promise<string | null> {
-		// Use osascript on macOS to show native folder picker
+	private validateReadestPath(path: string, validationEl: HTMLElement): void {
+		validationEl.empty();
+
+		if (!path) {
+			return;
+		}
+
+		if (!existsSync(path)) {
+			validationEl.createSpan({
+				text: "⚠ Folder not found",
+				attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
+			});
+			return;
+		}
+
+		const { readdirSync, statSync } = require("fs");
+
+		// Readest stores books under <path>/books/ — check both the path itself and the books subdir
+		const pathsToCheck = [path, join(path, "books")];
+		const hasBookFolder = pathsToCheck.some(dir => {
+			try {
+				return readdirSync(dir).some((entry: string) => {
+					try {
+						return statSync(join(dir, entry)).isDirectory() &&
+							existsSync(join(dir, entry, "config.json"));
+					} catch {
+						return false;
+					}
+				});
+			} catch {
+				return false;
+			}
+		});
+
+		if (hasBookFolder) {
+			validationEl.createSpan({
+				text: "✓ Readest sync folder found",
+				attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" }
+			});
+		} else {
+			validationEl.createSpan({
+				text: "⚠ Folder exists but no Readest book data found",
+				attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
+			});
+		}
+	}
+
+	private async openFolderPicker(prompt = "Select sync folder"): Promise<string | null> {
 		return new Promise((resolve) => {
 			if (platform() === "darwin") {
-				// macOS: use osascript
-				const script = `osascript -e 'POSIX path of (choose folder with prompt "Select Moon Reader sync folder")'`;
+				const script = `osascript -e 'POSIX path of (choose folder with prompt "${prompt}")'`;
 				exec(script, (error: Error | null, stdout: string) => {
 					if (error) {
 						resolve(null);
@@ -625,8 +742,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					}
 				});
 			} else if (platform() === "win32") {
-				// Windows: use PowerShell folder picker
-				const script = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.ShowDialog() | Out-Null; $f.SelectedPath"`;
+				const script = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = '${prompt}'; $f.ShowDialog() | Out-Null; $f.SelectedPath"`;
 				exec(script, (error: Error | null, stdout: string) => {
 					if (error) {
 						resolve(null);
@@ -635,8 +751,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					}
 				});
 			} else {
-				// Linux: try zenity
-				exec('zenity --file-selection --directory --title="Select Moon Reader folder"',
+				exec(`zenity --file-selection --directory --title="${prompt}"`,
 					(error: Error | null, stdout: string) => {
 						if (error) {
 							resolve(null);
