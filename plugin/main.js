@@ -114,6 +114,7 @@ function parseFrontmatter(content) {
       highlightsHash: null,
       coverPath: null,
       moonReaderPath: null,
+      bookSource: null,
       lastRead: null,
       lastSynced: null,
       isManualNote: false,
@@ -130,6 +131,7 @@ function parseFrontmatter(content) {
     highlightsHash: parseFrontmatterField(frontmatter, "highlights_hash"),
     coverPath: parseFrontmatterField(frontmatter, "cover"),
     moonReaderPath: parseFrontmatterField(frontmatter, "moon_reader_path"),
+    bookSource: parseFrontmatterField(frontmatter, "book_source"),
     lastRead: parseFrontmatterField(frontmatter, "last_read"),
     lastSynced: parseFrontmatterField(frontmatter, "last_synced"),
     isManualNote: /^manual_note:\s*true/m.test(frontmatter),
@@ -8195,8 +8197,9 @@ function generateBookNote(bookData, settings) {
   }
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
   if (bookData.source === "readest") {
-    lines.push(`readest_book: true`);
+    lines.push(`book_source: readest`);
   } else {
+    lines.push(`book_source: moonreader`);
     lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
   }
   lines.push(`highlights_count: ${highlights.length}`);
@@ -8574,7 +8577,7 @@ function parseBookFrontmatter(content, filePath) {
     coverPath: parsed.coverPath,
     lastReadTimestamp,
     filePath,
-    isMoonReader: !!parsed.moonReaderPath
+    isMoonReader: parsed.bookSource === "moonreader" || parsed.bookSource === null && !!parsed.moonReaderPath
   };
 }
 function scannedBookToBookData(scanned) {
@@ -9122,10 +9125,10 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     let hasFlatMrNotes = false;
     let hasFlatReadestNotes = false;
     if (settings.readestEnabled && !mrSubdirExists) {
-      hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
+      hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "book_source: moonreader") || await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
     }
     if (settings.moonReaderEnabled && !readestSubdirExists) {
-      hasFlatReadestNotes = await hasNotesWithField(app, baseOutputPath, "readest_book:");
+      hasFlatReadestNotes = await hasNotesWithField(app, baseOutputPath, "book_source: readest") || await hasNotesWithField(app, baseOutputPath, "readest_book:");
     }
     const useSeparateDirs = settings.moonReaderEnabled && settings.readestEnabled || settings.readestEnabled && (mrSubdirExists || hasFlatMrNotes) || settings.moonReaderEnabled && (readestSubdirExists || hasFlatReadestNotes);
     if (useSeparateDirs && !mrSubdirExists && settings.moonReaderEnabled) {

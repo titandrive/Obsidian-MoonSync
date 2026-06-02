@@ -42,8 +42,9 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 	}
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
 	if (bookData.source === "readest") {
-		lines.push(`readest_book: true`);
+		lines.push(`book_source: readest`);
 	} else {
+		lines.push(`book_source: moonreader`);
 		lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
 	}
 	lines.push(`highlights_count: ${highlights.length}`);

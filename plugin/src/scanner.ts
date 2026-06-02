@@ -81,7 +81,7 @@ function parseBookFrontmatter(content: string, filePath: string): ScannedBook | 
 		coverPath: parsed.coverPath,
 		lastReadTimestamp,
 		filePath,
-		isMoonReader: !!parsed.moonReaderPath,
+		isMoonReader: parsed.bookSource === "moonreader" || (parsed.bookSource === null && !!parsed.moonReaderPath),
 	};
 }
 

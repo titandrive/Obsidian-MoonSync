@@ -165,12 +165,14 @@ export async function syncFromMoonReader(
 		let hasFlatMrNotes = false;
 		let hasFlatReadestNotes = false;
 		if (settings.readestEnabled && !mrSubdirExists) {
-			// Check if flat Books/ has any MR notes (moon_reader_path in frontmatter)
-			hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
+			// Check for MR notes: book_source: moonreader (new) or moon_reader_path (legacy)
+			hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "book_source: moonreader") ||
+				await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
 		}
 		if (settings.moonReaderEnabled && !readestSubdirExists) {
-			// Check if flat Books/ has any Readest notes (readest_book: true in frontmatter)
-			hasFlatReadestNotes = await hasNotesWithField(app, baseOutputPath, "readest_book:");
+			// Check for Readest notes: book_source: readest (new) or readest_book (legacy)
+			hasFlatReadestNotes = await hasNotesWithField(app, baseOutputPath, "book_source: readest") ||
+				await hasNotesWithField(app, baseOutputPath, "readest_book:");
 		}
 
 		const useSeparateDirs =
