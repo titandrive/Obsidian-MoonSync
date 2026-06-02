@@ -83,6 +83,8 @@ export interface MoonSyncSettings {
 	hardcoverEnabled: boolean;
 	hardcoverToken: string;
 	hardcoverSyncProgress: boolean;
+	hardcoverSyncHighlights: boolean;
+	hardcoverHighlightsPrivacy: 1 | 2 | 3;
 }
 
 export const DEFAULT_SETTINGS: MoonSyncSettings = {
@@ -110,6 +112,8 @@ export const DEFAULT_SETTINGS: MoonSyncSettings = {
 	hardcoverEnabled: false,
 	hardcoverToken: "",
 	hardcoverSyncProgress: true,
+	hardcoverSyncHighlights: false,
+	hardcoverHighlightsPrivacy: 1,
 };
 
 // Moon Reader highlight colors (ARGB format)

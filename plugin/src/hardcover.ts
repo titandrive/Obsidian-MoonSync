@@ -1,6 +1,7 @@
 import { requestUrl } from "obsidian";
 import { BookInfoResult } from "./covers";
 import { cleanForSearch } from "./utils";
+import type { MoonReaderHighlight } from "./types";
 
 const HARDCOVER_API = "https://api.hardcover.app/v1/graphql";
 
@@ -1012,5 +1013,120 @@ export async function syncBooksToHardcover(
 		}
 	}
 
+	return result;
+}
+
+// ── Reading journal (highlights/notes) ──────────────────────────────────────
+
+export interface HardcoverHighlightSyncResult {
+	synced: number;
+	failed: number;
+	newSyncedAt: number; // ms timestamp to write to hardcover_highlights_synced_at
+}
+
+async function insertJournalEntry(
+	bookId: number,
+	editionId: number | null,
+	text: string,
+	eventType: "quote" | "note",
+	page: number | null,
+	totalPages: number | null,
+	privacySetting: number,
+	token: string
+): Promise<boolean> {
+	const query = `
+		mutation InsertReadingJournalEntry($object: ReadingJournalCreateType!) {
+			insert_reading_journal(object: $object) {
+				reading_journal {
+					id
+				}
+			}
+		}`;
+
+	const object: Record<string, unknown> = {
+		book_id: bookId,
+		text,
+		event_type: eventType,
+		privacy_setting_id: privacySetting,
+	};
+	if (editionId) object.edition_id = editionId;
+	if (page !== null) object.page = page;
+	if (totalPages !== null) object.pages = totalPages;
+
+	try {
+		const result = await hardcoverGraphQL(query, token, { object });
+		return !!(result?.insert_reading_journal?.reading_journal?.id);
+	} catch {
+		return false;
+	}
+}
+
+export async function syncBookHighlights(
+	bookId: number,
+	editionId: number | null,
+	highlights: MoonReaderHighlight[],
+	source: "moonreader" | "readest",
+	totalPages: number | null,
+	lastSyncedAt: number | null,
+	privacySetting: number,
+	token: string,
+	onProgress?: (done: number, total: number) => void
+): Promise<HardcoverHighlightSyncResult> {
+	const result: HardcoverHighlightSyncResult = {
+		synced: 0,
+		failed: 0,
+		newSyncedAt: Date.now(),
+	};
+
+	// Only send highlights newer than the last sync (or all if never synced)
+	const toSync = highlights.filter(h => {
+		const hasContent = (h.originalText && h.originalText.trim()) || (h.note && h.note.trim());
+		if (!hasContent) return false;
+		return lastSyncedAt === null || h.timestamp > lastSyncedAt;
+	});
+
+	if (toSync.length === 0) return result;
+
+	for (let i = 0; i < toSync.length; i++) {
+		const h = toSync[i];
+		onProgress?.(i, toSync.length);
+
+		const hasText = !!(h.originalText && h.originalText.trim());
+		const hasNote = !!(h.note && h.note.trim());
+
+		let text: string;
+		let eventType: "quote" | "note";
+
+		if (hasText && hasNote) {
+			text = `${h.originalText.trim()}\n\n${h.note.trim()}`;
+			eventType = "quote";
+		} else if (hasText) {
+			text = h.originalText.trim();
+			eventType = "quote";
+		} else {
+			text = h.note.trim();
+			eventType = "note";
+		}
+
+		// Readest highlights have actual page numbers in position; MR has character offsets
+		const page = source === "readest" ? h.position : null;
+
+		const ok = await insertJournalEntry(
+			bookId, editionId, text, eventType, page, totalPages, privacySetting, token
+		);
+
+		if (ok) {
+			result.synced++;
+		} else {
+			result.failed++;
+		}
+
+		// Small delay to avoid hammering the API
+		if (i < toSync.length - 1) {
+			await new Promise(r => setTimeout(r, 150));
+		}
+	}
+
+	onProgress?.(toSync.length, toSync.length);
 	return result;
 }

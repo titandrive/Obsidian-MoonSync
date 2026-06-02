@@ -8,7 +8,7 @@ import { MoonSyncSettings, BookData } from "./types";
 import { loadCache, saveCache, getCachedInfo, setCachedInfo, BookInfoCache } from "./cache";
 import { scanAllBookNotes, mergeBookLists } from "./scanner";
 import { computeHighlightsHash, parseFrontmatter, parseFrontmatterField, extractFrontmatter, escapeYaml, extractAuthorFromFilename, stripAuthorSuffix } from "./utils";
-import { syncBooksToHardcover, HardcoverSyncItem } from "./hardcover";
+import { syncBooksToHardcover, syncBookHighlights, HardcoverSyncItem } from "./hardcover";
 import { enrichBooksWithSyncData } from "./enrichment";
 import { getLocalCover } from "./parser/local-covers";
 
@@ -707,6 +707,95 @@ export async function syncFromMoonReader(
 				}
 			} catch (error) {
 				console.debug("MoonSync: Hardcover sync failed", error);
+			}
+		}
+
+		// Highlights sync — sends new highlights/notes to Hardcover reading journal
+		if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncHighlights) {
+			try {
+				// Build list of all books with their output paths
+				const allBooksWithPaths: Array<{ bookData: BookData; srcPath: string }> = [
+					...booksWithHighlights.map(b => ({ bookData: b, srcPath: outputPath })),
+					...readestBooksForIndex.map(b => ({ bookData: b, srcPath: readestOutputPath })),
+				];
+
+				let highlightsSynced = 0;
+				for (const { bookData, srcPath } of allBooksWithPaths) {
+					if (bookData.highlights.length === 0) continue;
+
+					// Find note and read hardcover_id + hardcover_highlights_synced_at
+					const cachedBook = getCachedInfo(
+						srcPath === outputPath ? cache : (readestCache ?? cache),
+						bookData.book.title,
+						bookData.book.author
+					);
+					const lookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title)
+						? cachedBook.title : bookData.book.title;
+					const filePath = normalizePath(`${srcPath}/${generateFilename(lookupTitle)}.md`);
+
+					let hardcoverId: number | null = null;
+					let editionId: number | null = null;
+					let lastSyncedAt: number | null = null;
+
+					try {
+						if (await app.vault.adapter.exists(filePath)) {
+							const content = await app.vault.adapter.read(filePath);
+							const fm = extractFrontmatter(content);
+							if (fm) {
+								const idStr = parseFrontmatterField(fm, "hardcover_id");
+								if (idStr) hardcoverId = parseInt(idStr, 10) || null;
+								const edStr = parseFrontmatterField(fm, "edition_id");
+								if (edStr) editionId = parseInt(edStr, 10) || null;
+								const syncedAtStr = parseFrontmatterField(fm, "hardcover_highlights_synced_at");
+								if (syncedAtStr) lastSyncedAt = parseInt(syncedAtStr, 10) || null;
+							}
+						}
+					} catch { /* ignore */ }
+
+					if (!hardcoverId) continue;
+
+					progressNotice.setMessage(`MoonSync: Syncing highlights — ${bookData.book.title}`);
+
+					const hResult = await syncBookHighlights(
+						hardcoverId,
+						editionId,
+						bookData.highlights,
+						bookData.source ?? "moonreader",
+						bookData.pageCount,
+						lastSyncedAt,
+						settings.hardcoverHighlightsPrivacy,
+						settings.hardcoverToken,
+						(done, total) => {
+							if (total > 5) {
+								progressNotice.setMessage(
+									`MoonSync: Syncing highlights — ${bookData.book.title} (${done}/${total})`
+								);
+							}
+						}
+					);
+
+					if (hResult.synced > 0) {
+						highlightsSynced += hResult.synced;
+						// Write hardcover_highlights_synced_at to frontmatter
+						try {
+							if (await app.vault.adapter.exists(filePath)) {
+								let content = await app.vault.adapter.read(filePath);
+								content = content.replace(/^hardcover_highlights_synced_at: .*\n/gm, "");
+								content = content.replace(
+									/\n---\n/,
+									`\nhardcover_highlights_synced_at: ${hResult.newSyncedAt}\n---\n`
+								);
+								await app.vault.adapter.write(filePath, content);
+							}
+						} catch { /* ignore */ }
+					}
+				}
+
+				if (highlightsSynced > 0) {
+					console.debug(`MoonSync: Synced ${highlightsSynced} highlights to Hardcover`);
+				}
+			} catch (error) {
+				console.debug("MoonSync: Hardcover highlights sync failed", error);
 			}
 		}
 

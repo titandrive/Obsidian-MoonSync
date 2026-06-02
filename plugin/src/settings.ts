@@ -596,6 +596,36 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 				new Setting(container)
 					.setDesc("0% → Want to Read. 1–98% → Currently Reading. 99%+ → Read. No progress data → skipped.");
 			}
+
+			new Setting(container)
+				.setName("Sync highlights & notes")
+				.setDesc("Send highlights and notes to your Hardcover reading journal. New highlights are synced on each run; existing ones are only sent once.")
+				.addToggle((toggle) =>
+					toggle
+						.setValue(this.plugin.settings.hardcoverSyncHighlights)
+						.onChange(async (value) => {
+							this.plugin.settings.hardcoverSyncHighlights = value;
+							await this.plugin.saveSettings();
+							this.display();
+						})
+				);
+
+			if (this.plugin.settings.hardcoverSyncHighlights) {
+				new Setting(container)
+					.setName("Highlight privacy")
+					.setDesc("Who can see synced highlights on Hardcover")
+					.addDropdown((dropdown) =>
+						dropdown
+							.addOption("1", "Public")
+							.addOption("2", "Followers")
+							.addOption("3", "Private")
+							.setValue(String(this.plugin.settings.hardcoverHighlightsPrivacy))
+							.onChange(async (value) => {
+								this.plugin.settings.hardcoverHighlightsPrivacy = parseInt(value) as 1 | 2 | 3;
+								await this.plugin.saveSettings();
+							})
+					);
+			}
 		}
 	}
 

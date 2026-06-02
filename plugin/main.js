@@ -162,6 +162,7 @@ __export(hardcover_exports, {
   lookupBookBySlug: () => lookupBookBySlug,
   removeHardcoverBook: () => removeHardcoverBook,
   searchHardcoverBooks: () => searchHardcoverBooks,
+  syncBookHighlights: () => syncBookHighlights,
   syncBooksToHardcover: () => syncBooksToHardcover,
   updateHardcoverBook: () => updateHardcoverBook,
   validateHardcoverToken: () => validateHardcoverToken
@@ -836,6 +837,91 @@ async function syncBooksToHardcover(books, token, onProgress) {
       console.debug(`MoonSync: Hardcover sync failed for "${book.title}"`, error);
     }
   }
+  return result;
+}
+async function insertJournalEntry(bookId, editionId, text, eventType, page, totalPages, privacySetting, token) {
+  var _a, _b;
+  const query = `
+		mutation InsertReadingJournalEntry($object: ReadingJournalCreateType!) {
+			insert_reading_journal(object: $object) {
+				reading_journal {
+					id
+				}
+			}
+		}`;
+  const object = {
+    book_id: bookId,
+    text,
+    event_type: eventType,
+    privacy_setting_id: privacySetting
+  };
+  if (editionId)
+    object.edition_id = editionId;
+  if (page !== null)
+    object.page = page;
+  if (totalPages !== null)
+    object.pages = totalPages;
+  try {
+    const result = await hardcoverGraphQL(query, token, { object });
+    return !!((_b = (_a = result == null ? void 0 : result.insert_reading_journal) == null ? void 0 : _a.reading_journal) == null ? void 0 : _b.id);
+  } catch (e) {
+    return false;
+  }
+}
+async function syncBookHighlights(bookId, editionId, highlights, source, totalPages, lastSyncedAt, privacySetting, token, onProgress) {
+  const result = {
+    synced: 0,
+    failed: 0,
+    newSyncedAt: Date.now()
+  };
+  const toSync = highlights.filter((h) => {
+    const hasContent = h.originalText && h.originalText.trim() || h.note && h.note.trim();
+    if (!hasContent)
+      return false;
+    return lastSyncedAt === null || h.timestamp > lastSyncedAt;
+  });
+  if (toSync.length === 0)
+    return result;
+  for (let i = 0; i < toSync.length; i++) {
+    const h = toSync[i];
+    onProgress == null ? void 0 : onProgress(i, toSync.length);
+    const hasText = !!(h.originalText && h.originalText.trim());
+    const hasNote = !!(h.note && h.note.trim());
+    let text;
+    let eventType;
+    if (hasText && hasNote) {
+      text = `${h.originalText.trim()}
+
+${h.note.trim()}`;
+      eventType = "quote";
+    } else if (hasText) {
+      text = h.originalText.trim();
+      eventType = "quote";
+    } else {
+      text = h.note.trim();
+      eventType = "note";
+    }
+    const page = source === "readest" ? h.position : null;
+    const ok = await insertJournalEntry(
+      bookId,
+      editionId,
+      text,
+      eventType,
+      page,
+      totalPages,
+      privacySetting,
+      token
+    );
+    if (ok) {
+      result.synced++;
+    } else {
+      result.failed++;
+    }
+    if (i < toSync.length - 1) {
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+  onProgress == null ? void 0 : onProgress(toSync.length, toSync.length);
   return result;
 }
 var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, STATUS_DNF, MIN_USERS_THRESHOLD, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ, DELETE_USER_BOOK;
@@ -6027,7 +6113,9 @@ var DEFAULT_SETTINGS = {
   highlightSort: "position",
   hardcoverEnabled: false,
   hardcoverToken: "",
-  hardcoverSyncProgress: true
+  hardcoverSyncProgress: true,
+  hardcoverSyncHighlights: false,
+  hardcoverHighlightsPrivacy: 1
 };
 function getCalloutType(colorInt) {
   const r = colorInt >> 16 & 255;
@@ -6434,6 +6522,21 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       );
       if (this.plugin.settings.hardcoverSyncProgress) {
         new import_obsidian2.Setting(container).setDesc("0% \u2192 Want to Read. 1\u201398% \u2192 Currently Reading. 99%+ \u2192 Read. No progress data \u2192 skipped.");
+      }
+      new import_obsidian2.Setting(container).setName("Sync highlights & notes").setDesc("Send highlights and notes to your Hardcover reading journal. New highlights are synced on each run; existing ones are only sent once.").addToggle(
+        (toggle) => toggle.setValue(this.plugin.settings.hardcoverSyncHighlights).onChange(async (value) => {
+          this.plugin.settings.hardcoverSyncHighlights = value;
+          await this.plugin.saveSettings();
+          this.display();
+        })
+      );
+      if (this.plugin.settings.hardcoverSyncHighlights) {
+        new import_obsidian2.Setting(container).setName("Highlight privacy").setDesc("Who can see synced highlights on Hardcover").addDropdown(
+          (dropdown) => dropdown.addOption("1", "Public").addOption("2", "Followers").addOption("3", "Private").setValue(String(this.plugin.settings.hardcoverHighlightsPrivacy)).onChange(async (value) => {
+            this.plugin.settings.hardcoverHighlightsPrivacy = parseInt(value);
+            await this.plugin.saveSettings();
+          })
+        );
       }
     }
   }
@@ -9120,7 +9223,7 @@ async function migrateToSubdirectories(app, settings) {
   }
 }
 async function syncFromMoonReader(app, settings, wasmPath) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d, _e, _f;
   const result = {
     success: false,
     booksProcessed: 0,
@@ -9544,6 +9647,90 @@ ${fields.join("\n")}
         }
       } catch (error) {
         console.debug("MoonSync: Hardcover sync failed", error);
+      }
+    }
+    if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncHighlights) {
+      try {
+        const allBooksWithPaths = [
+          ...booksWithHighlights.map((b) => ({ bookData: b, srcPath: outputPath })),
+          ...readestBooksForIndex.map((b) => ({ bookData: b, srcPath: readestOutputPath }))
+        ];
+        let highlightsSynced = 0;
+        for (const { bookData, srcPath } of allBooksWithPaths) {
+          if (bookData.highlights.length === 0)
+            continue;
+          const cachedBook = getCachedInfo(
+            srcPath === outputPath ? cache : readestCache != null ? readestCache : cache,
+            bookData.book.title,
+            bookData.book.author
+          );
+          const lookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title ? cachedBook.title : bookData.book.title;
+          const filePath = (0, import_obsidian7.normalizePath)(`${srcPath}/${generateFilename(lookupTitle)}.md`);
+          let hardcoverId = null;
+          let editionId = null;
+          let lastSyncedAt = null;
+          try {
+            if (await app.vault.adapter.exists(filePath)) {
+              const content = await app.vault.adapter.read(filePath);
+              const fm = extractFrontmatter(content);
+              if (fm) {
+                const idStr = parseFrontmatterField(fm, "hardcover_id");
+                if (idStr)
+                  hardcoverId = parseInt(idStr, 10) || null;
+                const edStr = parseFrontmatterField(fm, "edition_id");
+                if (edStr)
+                  editionId = parseInt(edStr, 10) || null;
+                const syncedAtStr = parseFrontmatterField(fm, "hardcover_highlights_synced_at");
+                if (syncedAtStr)
+                  lastSyncedAt = parseInt(syncedAtStr, 10) || null;
+              }
+            }
+          } catch (e) {
+          }
+          if (!hardcoverId)
+            continue;
+          progressNotice.setMessage(`MoonSync: Syncing highlights \u2014 ${bookData.book.title}`);
+          const hResult = await syncBookHighlights(
+            hardcoverId,
+            editionId,
+            bookData.highlights,
+            (_f = bookData.source) != null ? _f : "moonreader",
+            bookData.pageCount,
+            lastSyncedAt,
+            settings.hardcoverHighlightsPrivacy,
+            settings.hardcoverToken,
+            (done, total) => {
+              if (total > 5) {
+                progressNotice.setMessage(
+                  `MoonSync: Syncing highlights \u2014 ${bookData.book.title} (${done}/${total})`
+                );
+              }
+            }
+          );
+          if (hResult.synced > 0) {
+            highlightsSynced += hResult.synced;
+            try {
+              if (await app.vault.adapter.exists(filePath)) {
+                let content = await app.vault.adapter.read(filePath);
+                content = content.replace(/^hardcover_highlights_synced_at: .*\n/gm, "");
+                content = content.replace(
+                  /\n---\n/,
+                  `
+hardcover_highlights_synced_at: ${hResult.newSyncedAt}
+---
+`
+                );
+                await app.vault.adapter.write(filePath, content);
+              }
+            } catch (e) {
+            }
+          }
+        }
+        if (highlightsSynced > 0) {
+          console.debug(`MoonSync: Synced ${highlightsSynced} highlights to Hardcover`);
+        }
+      } catch (error) {
+        console.debug("MoonSync: Hardcover highlights sync failed", error);
       }
     }
     if (settings.showIndex) {
