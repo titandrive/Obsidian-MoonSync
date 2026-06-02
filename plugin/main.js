@@ -840,7 +840,7 @@ async function syncBooksToHardcover(books, token, onProgress) {
   return result;
 }
 async function insertJournalEntry(bookId, editionId, text, eventType, page, totalPages, privacySetting, token) {
-  var _a, _b;
+  var _a, _b, _c;
   const query = `
 		mutation InsertReadingJournalEntry($object: ReadingJournalCreateType!) {
 			insert_reading_journal(object: $object) {
@@ -851,19 +851,19 @@ async function insertJournalEntry(bookId, editionId, text, eventType, page, tota
 		}`;
   const object = {
     book_id: bookId,
-    text,
-    event_type: eventType,
-    privacy_setting_id: privacySetting
+    entry: text,
+    event: eventType,
+    privacy_setting_id: privacySetting,
+    tags: []
   };
   if (editionId)
     object.edition_id = editionId;
-  if (page !== null)
-    object.page = page;
-  if (totalPages !== null)
-    object.pages = totalPages;
+  if (page !== null && totalPages !== null) {
+    object.metadata = { position: { type: "pages", value: page, possible: totalPages } };
+  }
   try {
     const result = await hardcoverGraphQL(query, token, { object });
-    return !!((_b = (_a = result == null ? void 0 : result.insert_reading_journal) == null ? void 0 : _a.reading_journal) == null ? void 0 : _b.id);
+    return !!((_c = (_b = (_a = result == null ? void 0 : result.data) == null ? void 0 : _a.insert_reading_journal) == null ? void 0 : _b.reading_journal) == null ? void 0 : _c.id);
   } catch (e) {
     return false;
   }

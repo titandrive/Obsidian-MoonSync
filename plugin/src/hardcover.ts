@@ -1045,17 +1045,19 @@ async function insertJournalEntry(
 
 	const object: Record<string, unknown> = {
 		book_id: bookId,
-		text,
-		event_type: eventType,
+		entry: text,
+		event: eventType,
 		privacy_setting_id: privacySetting,
+		tags: [],
 	};
 	if (editionId) object.edition_id = editionId;
-	if (page !== null) object.page = page;
-	if (totalPages !== null) object.pages = totalPages;
+	if (page !== null && totalPages !== null) {
+		object.metadata = { position: { type: "pages", value: page, possible: totalPages } };
+	}
 
 	try {
 		const result = await hardcoverGraphQL(query, token, { object });
-		return !!(result?.insert_reading_journal?.reading_journal?.id);
+		return !!(result?.data?.insert_reading_journal?.reading_journal?.id);
 	} catch {
 		return false;
 	}
