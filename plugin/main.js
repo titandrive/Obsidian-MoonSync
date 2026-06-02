@@ -9014,14 +9014,10 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
 // src/sync.ts
 function getMoonReaderOutputPath(settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
-  if (settings.readestEnabled) {
+  if (settings.moonReaderEnabled && settings.readestEnabled) {
     return (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
   }
   return base;
-}
-function getReadestOutputPath(settings) {
-  const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
-  return (0, import_obsidian7.normalizePath)(`${base}/Readest`);
 }
 async function migrateToSubdirectories(app, settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
@@ -9102,11 +9098,13 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       await app.vault.createFolder(baseOutputPath);
       result.isFirstSync = true;
     }
-    if (settings.readestEnabled) {
+    if (settings.moonReaderEnabled && settings.readestEnabled) {
       await migrateToSubdirectories(app, settings);
     }
-    const outputPath = getMoonReaderOutputPath(settings);
-    const readestOutputPath = getReadestOutputPath(settings);
+    const mrSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`));
+    const useSeparateDirs = settings.moonReaderEnabled && settings.readestEnabled || settings.readestEnabled && mrSubdirExists;
+    const outputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
+    const readestOutputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/Readest`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
     let booksWithHighlights = [];
     let booksWithSufficientMetadata = /* @__PURE__ */ new Set();
     if (settings.moonReaderEnabled) {

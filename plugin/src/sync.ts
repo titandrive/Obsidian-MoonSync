@@ -14,8 +14,7 @@ import { getLocalCover } from "./parser/local-covers";
 
 export function getMoonReaderOutputPath(settings: MoonSyncSettings): string {
 	const base = normalizePath(settings.outputFolder);
-	// Use a MoonReader subfolder whenever Readest is also enabled, to keep sources separate
-	if (settings.readestEnabled) {
+	if (settings.moonReaderEnabled && settings.readestEnabled) {
 		return normalizePath(`${base}/MoonReader`);
 	}
 	return base;
@@ -23,8 +22,10 @@ export function getMoonReaderOutputPath(settings: MoonSyncSettings): string {
 
 export function getReadestOutputPath(settings: MoonSyncSettings): string {
 	const base = normalizePath(settings.outputFolder);
-	// Readest always gets its own subfolder so it never mixes with Moon Reader notes
-	return normalizePath(`${base}/Readest`);
+	if (settings.moonReaderEnabled && settings.readestEnabled) {
+		return normalizePath(`${base}/Readest`);
+	}
+	return base;
 }
 
 async function migrateToSubdirectories(app: App, settings: MoonSyncSettings): Promise<void> {
@@ -140,14 +141,23 @@ export async function syncFromMoonReader(
 			result.isFirstSync = true;
 		}
 
-		// Migrate flat MR notes to MoonReader/ subfolder whenever Readest is enabled
-		if (settings.readestEnabled) {
+		// Migrate flat MR notes to MoonReader/ subfolder when both sources are enabled
+		if (settings.moonReaderEnabled && settings.readestEnabled) {
 			await migrateToSubdirectories(app, settings);
 		}
 
-		// Determine per-source output paths
-		const outputPath = getMoonReaderOutputPath(settings);
-		const readestOutputPath = getReadestOutputPath(settings);
+		// Determine per-source output paths.
+		// Also use subdirs if Books/MoonReader/ already exists from a prior migration,
+		// so disabling Moon Reader doesn't collapse Readest back into Books/.
+		const mrSubdirExists = await app.vault.adapter.exists(normalizePath(`${baseOutputPath}/MoonReader`));
+		const useSeparateDirs = (settings.moonReaderEnabled && settings.readestEnabled) ||
+			(settings.readestEnabled && mrSubdirExists);
+		const outputPath = useSeparateDirs
+			? normalizePath(`${baseOutputPath}/MoonReader`)
+			: normalizePath(settings.outputFolder);
+		const readestOutputPath = useSeparateDirs
+			? normalizePath(`${baseOutputPath}/Readest`)
+			: normalizePath(settings.outputFolder);
 
 		// --- Moon Reader source ---
 		let booksWithHighlights: BookData[] = [];
