@@ -549,6 +549,7 @@ export async function syncFromMoonReader(
 				// Internal entry type: one item per unique book, may map to notes in multiple source dirs
 				interface HcEntry {
 					item: HardcoverSyncItem;
+					lastReadTimestamp: number | null;
 					notePaths: string[];
 					cacheRefs: Array<{ bookCache: BookInfoCache; title: string; author: string }>;
 				}
@@ -589,6 +590,7 @@ export async function syncFromMoonReader(
 								cachedSlug: cachedBook?.hardcoverSlug,
 								cachedPages: cachedBook?.hardcoverPages,
 							},
+							lastReadTimestamp: b.lastReadTimestamp,
 							notePaths: [filePath],
 							cacheRefs: [{ bookCache: srcCache, title: b.book.title, author: b.book.author }],
 						});
@@ -613,13 +615,21 @@ export async function syncFromMoonReader(
 					if (!existing) {
 						dedupMap.set(key, {
 							item: { ...entry.item },
+							lastReadTimestamp: entry.lastReadTimestamp,
 							notePaths: [...entry.notePaths],
 							cacheRefs: [...entry.cacheRefs],
 						});
 					} else {
-						// Keep higher progress; merge note paths and cache refs
-						if ((entry.item.progress ?? 0) > (existing.item.progress ?? 0)) {
+						// Most recently read wins (handles restarts where progress is intentionally lower).
+						// Fall back to higher progress when neither has a timestamp.
+						const entryTs = entry.lastReadTimestamp ?? 0;
+						const existingTs = existing.lastReadTimestamp ?? 0;
+						const entryWins = entryTs !== existingTs
+							? entryTs > existingTs
+							: (entry.item.progress ?? 0) > (existing.item.progress ?? 0);
+						if (entryWins) {
 							existing.item.progress = entry.item.progress;
+							existing.lastReadTimestamp = entry.lastReadTimestamp;
 						}
 						if (entry.item.hardcoverId && !existing.item.hardcoverId) {
 							existing.item.hardcoverId = entry.item.hardcoverId;

@@ -9120,7 +9120,7 @@ async function migrateToSubdirectories(app, settings) {
   }
 }
 async function syncFromMoonReader(app, settings, wasmPath) {
-  var _a, _b, _c;
+  var _a, _b, _c, _d, _e;
   const result = {
     success: false,
     booksProcessed: 0,
@@ -9434,6 +9434,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
                 cachedSlug: cachedBook == null ? void 0 : cachedBook.hardcoverSlug,
                 cachedPages: cachedBook == null ? void 0 : cachedBook.hardcoverPages
               },
+              lastReadTimestamp: b.lastReadTimestamp,
               notePaths: [filePath],
               cacheRefs: [{ bookCache: srcCache, title: b.book.title, author: b.book.author }]
             });
@@ -9449,12 +9450,17 @@ async function syncFromMoonReader(app, settings, wasmPath) {
           if (!existing) {
             dedupMap.set(key, {
               item: { ...entry.item },
+              lastReadTimestamp: entry.lastReadTimestamp,
               notePaths: [...entry.notePaths],
               cacheRefs: [...entry.cacheRefs]
             });
           } else {
-            if (((_b = entry.item.progress) != null ? _b : 0) > ((_c = existing.item.progress) != null ? _c : 0)) {
+            const entryTs = (_b = entry.lastReadTimestamp) != null ? _b : 0;
+            const existingTs = (_c = existing.lastReadTimestamp) != null ? _c : 0;
+            const entryWins = entryTs !== existingTs ? entryTs > existingTs : ((_d = entry.item.progress) != null ? _d : 0) > ((_e = existing.item.progress) != null ? _e : 0);
+            if (entryWins) {
               existing.item.progress = entry.item.progress;
+              existing.lastReadTimestamp = entry.lastReadTimestamp;
             }
             if (entry.item.hardcoverId && !existing.item.hardcoverId) {
               existing.item.hardcoverId = entry.item.hardcoverId;
