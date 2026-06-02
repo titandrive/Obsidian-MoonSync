@@ -14,7 +14,8 @@ import { getLocalCover } from "./parser/local-covers";
 
 export function getMoonReaderOutputPath(settings: MoonSyncSettings): string {
 	const base = normalizePath(settings.outputFolder);
-	if (settings.moonReaderEnabled && settings.readestEnabled) {
+	// Use a MoonReader subfolder whenever Readest is also enabled, to keep sources separate
+	if (settings.readestEnabled) {
 		return normalizePath(`${base}/MoonReader`);
 	}
 	return base;
@@ -22,10 +23,8 @@ export function getMoonReaderOutputPath(settings: MoonSyncSettings): string {
 
 export function getReadestOutputPath(settings: MoonSyncSettings): string {
 	const base = normalizePath(settings.outputFolder);
-	if (settings.moonReaderEnabled && settings.readestEnabled) {
-		return normalizePath(`${base}/Readest`);
-	}
-	return base;
+	// Readest always gets its own subfolder so it never mixes with Moon Reader notes
+	return normalizePath(`${base}/Readest`);
 }
 
 async function migrateToSubdirectories(app: App, settings: MoonSyncSettings): Promise<void> {
@@ -141,8 +140,8 @@ export async function syncFromMoonReader(
 			result.isFirstSync = true;
 		}
 
-		// Migrate flat notes to subdirectories if both sources are now enabled
-		if (settings.moonReaderEnabled && settings.readestEnabled) {
+		// Migrate flat MR notes to MoonReader/ subfolder whenever Readest is enabled
+		if (settings.readestEnabled) {
 			await migrateToSubdirectories(app, settings);
 		}
 

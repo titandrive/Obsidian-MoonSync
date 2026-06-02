@@ -8046,7 +8046,8 @@ async function parseReadestFiles(syncPath) {
         isbn10: null,
         isbn13: isbn != null ? isbn : null,
         language,
-        previousTitle: null,
+        previousTitle: entry.hash,
+        // rename any old hash-named notes to title-based names
         hardcoverId: null,
         hardcoverSlug: null,
         source: "readest"
@@ -9005,17 +9006,14 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
 // src/sync.ts
 function getMoonReaderOutputPath(settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
-  if (settings.moonReaderEnabled && settings.readestEnabled) {
+  if (settings.readestEnabled) {
     return (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
   }
   return base;
 }
 function getReadestOutputPath(settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
-  if (settings.moonReaderEnabled && settings.readestEnabled) {
-    return (0, import_obsidian7.normalizePath)(`${base}/Readest`);
-  }
-  return base;
+  return (0, import_obsidian7.normalizePath)(`${base}/Readest`);
 }
 async function migrateToSubdirectories(app, settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
@@ -9096,7 +9094,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       await app.vault.createFolder(baseOutputPath);
       result.isFirstSync = true;
     }
-    if (settings.moonReaderEnabled && settings.readestEnabled) {
+    if (settings.readestEnabled) {
       await migrateToSubdirectories(app, settings);
     }
     const outputPath = getMoonReaderOutputPath(settings);

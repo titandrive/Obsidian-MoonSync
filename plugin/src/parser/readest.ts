@@ -249,7 +249,7 @@ export async function parseReadestFiles(syncPath: string): Promise<BookData[]> {
 				isbn10: null,
 				isbn13: isbn ?? null,
 				language,
-				previousTitle: null,
+				previousTitle: entry.hash, // rename any old hash-named notes to title-based names
 				hardcoverId: null,
 				hardcoverSlug: null,
 				source: "readest",
