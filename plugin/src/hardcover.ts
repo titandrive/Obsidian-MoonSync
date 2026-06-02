@@ -855,7 +855,6 @@ async function updateProgressForBook(
 			id: existingReadId,
 			object: {
 				progress_pages: progressPages,
-				edition_id: editionId ?? existingEditionId,
 				started_at: existingStartedAt ?? today,
 				progress_seconds: 0,
 			},
@@ -878,7 +877,6 @@ async function updateProgressForBook(
 					id: firstRead.id,
 					object: {
 						progress_pages: progressPages,
-						edition_id: firstRead.edition_id ?? editionId,
 						started_at: firstRead.started_at,
 						finished_at: firstRead.finished_at,
 						progress_seconds: 0,

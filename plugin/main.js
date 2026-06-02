@@ -665,7 +665,7 @@ async function removeHardcoverBook(bookId, token) {
   }
 }
 async function updateProgressForBook(bookId, myUserBook, progress, pages, today, token) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
   if (progress <= 0) {
     return { success: true, badEdition: false };
   }
@@ -711,7 +711,6 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
       id: existingReadId,
       object: {
         progress_pages: progressPages,
-        edition_id: editionId != null ? editionId : existingEditionId,
         started_at: existingStartedAt != null ? existingStartedAt : today,
         progress_seconds: 0
       }
@@ -731,7 +730,6 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
           id: firstRead.id,
           object: {
             progress_pages: progressPages,
-            edition_id: (_k = firstRead.edition_id) != null ? _k : editionId,
             started_at: firstRead.started_at,
             finished_at: firstRead.finished_at,
             progress_seconds: 0
@@ -752,7 +750,7 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
     };
     console.debug(`MoonSync: Hardcover insert_user_book_read vars:`, JSON.stringify(vars));
     const insertResult = await hardcoverGraphQL(INSERT_USER_BOOK_READ, token, vars);
-    const insertData = (_l = insertResult.data) == null ? void 0 : _l.insert_user_book_read;
+    const insertData = (_k = insertResult.data) == null ? void 0 : _k.insert_user_book_read;
     if (insertData == null ? void 0 : insertData.error) {
       console.debug(`MoonSync: Hardcover insert_user_book_read error for book ${bookId}: ${insertData.error}`);
     }
