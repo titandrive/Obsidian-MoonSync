@@ -116,6 +116,17 @@ async function fullTextSearchForId(
 					const docUsers = doc?.users_count || 0;
 					console.debug(`MoonSync: Hardcover search "${query}" — best hit: id=${docId}, users=${docUsers}, title="${doc?.title}"`);
 					if (docId && (!excludeId || docId !== excludeId) && docUsers >= MIN_USERS_THRESHOLD) {
+						// Verify the matched title shares meaningful words with the original title.
+						// Prevents short fallback queries (e.g. "How") from matching unrelated popular
+						// books (e.g. "How" by Dov Seidman when searching "How to Rule the World...").
+						const candidateWords = new Set((doc.title || "").toLowerCase().split(/\s+/));
+						const significantWords = cleanTitle.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+						const overlap = significantWords.filter(w => candidateWords.has(w)).length;
+						const minOverlap = significantWords.length > 1 ? 1 : 0;
+						if (significantWords.length > 2 && overlap < minOverlap) {
+							console.debug(`MoonSync: Hardcover rejected "${doc?.title}" — no word overlap with "${cleanTitle}"`);
+							continue;
+						}
 						return { id: docId, title: doc.title || cleanTitle };
 					} else {
 						console.debug(`MoonSync: Hardcover search "${query}" — rejected (users=${docUsers}, need >= ${MIN_USERS_THRESHOLD})`);

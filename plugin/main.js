@@ -231,6 +231,14 @@ async function fullTextSearchForId(cleanTitle, cleanAuthor, token, excludeId) {
           const docUsers = (doc == null ? void 0 : doc.users_count) || 0;
           console.debug(`MoonSync: Hardcover search "${query}" \u2014 best hit: id=${docId}, users=${docUsers}, title="${doc == null ? void 0 : doc.title}"`);
           if (docId && (!excludeId || docId !== excludeId) && docUsers >= MIN_USERS_THRESHOLD) {
+            const candidateWords = new Set((doc.title || "").toLowerCase().split(/\s+/));
+            const significantWords = cleanTitle.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+            const overlap = significantWords.filter((w) => candidateWords.has(w)).length;
+            const minOverlap = significantWords.length > 1 ? 1 : 0;
+            if (significantWords.length > 2 && overlap < minOverlap) {
+              console.debug(`MoonSync: Hardcover rejected "${doc == null ? void 0 : doc.title}" \u2014 no word overlap with "${cleanTitle}"`);
+              continue;
+            }
             return { id: docId, title: doc.title || cleanTitle };
           } else {
             console.debug(`MoonSync: Hardcover search "${query}" \u2014 rejected (users=${docUsers}, need >= ${MIN_USERS_THRESHOLD})`);
