@@ -9019,6 +9019,40 @@ function getMoonReaderOutputPath(settings) {
   }
   return base;
 }
+async function hasNotesWithField(app, folderPath, field) {
+  try {
+    const listing = await app.vault.adapter.list(folderPath);
+    for (const filePath of listing.files) {
+      if (!filePath.endsWith(".md"))
+        continue;
+      try {
+        const content = await app.vault.adapter.read(filePath);
+        if (content.includes(field))
+          return true;
+      } catch (e) {
+      }
+    }
+  } catch (e) {
+  }
+  return false;
+}
+async function hasNotesWithoutField(app, folderPath, field) {
+  try {
+    const listing = await app.vault.adapter.list(folderPath);
+    for (const filePath of listing.files) {
+      if (!filePath.endsWith(".md"))
+        continue;
+      try {
+        const content = await app.vault.adapter.read(filePath);
+        if (content.startsWith("---") && !content.includes(field))
+          return true;
+      } catch (e) {
+      }
+    }
+  } catch (e) {
+  }
+  return false;
+}
 async function migrateToSubdirectories(app, settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
   const mrPath = (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
@@ -9098,11 +9132,22 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       await app.vault.createFolder(baseOutputPath);
       result.isFirstSync = true;
     }
-    if (settings.moonReaderEnabled && settings.readestEnabled) {
+    const mrSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`));
+    const readestSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/Readest`));
+    let hasFlatMrNotes = false;
+    let hasFlatReadestNotes = false;
+    if (settings.readestEnabled && !mrSubdirExists) {
+      hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
+    }
+    if (settings.moonReaderEnabled && !readestSubdirExists) {
+      hasFlatReadestNotes = await hasNotesWithoutField(app, baseOutputPath, "moon_reader_path:");
+    }
+    const useSeparateDirs = settings.moonReaderEnabled && settings.readestEnabled || settings.readestEnabled && (mrSubdirExists || hasFlatMrNotes) || settings.moonReaderEnabled && (readestSubdirExists || hasFlatReadestNotes);
+    if (useSeparateDirs && !mrSubdirExists && settings.moonReaderEnabled) {
+      await migrateToSubdirectories(app, settings);
+    } else if (useSeparateDirs && hasFlatMrNotes) {
       await migrateToSubdirectories(app, settings);
     }
-    const mrSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`));
-    const useSeparateDirs = settings.moonReaderEnabled && settings.readestEnabled || settings.readestEnabled && mrSubdirExists;
     const outputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
     const readestOutputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/Readest`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
     let booksWithHighlights = [];

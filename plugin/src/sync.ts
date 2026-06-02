@@ -28,6 +28,35 @@ export function getReadestOutputPath(settings: MoonSyncSettings): string {
 	return base;
 }
 
+async function hasNotesWithField(app: App, folderPath: string, field: string): Promise<boolean> {
+	try {
+		const listing = await app.vault.adapter.list(folderPath);
+		for (const filePath of listing.files) {
+			if (!filePath.endsWith(".md")) continue;
+			try {
+				const content = await app.vault.adapter.read(filePath);
+				if (content.includes(field)) return true;
+			} catch { /* skip */ }
+		}
+	} catch { /* folder unreadable */ }
+	return false;
+}
+
+async function hasNotesWithoutField(app: App, folderPath: string, field: string): Promise<boolean> {
+	try {
+		const listing = await app.vault.adapter.list(folderPath);
+		for (const filePath of listing.files) {
+			if (!filePath.endsWith(".md")) continue;
+			try {
+				const content = await app.vault.adapter.read(filePath);
+				// Only consider files that look like book notes (have frontmatter)
+				if (content.startsWith("---") && !content.includes(field)) return true;
+			} catch { /* skip */ }
+		}
+	} catch { /* folder unreadable */ }
+	return false;
+}
+
 async function migrateToSubdirectories(app: App, settings: MoonSyncSettings): Promise<void> {
 	const base = normalizePath(settings.outputFolder);
 	const mrPath = normalizePath(`${base}/MoonReader`);
@@ -141,17 +170,35 @@ export async function syncFromMoonReader(
 			result.isFirstSync = true;
 		}
 
-		// Migrate flat MR notes to MoonReader/ subfolder when both sources are enabled
-		if (settings.moonReaderEnabled && settings.readestEnabled) {
+		// Determine whether to use per-source subdirectories.
+		// Use subdirs when both are enabled, OR when flat notes from the other source already exist,
+		// OR when Books/MoonReader/ already exists from a prior migration.
+		const mrSubdirExists = await app.vault.adapter.exists(normalizePath(`${baseOutputPath}/MoonReader`));
+		const readestSubdirExists = await app.vault.adapter.exists(normalizePath(`${baseOutputPath}/Readest`));
+
+		let hasFlatMrNotes = false;
+		let hasFlatReadestNotes = false;
+		if (settings.readestEnabled && !mrSubdirExists) {
+			// Check if flat Books/ has any MR notes (moon_reader_path in frontmatter)
+			hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
+		}
+		if (settings.moonReaderEnabled && !readestSubdirExists) {
+			// Check if flat Books/ has any non-MR notes (no moon_reader_path = likely Readest)
+			hasFlatReadestNotes = await hasNotesWithoutField(app, baseOutputPath, "moon_reader_path:");
+		}
+
+		const useSeparateDirs =
+			(settings.moonReaderEnabled && settings.readestEnabled) ||
+			(settings.readestEnabled && (mrSubdirExists || hasFlatMrNotes)) ||
+			(settings.moonReaderEnabled && (readestSubdirExists || hasFlatReadestNotes));
+
+		// Run migration if needed
+		if (useSeparateDirs && !mrSubdirExists && settings.moonReaderEnabled) {
+			await migrateToSubdirectories(app, settings);
+		} else if (useSeparateDirs && hasFlatMrNotes) {
 			await migrateToSubdirectories(app, settings);
 		}
 
-		// Determine per-source output paths.
-		// Also use subdirs if Books/MoonReader/ already exists from a prior migration,
-		// so disabling Moon Reader doesn't collapse Readest back into Books/.
-		const mrSubdirExists = await app.vault.adapter.exists(normalizePath(`${baseOutputPath}/MoonReader`));
-		const useSeparateDirs = (settings.moonReaderEnabled && settings.readestEnabled) ||
-			(settings.readestEnabled && mrSubdirExists);
 		const outputPath = useSeparateDirs
 			? normalizePath(`${baseOutputPath}/MoonReader`)
 			: normalizePath(settings.outputFolder);
