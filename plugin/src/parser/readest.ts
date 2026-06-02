@@ -95,6 +95,17 @@ function cfiToChapter(cfi: string): number {
 	return 0;
 }
 
+// Clean up comic/CBZ filenames that include scene release group tags.
+// Strips trailing parenthetical groups like (2015), (digital), (F), (Son of Ultron-Empire).
+// Only applied to non-EPUB formats where metadata.title == sourceTitle (no real metadata).
+function cleanComicTitle(title: string): string {
+	// Repeatedly strip trailing (...) groups separated by optional whitespace
+	let cleaned = title.replace(/(\s*\([^)]*\))+\s*$/, "").trim();
+	// Strip trailing " -" or "- " left after removal
+	cleaned = cleaned.replace(/\s*[-–]\s*$/, "").trim();
+	return cleaned || title; // fall back to original if we stripped everything
+}
+
 function stripHtml(html: string): string {
 	return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
 		.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim();
@@ -177,7 +188,11 @@ export async function parseReadestFiles(syncPath: string): Promise<BookData[]> {
 				bookConfig = JSON.parse(raw);
 			} catch { /* no config, use library data only */ }
 
-			const title = entry.title || entry.sourceTitle || entry.hash;
+			let title = entry.title || entry.sourceTitle || entry.hash;
+			// CBZ/PDF files often have scene-release filenames as titles — strip trailing tags
+			const isRawFilename = entry.format !== "EPUB" && entry.format !== "MOBI" &&
+				!entry.metadata?.description && !entry.metadata?.publisher;
+			if (isRawFilename) title = cleanComicTitle(title);
 			const author = resolveAuthor(entry);
 
 			// Progress: prefer library.json (master state); fall back to config.json

@@ -7908,6 +7908,11 @@ function cfiToChapter(cfi) {
     return Math.floor(parseInt(match[1], 10) / 2);
   return 0;
 }
+function cleanComicTitle(title) {
+  let cleaned = title.replace(/(\s*\([^)]*\))+\s*$/, "").trim();
+  cleaned = cleaned.replace(/\s*[-–]\s*$/, "").trim();
+  return cleaned || title;
+}
 function stripHtml(html) {
   return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim();
 }
@@ -7963,7 +7968,7 @@ async function resolveBooksDir(syncPath) {
   return syncPath;
 }
 async function parseReadestFiles(syncPath) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D;
   const results = [];
   const booksDir = await resolveBooksDir(syncPath);
   const libraryPath = (0, import_path3.join)(syncPath, "library.json");
@@ -7984,15 +7989,18 @@ async function parseReadestFiles(syncPath) {
         bookConfig = JSON.parse(raw);
       } catch (e) {
       }
-      const title = entry.title || entry.sourceTitle || entry.hash;
+      let title = entry.title || entry.sourceTitle || entry.hash;
+      const isRawFilename = entry.format !== "EPUB" && entry.format !== "MOBI" && !((_b = entry.metadata) == null ? void 0 : _b.description) && !((_c = entry.metadata) == null ? void 0 : _c.publisher);
+      if (isRawFilename)
+        title = cleanComicTitle(title);
       const author = resolveAuthor(entry);
       let progress = null;
-      const progressArr = (_c = entry.progress) != null ? _c : (_b = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _b.progress;
+      const progressArr = (_e = entry.progress) != null ? _e : (_d = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _d.progress;
       if (progressArr && progressArr[1] > 0) {
         progress = progressArr[0] / progressArr[1] * 100;
       }
-      const lastReadTimestamp = (_g = (_f = (_e = (_d = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _d.updatedAt) != null ? _e : bookConfig == null ? void 0 : bookConfig.updatedAt) != null ? _f : entry.updatedAt) != null ? _g : null;
-      const annotations = ((_h = bookConfig == null ? void 0 : bookConfig.booknotes) != null ? _h : []).filter((n) => n.deletedAt === null);
+      const lastReadTimestamp = (_i = (_h = (_g = (_f = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _f.updatedAt) != null ? _g : bookConfig == null ? void 0 : bookConfig.updatedAt) != null ? _h : entry.updatedAt) != null ? _i : null;
+      const annotations = ((_j = bookConfig == null ? void 0 : bookConfig.booknotes) != null ? _j : []).filter((n) => n.deletedAt === null);
       const highlights = annotations.map((ann, idx) => {
         var _a2, _b2, _c2, _d2;
         return {
@@ -8011,15 +8019,15 @@ async function parseReadestFiles(syncPath) {
           strikethrough: false
         };
       });
-      const meta = (_i = entry.metadata) != null ? _i : {};
+      const meta = (_k = entry.metadata) != null ? _k : {};
       const description = meta.description ? stripHtml(meta.description) : null;
-      const publisher = (_j = meta.publisher) != null ? _j : null;
-      const publishedDate = (_k = meta.published) != null ? _k : null;
-      const isbn = (_l = meta.isbn) != null ? _l : null;
-      const language = (_m = entry.primaryLanguage) != null ? _m : typeof meta.language === "string" ? meta.language.split("-")[0].toLowerCase() : null;
+      const publisher = (_l = meta.publisher) != null ? _l : null;
+      const publishedDate = (_m = meta.published) != null ? _m : null;
+      const isbn = (_n = meta.isbn) != null ? _n : null;
+      const language = (_o = entry.primaryLanguage) != null ? _o : typeof meta.language === "string" ? meta.language.split("-")[0].toLowerCase() : null;
       const genres = resolveGenres(entry);
       const series = resolveSeries(entry);
-      const seriesIndex = (_s = (_r = (_p = (_o = (_n = entry.metadata) == null ? void 0 : _n.belongsTo) == null ? void 0 : _o.series) == null ? void 0 : _p.position) != null ? _r : (_q = entry.metadata) == null ? void 0 : _q.seriesIndex) != null ? _s : null;
+      const seriesIndex = (_u = (_t = (_r = (_q = (_p = entry.metadata) == null ? void 0 : _p.belongsTo) == null ? void 0 : _q.series) == null ? void 0 : _r.position) != null ? _t : (_s = entry.metadata) == null ? void 0 : _s.seriesIndex) != null ? _u : null;
       const seriesStr = series && seriesIndex ? `${series} #${seriesIndex}` : series;
       let localCoverData = null;
       for (const coverName of ["cover.png", "cover.jpg", "cover.jpeg"]) {
@@ -8040,7 +8048,7 @@ async function parseReadestFiles(syncPath) {
         fetchedDescription: description,
         publishedDate,
         publisher,
-        pageCount: (_t = progressArr == null ? void 0 : progressArr[1]) != null ? _t : null,
+        pageCount: (_v = progressArr == null ? void 0 : progressArr[1]) != null ? _v : null,
         genres,
         series: seriesStr,
         isbn10: null,
@@ -8096,11 +8104,11 @@ async function parseReadestFiles(syncPath) {
     } catch (e) {
     }
     let progress = null;
-    if (((_u = config.config) == null ? void 0 : _u.progress) && config.config.progress[1] > 0) {
+    if (((_w = config.config) == null ? void 0 : _w.progress) && config.config.progress[1] > 0) {
       progress = config.config.progress[0] / config.config.progress[1] * 100;
     }
-    const lastReadTimestamp = (_x = (_w = (_v = config.config) == null ? void 0 : _v.updatedAt) != null ? _w : config.updatedAt) != null ? _x : null;
-    const annotations = ((_y = config.booknotes) != null ? _y : []).filter((n) => n.deletedAt === null);
+    const lastReadTimestamp = (_z = (_y = (_x = config.config) == null ? void 0 : _x.updatedAt) != null ? _y : config.updatedAt) != null ? _z : null;
+    const annotations = ((_A = config.booknotes) != null ? _A : []).filter((n) => n.deletedAt === null);
     const highlights = annotations.map((ann, idx) => {
       var _a2, _b2, _c2, _d2;
       return {
@@ -8138,7 +8146,7 @@ async function parseReadestFiles(syncPath) {
       fetchedDescription: null,
       publishedDate: null,
       publisher: null,
-      pageCount: (_B = (_A = (_z = config.config) == null ? void 0 : _z.progress) == null ? void 0 : _A[1]) != null ? _B : null,
+      pageCount: (_D = (_C = (_B = config.config) == null ? void 0 : _B.progress) == null ? void 0 : _C[1]) != null ? _D : null,
       genres: null,
       series: null,
       isbn10: null,
