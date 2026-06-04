@@ -1,31 +1,45 @@
 # MoonSync
 
-Sync your reading highlights, notes, and progress from Moon+ Reader to **Obsidian** and **[Hardcover.app](https://hardcover.app)**.
+Sync your reading highlights, notes, and progress from **Moon+ Reader** and **[Readest](https://readest.com)** to **Obsidian** and **[Hardcover.app](https://hardcover.app)**.
 
 > [!NOTE]
-> MoonSync is a **desktop-only** plugin. It requires access to Moon Reader's sync folder on disk (via Dropbox, WebDAV, or FTP), which is not available on mobile.
+> MoonSync is a **desktop-only** plugin. It requires access to your reader's sync folder on disk (via Dropbox, WebDAV, or FTP), which is not available on mobile.
 
 <img src="assets/BookScreenshot.png" alt="Book note example" width="420">
 
 ## Features
 
+- **Moon+ Reader & Readest Support** — Sync highlights, progress, and metadata from both Moon+ Reader and Readest
 - **Obsidian Sync** — Automatically create and update book notes with highlights, reading progress, covers, and metadata
 - **Hardcover Sync** — Push reading status and progress to [Hardcover.app](https://hardcover.app) so your library stays up to date across platforms
-- **Rich Metadata** — Book covers, descriptions, genres, series info, reading time, and ratings — sourced from [Hardcover](https://hardcover.app) (recommended), Moon Reader's sync data, or Google Books and Open Library as a fallback
+- **Rich Metadata** — Book covers, descriptions, genres, series info, reading time, and ratings — sourced from [Hardcover](https://hardcover.app) (recommended), your reader's sync data, or Google Books and Open Library as a fallback
 - **Library Index** — Auto-generated index with cover collage, stats, and an Obsidian Bases database view
-- **Highlight Colors** — Preserve Moon Reader highlight colors as styled callouts
-- **File Watcher** — Automatically sync when Moon Reader cache files change (ideal for always-on servers)
+- **Highlight Colors** — Preserve Moon+ Reader highlight colors as styled callouts
+- **File Watcher** — Automatically sync when reader cache files change (ideal for always-on servers)
 - **Smart Updates** — Only syncs when highlights or progress actually change
+- **Manual Book Notes** — Track books read outside of Moon+ Reader or Readest with manually created notes
 
 ## How It Works
 
-Moon Reader syncs your reading data to the cloud (Dropbox, WebDAV, or FTP). MoonSync reads that data and creates rich book notes in Obsidian. If Hardcover sync is enabled, it also updates your reading status there.
+Moon+ Reader and Readest sync your reading data to the cloud (Dropbox, WebDAV, or FTP). MoonSync reads that data and creates rich book notes in Obsidian. If Hardcover sync is enabled, it also updates your reading status there.
 
-**Data flow:** Moon Reader → Cloud Sync → MoonSync → Obsidian + Hardcover
+**Data flow:** Moon+ Reader / Readest → Cloud Sync → MoonSync → Obsidian + Hardcover
+
+## Readest Support
+
+MoonSync fully supports [Readest](https://readest.com), an open-source desktop e-reader. Readest stores its data in a local `library.json` file and per-book highlight files. MoonSync reads these directly and creates the same rich book notes it creates for Moon+ Reader.
+
+To use MoonSync with Readest, point the **Readest Data Path** setting at your Readest data folder. On macOS this is typically `~/Library/Application Support/Readest/`.
+
+MoonSync uses `library.json` as the authoritative source for Readest book titles and metadata, and cross-references Hardcover for enriched data. Highlights and reading progress are read from Readest's per-book cache files.
+
+Readest notes are stored in a `Books/Readest/` subfolder, separate from Moon+ Reader notes (`Books/MoonReader/`), so the two libraries stay organized independently.
+
+## Moon+ Reader — How It Works
 
 ### Sync My Shelf (Recommended)
 
-For the best experience, enable **"Sync books across devices"** (also called "Sync my shelf") in Moon Reader's sync settings. This creates a `books.sync` file that contains your full Moon Reader library with rich metadata.
+For the best experience with Moon+ Reader, enable **"Sync books across devices"** (also called "Sync my shelf") in Moon Reader's sync settings. This creates a `books.sync` file that contains your full Moon Reader library with rich metadata.
 
 When enabled, MoonSync gets the following data locally from your sync folder:
 
@@ -64,8 +78,8 @@ If "Sync my shelf" is not enabled, MoonSync falls back to discovering books from
 
 ### Requirements
 
-- [Moon Reader](https://play.google.com/store/apps/details?id=com.flyersoft.moonreader)
-- [Dropbox Desktop App](https://www.dropbox.com/desktop) or mounted WebDAV/FTP server
+- [Moon+ Reader](https://play.google.com/store/apps/details?id=com.flyersoft.moonreader) and/or [Readest](https://readest.com)
+- [Dropbox Desktop App](https://www.dropbox.com/desktop) or mounted WebDAV/FTP server (Moon+ Reader), or local Readest data folder (Readest)
 - [Obsidian](https://obsidian.md/download)
 - [BRAT](https://github.com/TfTHacker/obsidian42-brat)
 
@@ -100,22 +114,23 @@ Once MoonSync is installed, you will need to configure it before it can complete
 1. Open up Settings → Community Plugins → MoonSync
 2. Enable MoonSync
 3. Click on the settings Cog to open up MoonSync settings.
-4. Under configuration, browse to your Moon Reader sync folder on your computer. For Dropbox this is typically `.../Dropbox/Apps/Books/`. For WebDAV/FTP, point it to your mounted server. MoonSync will validate that it can find the correct cache files.
-5. Press Sync
+4. Under configuration, browse to your Moon+ Reader sync folder on your computer. For Dropbox this is typically `.../Dropbox/Apps/Books/`. For WebDAV/FTP, point it to your mounted server. MoonSync will validate that it can find the correct cache files.
+5. If using Readest, set the **Readest Data Path** to your Readest data folder.
+6. Press Sync
 
 <img src="assets/validate.png" alt="Validate" width="500">
 
-By default, MoonSync will now Sync your books anytime you open Obsidian. You can also trigger a manual sync at anytime via the ribbon menu shortcut or Command Palette (see below).
+By default, MoonSync will now sync your books anytime you open Obsidian. You can also trigger a manual sync at anytime via the ribbon menu shortcut or Command Palette (see below).
 
-### Setting Up Moon Reader for Best Results
+### Setting Up Moon+ Reader for Best Results
 
-For the richest and most accurate metadata, configure Moon Reader as follows:
+For the richest and most accurate metadata, configure Moon+ Reader as follows:
 
 1. **Enable cloud sync** — In Moon Reader, go to Misc → Sync to cloud and configure your sync provider (Dropbox, WebDAV, or FTP)
 2. **Enable "Sync books across devices"** — This is the key setting. It creates the `books.sync` file that MoonSync uses for offline metadata. Found in Misc → Sync to cloud → Sync books across devices.
 3. **Enable "Track books without highlights"** in MoonSync settings — This allows MoonSync to discover all books in your library, not just ones with highlights.
 
-With all three enabled, every book in your Moon Reader library will appear in Obsidian with full metadata, even if you haven't made any highlights yet.
+With all three enabled, every book in your Moon+ Reader library will appear in Obsidian with full metadata, even if you haven't made any highlights yet.
 
 ### Setting Up Hardcover
 
@@ -142,16 +157,16 @@ With "Sync reading progress" enabled, MoonSync also updates your Hardcover libra
 MoonSync searches Hardcover by title to find matching books. Once matched, the `hardcover_id` is saved to your note's frontmatter so future syncs are instant. If the wrong book is matched, use the **Update Hardcover Link** command to correct it.
 
 #### My Notes
-Every book note contains a section called "My Notes". You can add your own notes here such as your thoughts on the book. As your reading progresses, MoonSync will continue to update your reading progress and add new highlights. Anything added in "My Notes" will be preserved.
+Every book note contains a section called "My Notes". You can add your own thoughts and notes here. As your reading progresses, MoonSync will continue to update your reading progress and add new highlights. Anything added in "My Notes" will be preserved.
 
 #### Typical Sync Workflow
-1. Read book and make highlights in Moon Reader
-2. Once you are finished reading, sync your progress to the cloud. Depending on your app settings, you may need to trigger this manually.
-3. Trigger MoonSync by opening Obsidian or clicking the ribbon  button.
-4. Your highlights and reading progress should immediately become available.
+1. Read book and make highlights in Moon+ Reader or Readest
+2. Once you are finished reading, sync your progress to the cloud (Moon+ Reader) or let Readest write its local data
+3. Trigger MoonSync by opening Obsidian or clicking the ribbon button
+4. Your highlights and reading progress should immediately become available
 
 #### FTP/WebDAV Support
-Although Dropbox is the easiest way to sync your notes, Moon Reader also supports syncing via WebDAV or FTP. This requires you to have your own WebDAV or FTP server and is therefore a bit more involved to get working. MoonSync has been tested and works perfectly using a selfhosted server such as [SFTPGo](https://github.com/drakkan/sftpgo).
+Although Dropbox is the easiest way to sync your notes, Moon+ Reader also supports syncing via WebDAV or FTP. This requires you to have your own WebDAV or FTP server and is therefore a bit more involved to get working. MoonSync has been tested and works perfectly using a selfhosted server such as [SFTPGo](https://github.com/drakkan/sftpgo).
 
 ### Manual Book Sync
 If you do not want to use automatic syncing, MoonSync also supports manual exports.
@@ -169,17 +184,21 @@ Once you have exported your notes, you can import it using the command palette:
 3. Choose `MoonSync: Import Note`
 4. MoonSync will automatically create a new book note, find matching metadata, and update the index & base files.
 
-## Custom Books
-Sometimes you may have books you wish to keep track of that you read outside of Moon Reader. MoonSync supports creating custom books that can be tracked in the same manner.
+## Custom & Manual Books
+Sometimes you may have books you wish to keep track of that you read outside of Moon+ Reader or Readest. MoonSync supports creating custom book notes and tracking manually created notes in your library index.
 
-To create a custom book,
-1. Open the Command Palette and select `MoonSync: Create Book Note`.
+### Creating a Book Note
+1. Open the Command Palette and select `MoonSync: Create Book Note`
 2. Search for your book in the search prompt
 3. Select your book
 
-MoonSync will import all available metadata and create a new book note in `/Books`. You can then enter your favorite highlights and notes!
+MoonSync will import all available metadata and create a new book note in `/Books`. You can then enter your favorite highlights and notes. If in the future you begin reading that same book in Moon+ Reader or Readest and make highlights, MoonSync will intelligently update the note so you won't lose your past notes.
 
-If in the future, you begin reading that same book in Moon Reader, and make more highlights, MoonSync will intelligently update this note so you won't lose any of your past highlights.
+### Organizing Manual Notes
+
+If you have existing notes with `manual_note: true` in their frontmatter, MoonSync can automatically organize them into a `Books/Manual Notes/` subfolder. Enable **Organize Manual Books** in settings — the migration runs immediately when the toggle is turned on, no sync required.
+
+Manual notes are still included in the Library Index and Base regardless of whether they're organized into a subfolder.
 
 ## Command Palette
 
@@ -188,13 +207,13 @@ MoonSync provides several commands accessible via the command palette (`Cmd/Ctrl
 <img src="assets/CommandPalette.png" alt="Command Palette" width="420">
 
 ### Sync Now
-Synchronize all books from Moon Reader. Only updates notes when highlights or progress have changed.
+Synchronize all books from Moon+ Reader and Readest. Only updates notes when highlights or progress have changed.
 
 ### Import Note
 Import highlights from a manual Moon Reader export. Useful for one-time imports or when cloud sync isn't available.
 
 ### Create Book Note
-Create a new book note. The command opens up a search modal to find the book via Google Books. It then creates a new note for it.
+Create a new book note. The command opens up a search modal to find the book via Hardcover or Google Books. It then creates a new note for it.
 
 ### Fetch Book Cover
 Re-fetch the cover image for the current note. Useful if a cover is missing or you have a different edition you prefer. Covers can be selected via search or by importing from a url.
@@ -211,17 +230,19 @@ MoonSync has a variety of settings to customize how the plugin works. Default se
 ### Configuration Tab
 These settings configure how MoonSync works.
 #### Configuration
-- **Moon Reader Sync Path** - path to your Moon Reader sync folder (Dropbox, mounted WebDAV, or FTP). For Dropbox this is typically `.../Dropbox/Apps/Books`. The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
-- **Output Folder** - Where your booknotes will be stored. Default: `/Books`
+- **Moon Reader Sync Path** - path to your Moon+ Reader sync folder (Dropbox, mounted WebDAV, or FTP). For Dropbox this is typically `.../Dropbox/Apps/Books`. The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
+- **Readest Data Path** - path to your Readest data folder. On macOS this is typically `~/Library/Application Support/Readest/`.
+- **Output Folder** - Where your book notes will be stored. Default: `/Books`. Moon+ Reader notes go into a `MoonReader/` subfolder, Readest notes into `Readest/`, and manual notes into `Manual Notes/` (if organizing is enabled).
 
 #### Sync Options
 - **Sync Now** - Trigger manual sync
 - **Sync on Startup** - Automatically sync when Obsidian starts
 - **Show Ribbon Icon** - Show sync button in the ribbon menu
-- **Track Books Without Highlights** - Track all books in your Moon Reader library, not just ones with highlights. When "Sync my shelf" is enabled in Moon Reader, this discovers your entire library from the sync data. Otherwise, it tracks books that have reading progress but no highlights yet.
-- **Automatic Sync** - Automatically sync when Moon Reader cache files are updated. Best suited when Obsidian is hosted on an always-on server. Uses a 3-second debounce to batch rapid file writes.
+- **Track Books Without Highlights** - Track all books in your library, not just ones with highlights. When "Sync my shelf" is enabled in Moon Reader, this discovers your entire library from the sync data. Otherwise, it tracks books that have reading progress but no highlights yet.
+- **Automatic Sync** - Automatically sync when reader cache files are updated. Best suited when Obsidian is hosted on an always-on server. Uses a 3-second debounce to batch rapid file writes.
 
 #### Maintenance
+- **Organize Manual Books** - Move notes with `manual_note: true` in their frontmatter into a `Books/Manual Notes/` subfolder. Applies immediately when the toggle is enabled.
 - **Force Resync All Books** - Clears the metadata cache and resyncs all books with the latest data. Useful after plugin updates or if you want to regenerate all notes with the latest enrichment data.
 
 ### Content Tab
@@ -240,7 +261,7 @@ Note: Enabling/disabling these options will show/hide the feature in real time.
 - **Regenerate All Notes** - Force all book notes to be rewritten with the current settings. Useful after changing the sort order.
 
 ### Index & Base Tab
-MoonSync automatically generates an index and base note to give you different way to visualize your data. These settings allow you to customize your index and base.
+MoonSync automatically generates an index and base note to give you different ways to visualize your data. These settings allow you to customize your index and base.
 
 #### Library Index
 
@@ -311,7 +332,7 @@ No, but it's recommended. Hardcover provides significantly better metadata (titl
 <details>
 <summary>Does MoonSync work on mobile?</summary>
 
-Not currently. MoonSync requires access to Moon Reader's sync folder on disk (via Dropbox, WebDAV, or FTP), which is only available on desktop.
+Not currently. MoonSync requires access to your reader's sync folder on disk (via Dropbox, WebDAV, or FTP for Moon+ Reader, or local app data for Readest), which is only available on desktop.
 </details>
 
 <details>
@@ -321,15 +342,21 @@ Cloud sync (Dropbox, WebDAV, FTP) is a Pro-only feature, so automatic syncing re
 </details>
 
 <details>
+<summary>Does MoonSync support Readest?</summary>
+
+Yes. MoonSync fully supports [Readest](https://readest.com). Point the **Readest Data Path** setting at your Readest data folder and MoonSync will pick up highlights, progress, and metadata from both sources. Readest notes are stored in `Books/Readest/` and Moon+ Reader notes in `Books/MoonReader/`.
+</details>
+
+<details>
 <summary>Can I use MoonSync with Kindle or other e-readers?</summary>
 
-No. MoonSync is designed specifically for Moon Reader's sync format. It reads `.an`, `.po`, and `books.sync` files that are unique to Moon Reader.
+No. MoonSync is designed specifically for Moon+ Reader and Readest. It reads the file formats unique to those apps.
 </details>
 
 <details>
 <summary>Does MoonSync support PDFs?</summary>
 
-Yes. Moon Reader supports PDFs, and MoonSync will pick up highlights and progress from PDF files just like EPUBs.
+Yes. Moon+ Reader supports PDFs, and MoonSync will pick up highlights and progress from PDF files just like EPUBs.
 </details>
 
 <details>
@@ -353,7 +380,7 @@ Nothing. Your Obsidian book notes are independent files — MoonSync will never 
 <details>
 <summary>How often does MoonSync sync?</summary>
 
-By default, MoonSync syncs once when Obsidian starts. You can also trigger a manual sync anytime via the ribbon icon or command palette. If you enable "Automatic Sync," it watches your sync folder for changes and syncs within a few seconds of Moon Reader updating its cache files.
+By default, MoonSync syncs once when Obsidian starts. You can also trigger a manual sync anytime via the ribbon icon or command palette. If you enable "Automatic Sync," it watches your sync folder for changes and syncs within a few seconds of Moon Reader or Readest updating its files.
 </details>
 
 <details>
@@ -365,21 +392,21 @@ You can toggle individual sections on or off (description, progress, covers, hig
 <details>
 <summary>How does Hardcover progress sync work?</summary>
 
-Whenever your progress changes in Moon Reader, and Hardcover sync is enabled, MoonSync will push that to Hardcover. Your progress (percent and page number) will therefore be reflected in Hardcover. It will also update the reading status of books (Currently Reading, Read) automatically. When a book changes from 0%, it will update the status from Want to Read to Currently Reading. When the progress gets to 99%, the book will be marked as Read. 
+Whenever your progress changes in Moon+ Reader or Readest, and Hardcover sync is enabled, MoonSync will push that to Hardcover. Your progress (percent and page number) will be reflected in Hardcover. It will also update the reading status of books (Currently Reading, Read) automatically. When a book changes from 0%, it will update the status from Want to Read to Currently Reading. When the progress gets to 99%, the book will be marked as Read.
 
 </details>
 
 
 ## Privacy & Security
 
-- **Read-only access**: MoonSync only reads from your sync folder. It never modifies your Moon Reader data.
+- **Read-only access**: MoonSync only reads from your sync folder. It never modifies your Moon+ Reader or Readest data.
 - **Local processing**: All data stays on your machine. Highlights and reading progress are read locally from your sync folder. Metadata and covers are fetched from external APIs (Hardcover, Google Books, Open Library) and cached locally.
 - **Caching**: API responses are cached locally to minimize external requests.
 
 ## Troubleshooting
 
 ### "No annotation files found"
-- Ensure Moon Reader has cloud sync enabled
+- Ensure Moon+ Reader has cloud sync enabled
 - Check that highlights exist and have synced to your sync folder
 - Depending on your device, and settings, you may have to trigger a manual sync in Moon Reader (Sync to Cloud)
 - Verify the path points to the folder containing `.Moon+` (e.g. `Dropbox/Apps/Books` or your mounted WebDAV/FTP server)
@@ -388,10 +415,11 @@ Whenever your progress changes in Moon Reader, and Hardcover sync is enabled, Mo
 - Enable "Track books without highlights" in MoonSync settings
 - Enable "Sync books across devices" in Moon Reader's sync settings for full library discovery
 - If using "Sync my shelf", make sure you've synced at least once from Moon Reader after enabling it
+- For Readest, verify the **Readest Data Path** points to the correct folder
 
 ### Progress not showing
-- Progress requires a `.po` file for the book
-- Open the book in Moon Reader and let it sync
+- Progress requires a `.po` file for the book (Moon+ Reader) or a progress entry in Readest's data
+- Open the book in your reader and let it sync
 
 ### Covers/descriptions not loading
 - Check your internet connection (only needed if "Sync my shelf" is not enabled)
