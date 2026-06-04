@@ -8519,7 +8519,7 @@ function appendBookSection(lines, heading, books) {
   );
   for (const bookData of sorted) {
     const rawFilename = bookData.book.filename;
-    const filename = rawFilename && !rawFilename.includes("/") ? rawFilename : generateFilename(bookData.book.title);
+    const filename = bookData.source ? generateFilename(bookData.book.title) : rawFilename && !rawFilename.includes("/") ? rawFilename : generateFilename(bookData.book.title);
     const author = bookData.book.author ? ` by ${bookData.book.author}` : "";
     const progress = bookData.progress !== null ? ` (${bookData.progress.toFixed(0)}%)` : "";
     const highlightCount = bookData.highlights.length;

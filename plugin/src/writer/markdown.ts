@@ -334,9 +334,12 @@ function appendBookSection(lines: string[], heading: string, books: BookData[]):
 
 	for (const bookData of sorted) {
 		const rawFilename = bookData.book.filename;
-		const filename = (rawFilename && !rawFilename.includes("/"))
-			? rawFilename
-			: generateFilename(bookData.book.title);
+		// Source books (MR/Readest) always use generateFilename so the link matches the note filename.
+		// User-created/scanned books use the actual filename on disk (rawFilename) since their
+		// note name may differ from the title.
+		const filename = bookData.source
+			? generateFilename(bookData.book.title)
+			: (rawFilename && !rawFilename.includes("/") ? rawFilename : generateFilename(bookData.book.title));
 		const author = bookData.book.author ? ` by ${bookData.book.author}` : "";
 		const progress = bookData.progress !== null ? ` (${bookData.progress.toFixed(0)}%)` : "";
 		const highlightCount = bookData.highlights.length;
