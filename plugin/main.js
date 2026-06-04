@@ -9224,8 +9224,8 @@ function getReadestOutputPath(settings) {
   }
   return base;
 }
-async function scanCustomBooks(app, baseOutputPath, mrOutputPath, readestOutputPath, indexFilename) {
-  const paths = Array.from(/* @__PURE__ */ new Set([baseOutputPath, mrOutputPath, readestOutputPath]));
+async function scanCustomBooks(app, baseOutputPath, mrOutputPath, readestOutputPath, indexFilename, manualOutputPath) {
+  const paths = Array.from(/* @__PURE__ */ new Set([baseOutputPath, mrOutputPath, readestOutputPath, ...manualOutputPath ? [manualOutputPath] : []]));
   const all = [];
   const seen = /* @__PURE__ */ new Set();
   for (const p of paths) {
@@ -9537,7 +9537,8 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       baseOutputPath,
       outputPath,
       readestOutputPath,
-      `${settings.indexNoteTitle}.md`
+      `${settings.indexNoteTitle}.md`,
+      settings.organizeManualBooks ? getManualOutputPath(settings) : void 0
     );
     if (customBooks.length > 0) {
       const totalCustom = customBooks.length;
@@ -10185,6 +10186,9 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
   const originalTitle = bookData.book.title;
   const originalAuthor = bookData.book.author;
   const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
+  if ((cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && bookData.source !== "readest") {
+    bookData.book.title = cachedInfo.title;
+  }
   const lookupTitle = (cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle && bookData.source !== "readest" ? cachedInfo.title : bookData.book.title;
   const filename = generateFilename(lookupTitle);
   let filePath = await findExistingFile(app, outputPath, filename, lookupTitle, titleCache, bookData.previousTitle);

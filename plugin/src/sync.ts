@@ -90,9 +90,10 @@ async function scanCustomBooks(
 	baseOutputPath: string,
 	mrOutputPath: string,
 	readestOutputPath: string,
-	indexFilename: string
+	indexFilename: string,
+	manualOutputPath?: string
 ): Promise<ReturnType<typeof scanAllBookNotes> extends Promise<infer T> ? T : never> {
-	const paths = Array.from(new Set([baseOutputPath, mrOutputPath, readestOutputPath]));
+	const paths = Array.from(new Set([baseOutputPath, mrOutputPath, readestOutputPath, ...(manualOutputPath ? [manualOutputPath] : [])]));
 	const all: Awaited<ReturnType<typeof scanAllBookNotes>> = [];
 	const seen = new Set<string>();
 	for (const p of paths) {
@@ -510,7 +511,8 @@ export async function syncFromMoonReader(
 		const scannedBooks = await scanAllBookNotes(app, outputPath);
 		const customBooks = await scanCustomBooks(
 			app, baseOutputPath, outputPath, readestOutputPath,
-			`${settings.indexNoteTitle}.md`
+			`${settings.indexNoteTitle}.md`,
+			settings.organizeManualBooks ? getManualOutputPath(settings) : undefined
 		);
 
 		if (customBooks.length > 0) {
@@ -1398,6 +1400,10 @@ async function processBook(
 
 	// Check cache first — if a curated source overrode the title, use that for file lookup
 	const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
+	// Apply cached Hardcover title immediately so the index uses it even if this book is skipped early
+	if (cachedInfo?.source === "hardcover" && cachedInfo.title && bookData.source !== "readest") {
+		bookData.book.title = cachedInfo.title;
+	}
 	// For Readest books, library.json is authoritative — never use a cached Hardcover title for lookup
 	const lookupTitle = (cachedInfo?.source === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle && bookData.source !== "readest")
 		? cachedInfo.title
