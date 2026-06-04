@@ -1,7 +1,7 @@
 import { Plugin, Notice, normalizePath, TFile, FileSystemAdapter } from "obsidian";
 import { MoonSyncSettings, DEFAULT_SETTINGS, BookData } from "./src/types";
 import { MoonSyncSettingTab } from "./src/settings";
-import { syncFromMoonReader, showSyncResults, refreshIndexNote, refreshBaseFile } from "./src/sync";
+import { syncFromMoonReader, showSyncResults, refreshIndexNote, refreshBaseFile, migrateManualBooks } from "./src/sync";
 import { CreateBookModal, generateBookTemplate, SelectCoverModal, SelectBookMetadataModal, UpdateHardcoverModal } from "./src/modal";
 import { generateFilename, generateBookNote } from "./src/writer/markdown";
 import { fetchBookInfo, downloadCover, downloadAndResizeCover, BookInfoResult } from "./src/covers";
@@ -336,6 +336,16 @@ export default class MoonSyncPlugin extends Plugin {
 
 	async refreshBase(): Promise<void> {
 		await refreshBaseFile(this.app, this.settings);
+	}
+
+	async organizeManualBooks(): Promise<void> {
+		try {
+			await migrateManualBooks(this.app, this.settings);
+			new Notice("MoonSync: Manual books organized into Manual Notes/ folder");
+		} catch (error) {
+			new Notice("MoonSync: Failed to organize manual books");
+			console.error("MoonSync: organizeManualBooks failed", error);
+		}
 	}
 
 	async deleteIndex(): Promise<void> {

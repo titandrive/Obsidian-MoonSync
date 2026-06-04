@@ -12,6 +12,63 @@ import { syncBooksToHardcover, syncBookHighlights, HardcoverSyncItem } from "./h
 import { enrichBooksWithSyncData } from "./enrichment";
 import { getLocalCover } from "./parser/local-covers";
 
+export function getManualOutputPath(settings: MoonSyncSettings): string {
+	const base = normalizePath(settings.outputFolder);
+	if (settings.organizeManualBooks) {
+		return normalizePath(`${base}/Manual Notes`);
+	}
+	return base;
+}
+
+export async function migrateManualBooks(app: App, settings: MoonSyncSettings): Promise<void> {
+	if (!settings.organizeManualBooks) return;
+
+	const base = normalizePath(settings.outputFolder);
+	const manualPath = normalizePath(`${base}/Manual Notes`);
+
+	// Scan all possible locations for manual notes
+	const searchPaths = Array.from(new Set([
+		base,
+		getMoonReaderOutputPath(settings),
+		getReadestOutputPath(settings),
+	]));
+
+	const toMove: string[] = [];
+
+	for (const searchPath of searchPaths) {
+		try {
+			const listing = await app.vault.adapter.list(searchPath);
+			for (const filePath of listing.files) {
+				if (!filePath.endsWith(".md")) continue;
+				// Skip if already in Manual/
+				if (filePath.startsWith(manualPath + "/") || filePath.startsWith(manualPath + "\\")) continue;
+				try {
+					const content = await app.vault.adapter.read(filePath);
+					if (/^manual_note:\s*true/m.test(content)) {
+						toMove.push(filePath);
+					}
+				} catch { /* skip */ }
+			}
+		} catch { /* folder may not exist */ }
+	}
+
+	if (toMove.length === 0) return;
+
+	if (!await app.vault.adapter.exists(manualPath)) {
+		await app.vault.createFolder(manualPath);
+	}
+
+	for (const filePath of toMove) {
+		const filename = filePath.split("/").pop()!;
+		const dest = normalizePath(`${manualPath}/${filename}`);
+		try {
+			const content = await app.vault.adapter.read(filePath);
+			await app.vault.adapter.write(dest, content);
+			await app.vault.adapter.remove(filePath);
+		} catch { /* skip — original stays, retry next sync */ }
+	}
+}
+
 export function getMoonReaderOutputPath(settings: MoonSyncSettings): string {
 	const base = normalizePath(settings.outputFolder);
 	if (settings.moonReaderEnabled && settings.readestEnabled) {
@@ -255,6 +312,9 @@ export async function syncFromMoonReader(
 			await migrateToSubdirectories(app, settings);
 		}
 
+		// Move manual_note: true books to Books/Manual Notes/ if that setting is on
+		await migrateManualBooks(app, settings);
+
 		const outputPath = useSeparateDirs
 			? normalizePath(`${baseOutputPath}/MoonReader`)
 			: normalizePath(settings.outputFolder);
@@ -459,7 +519,10 @@ export async function syncFromMoonReader(
 				const customBook = customBooks[i];
 				progressNotice.setMessage(`MoonSync: ${customBook.title} (${i + 1}/${totalCustom} custom)`);
 				try {
-					const processed = await processCustomBook(app, outputPath, customBook, settings, result, cache);
+					const customBookPath = (settings.organizeManualBooks && customBook.filePath.includes("/Manual Notes/"))
+					? getManualOutputPath(settings)
+					: outputPath;
+				const processed = await processCustomBook(app, customBookPath, customBook, settings, result, cache);
 					if (processed) {
 						cacheModified = true;
 					}

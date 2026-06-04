@@ -6119,6 +6119,7 @@ var DEFAULT_SETTINGS = {
   coverCollageSort: "alpha",
   trackBooksWithoutHighlights: true,
   highlightSort: "position",
+  organizeManualBooks: false,
   hardcoverEnabled: false,
   hardcoverToken: "",
   hardcoverSyncProgress: true,
@@ -6287,6 +6288,15 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.outputFolder).onChange(async (value) => {
         this.plugin.settings.outputFolder = value || "Books";
         await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian2.Setting(container).setName("Organize manual books").setDesc("Move notes with manual_note: true in their frontmatter into a Manual Notes/ subfolder. Applies immediately when enabled.").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.organizeManualBooks).onChange(async (value) => {
+        this.plugin.settings.organizeManualBooks = value;
+        await this.plugin.saveSettings();
+        if (value) {
+          await this.plugin.organizeManualBooks();
+        }
       })
     );
     new import_obsidian2.Setting(container).setName("Sync").setDesc("Control when and how MoonSync syncs your highlights.").setHeading();
@@ -9140,10 +9150,70 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
 }
 
 // src/sync.ts
+function getManualOutputPath(settings) {
+  const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+  if (settings.organizeManualBooks) {
+    return (0, import_obsidian7.normalizePath)(`${base}/Manual Notes`);
+  }
+  return base;
+}
+async function migrateManualBooks(app, settings) {
+  if (!settings.organizeManualBooks)
+    return;
+  const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+  const manualPath = (0, import_obsidian7.normalizePath)(`${base}/Manual Notes`);
+  const searchPaths = Array.from(/* @__PURE__ */ new Set([
+    base,
+    getMoonReaderOutputPath(settings),
+    getReadestOutputPath(settings)
+  ]));
+  const toMove = [];
+  for (const searchPath of searchPaths) {
+    try {
+      const listing = await app.vault.adapter.list(searchPath);
+      for (const filePath of listing.files) {
+        if (!filePath.endsWith(".md"))
+          continue;
+        if (filePath.startsWith(manualPath + "/") || filePath.startsWith(manualPath + "\\"))
+          continue;
+        try {
+          const content = await app.vault.adapter.read(filePath);
+          if (/^manual_note:\s*true/m.test(content)) {
+            toMove.push(filePath);
+          }
+        } catch (e) {
+        }
+      }
+    } catch (e) {
+    }
+  }
+  if (toMove.length === 0)
+    return;
+  if (!await app.vault.adapter.exists(manualPath)) {
+    await app.vault.createFolder(manualPath);
+  }
+  for (const filePath of toMove) {
+    const filename = filePath.split("/").pop();
+    const dest = (0, import_obsidian7.normalizePath)(`${manualPath}/${filename}`);
+    try {
+      const content = await app.vault.adapter.read(filePath);
+      await app.vault.adapter.write(dest, content);
+      await app.vault.adapter.remove(filePath);
+    } catch (e) {
+    }
+  }
+}
 function getMoonReaderOutputPath(settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
   if (settings.moonReaderEnabled && settings.readestEnabled) {
     return (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
+  }
+  return base;
+}
+function getReadestOutputPath(settings) {
+  const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+  if (settings.moonReaderEnabled && settings.readestEnabled) {
+    return (0, import_obsidian7.normalizePath)(`${base}/Readest`);
   }
   return base;
 }
@@ -9319,6 +9389,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     } else if (useSeparateDirs && hasFlatMrNotes) {
       await migrateToSubdirectories(app, settings);
     }
+    await migrateManualBooks(app, settings);
     const outputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
     const readestOutputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/Readest`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
     let booksWithHighlights = [];
@@ -9467,7 +9538,8 @@ async function syncFromMoonReader(app, settings, wasmPath) {
         const customBook = customBooks[i];
         progressNotice.setMessage(`MoonSync: ${customBook.title} (${i + 1}/${totalCustom} custom)`);
         try {
-          const processed = await processCustomBook(app, outputPath, customBook, settings, result, cache);
+          const customBookPath = settings.organizeManualBooks && customBook.filePath.includes("/Manual Notes/") ? getManualOutputPath(settings) : outputPath;
+          const processed = await processCustomBook(app, customBookPath, customBook, settings, result, cache);
           if (processed) {
             cacheModified = true;
           }
@@ -10912,6 +10984,15 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
   }
   async refreshBase() {
     await refreshBaseFile(this.app, this.settings);
+  }
+  async organizeManualBooks() {
+    try {
+      await migrateManualBooks(this.app, this.settings);
+      new import_obsidian8.Notice("MoonSync: Manual books organized into Manual Notes/ folder");
+    } catch (error) {
+      new import_obsidian8.Notice("MoonSync: Failed to organize manual books");
+      console.error("MoonSync: organizeManualBooks failed", error);
+    }
   }
   async deleteIndex() {
     const outputPath = (0, import_obsidian8.normalizePath)(this.settings.outputFolder);

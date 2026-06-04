@@ -197,6 +197,21 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					})
 			);
 
+		new Setting(container)
+			.setName("Organize manual books")
+			.setDesc("Move notes with manual_note: true in their frontmatter into a Manual Notes/ subfolder. Applies immediately when enabled.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.organizeManualBooks)
+					.onChange(async (value) => {
+						this.plugin.settings.organizeManualBooks = value;
+						await this.plugin.saveSettings();
+						if (value) {
+							await this.plugin.organizeManualBooks();
+						}
+					})
+			);
+
 		new Setting(container).setName("Sync").setDesc("Control when and how MoonSync syncs your highlights.").setHeading();
 
 		new Setting(container)

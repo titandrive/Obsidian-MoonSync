@@ -80,6 +80,7 @@ export interface MoonSyncSettings {
 	coverCollageSort: "alpha" | "recent";
 	trackBooksWithoutHighlights: boolean;
 	highlightSort: "position" | "position-reverse" | "date" | "date-reverse";
+	organizeManualBooks: boolean;
 	hardcoverEnabled: boolean;
 	hardcoverToken: string;
 	hardcoverSyncProgress: boolean;
@@ -109,6 +110,7 @@ export const DEFAULT_SETTINGS: MoonSyncSettings = {
 	coverCollageSort: "alpha",
 	trackBooksWithoutHighlights: true,
 	highlightSort: "position",
+	organizeManualBooks: false,
 	hardcoverEnabled: false,
 	hardcoverToken: "",
 	hardcoverSyncProgress: true,
