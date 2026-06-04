@@ -195,9 +195,9 @@ export async function parseReadestFiles(syncPath: string): Promise<BookData[]> {
 			if (isRawFilename) title = cleanComicTitle(title);
 			const author = resolveAuthor(entry);
 
-			// Progress: prefer library.json (master state); fall back to config.json
+			// Progress: prefer config.json (written during reading); fall back to library.json
 			let progress: number | null = null;
-			const progressArr = entry.progress ?? bookConfig?.config?.progress;
+			const progressArr = bookConfig?.config?.progress ?? entry.progress;
 			if (progressArr && progressArr[1] > 0) {
 				progress = (progressArr[0] / progressArr[1]) * 100;
 			}
@@ -208,10 +208,12 @@ export async function parseReadestFiles(syncPath: string): Promise<BookData[]> {
 				?? entry.updatedAt
 				?? null;
 
-			// Annotations from config.json
-			const annotations = (bookConfig?.booknotes ?? []).filter(n => n.deletedAt === null);
-			const highlights: MoonReaderHighlight[] = annotations.map((ann, idx) => ({
-				id: idx,
+			// Annotations from config.json — exclude bookmarks and soft-deleted entries
+			const annotations = (bookConfig?.booknotes ?? []).filter(
+				n => n.deletedAt === null && n.type !== "bookmark"
+			);
+			const highlights: MoonReaderHighlight[] = annotations.map((ann) => ({
+				id: parseInt(ann.id, 36) || ann.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0),
 				book: title,
 				filename: title,
 				chapter: cfiToChapter(ann.cfi),
@@ -222,8 +224,8 @@ export async function parseReadestFiles(syncPath: string): Promise<BookData[]> {
 				bookmark: "",
 				note: ann.note ?? "",
 				originalText: ann.text ?? "",
-				underline: false,
-				strikethrough: false,
+				underline: ann.style === "underline",
+				strikethrough: ann.style === "strikethrough",
 			}));
 
 			// Metadata from library.json
@@ -326,9 +328,11 @@ export async function parseReadestFiles(syncPath: string): Promise<BookData[]> {
 		}
 
 		const lastReadTimestamp = config.config?.updatedAt ?? config.updatedAt ?? null;
-		const annotations = (config.booknotes ?? []).filter(n => n.deletedAt === null);
-		const highlights: MoonReaderHighlight[] = annotations.map((ann, idx) => ({
-			id: idx,
+		const annotations = (config.booknotes ?? []).filter(
+			n => n.deletedAt === null && n.type !== "bookmark"
+		);
+		const highlights: MoonReaderHighlight[] = annotations.map((ann) => ({
+			id: parseInt(ann.id, 36) || ann.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0),
 			book: title,
 			filename: title,
 			chapter: cfiToChapter(ann.cfi),
@@ -339,8 +343,8 @@ export async function parseReadestFiles(syncPath: string): Promise<BookData[]> {
 			bookmark: "",
 			note: ann.note ?? "",
 			originalText: ann.text ?? "",
-			underline: false,
-			strikethrough: false,
+			underline: ann.style === "underline",
+			strikethrough: ann.style === "strikethrough",
 		}));
 
 		let localCoverData: Buffer | null = null;

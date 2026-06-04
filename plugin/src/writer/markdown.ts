@@ -278,9 +278,15 @@ export function generateIndexNote(
 				? sortedCovers.slice(0, settings.coverCollageLimit)
 				: sortedCovers;
 
+			const bothEnabled = settings.moonReaderEnabled && settings.readestEnabled;
 			const coverImgs = coversToShow.map(book => {
 				const noteFilename = generateFilename(book.book.title);
-				return `<a class="internal-link" href="${noteFilename}"><img src="${book.coverPath}" style="height: 120px; width: auto;"></a>`;
+				const coverSrc = bothEnabled && book.source === "readest"
+					? `Readest/${book.coverPath}`
+					: bothEnabled && book.source === "moonreader"
+						? `MoonReader/${book.coverPath}`
+						: book.coverPath;
+				return `<a class="internal-link" href="${noteFilename}"><img src="${coverSrc}" style="height: 120px; width: auto;"></a>`;
 			}).join(" ");
 			lines.push(coverImgs);
 			lines.push("");

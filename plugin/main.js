@@ -8118,16 +8118,18 @@ async function parseReadestFiles(syncPath) {
         title = cleanComicTitle(title);
       const author = resolveAuthor(entry);
       let progress = null;
-      const progressArr = (_e = entry.progress) != null ? _e : (_d = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _d.progress;
+      const progressArr = (_e = (_d = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _d.progress) != null ? _e : entry.progress;
       if (progressArr && progressArr[1] > 0) {
         progress = progressArr[0] / progressArr[1] * 100;
       }
       const lastReadTimestamp = (_i = (_h = (_g = (_f = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _f.updatedAt) != null ? _g : bookConfig == null ? void 0 : bookConfig.updatedAt) != null ? _h : entry.updatedAt) != null ? _i : null;
-      const annotations = ((_j = bookConfig == null ? void 0 : bookConfig.booknotes) != null ? _j : []).filter((n) => n.deletedAt === null);
-      const highlights = annotations.map((ann, idx) => {
+      const annotations = ((_j = bookConfig == null ? void 0 : bookConfig.booknotes) != null ? _j : []).filter(
+        (n) => n.deletedAt === null && n.type !== "bookmark"
+      );
+      const highlights = annotations.map((ann) => {
         var _a2, _b2, _c2, _d2;
         return {
-          id: idx,
+          id: parseInt(ann.id, 36) || ann.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0),
           book: title,
           filename: title,
           chapter: cfiToChapter(ann.cfi),
@@ -8138,8 +8140,8 @@ async function parseReadestFiles(syncPath) {
           bookmark: "",
           note: (_c2 = ann.note) != null ? _c2 : "",
           originalText: (_d2 = ann.text) != null ? _d2 : "",
-          underline: false,
-          strikethrough: false
+          underline: ann.style === "underline",
+          strikethrough: ann.style === "strikethrough"
         };
       });
       const meta = (_k = entry.metadata) != null ? _k : {};
@@ -8231,11 +8233,13 @@ async function parseReadestFiles(syncPath) {
       progress = config.config.progress[0] / config.config.progress[1] * 100;
     }
     const lastReadTimestamp = (_z = (_y = (_x = config.config) == null ? void 0 : _x.updatedAt) != null ? _y : config.updatedAt) != null ? _z : null;
-    const annotations = ((_A = config.booknotes) != null ? _A : []).filter((n) => n.deletedAt === null);
-    const highlights = annotations.map((ann, idx) => {
+    const annotations = ((_A = config.booknotes) != null ? _A : []).filter(
+      (n) => n.deletedAt === null && n.type !== "bookmark"
+    );
+    const highlights = annotations.map((ann) => {
       var _a2, _b2, _c2, _d2;
       return {
-        id: idx,
+        id: parseInt(ann.id, 36) || ann.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0),
         book: title,
         filename: title,
         chapter: cfiToChapter(ann.cfi),
@@ -8246,8 +8250,8 @@ async function parseReadestFiles(syncPath) {
         bookmark: "",
         note: (_c2 = ann.note) != null ? _c2 : "",
         originalText: (_d2 = ann.text) != null ? _d2 : "",
-        underline: false,
-        strikethrough: false
+        underline: ann.style === "underline",
+        strikethrough: ann.style === "strikethrough"
       };
     });
     let localCoverData = null;
@@ -8484,9 +8488,11 @@ function generateIndexNote(books, settings, readestBooks) {
         );
       }
       const coversToShow = settings.coverCollageLimit > 0 ? sortedCovers.slice(0, settings.coverCollageLimit) : sortedCovers;
+      const bothEnabled = settings.moonReaderEnabled && settings.readestEnabled;
       const coverImgs = coversToShow.map((book) => {
         const noteFilename = generateFilename(book.book.title);
-        return `<a class="internal-link" href="${noteFilename}"><img src="${book.coverPath}" style="height: 120px; width: auto;"></a>`;
+        const coverSrc = bothEnabled && book.source === "readest" ? `Readest/${book.coverPath}` : bothEnabled && book.source === "moonreader" ? `MoonReader/${book.coverPath}` : book.coverPath;
+        return `<a class="internal-link" href="${noteFilename}"><img src="${coverSrc}" style="height: 120px; width: auto;"></a>`;
       }).join(" ");
       lines.push(coverImgs);
       lines.push("");
@@ -9132,7 +9138,8 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
         language: null,
         previousTitle: null,
         hardcoverId: null,
-        hardcoverSlug: null
+        hardcoverSlug: null,
+        source: "moonreader"
       };
       const idx = books.length;
       books.push(bookData);

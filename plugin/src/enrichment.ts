@@ -250,6 +250,7 @@ export async function enrichBooksWithSyncData(
 				previousTitle: null,
 				hardcoverId: null,
 				hardcoverSlug: null,
+				source: "moonreader",
 			};
 
 			const idx = books.length;

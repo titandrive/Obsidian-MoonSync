@@ -1,7 +1,7 @@
 {
 	"id": "moonsync",
 	"name": "MoonSync",
-	"version": "2.0.2",
+	"version": "2.0.3",
 	"minAppVersion": "1.0.0",
 	"description": "Sync reading highlights, notes, and progress from Moon Reader and Readest to your vault.",
 	"author": "TitanDrive",
