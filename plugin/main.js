@@ -8442,11 +8442,22 @@ function generateFilename(title) {
 function generateIndexNote(books, settings, readestBooks) {
   const allBooks = readestBooks ? [...books, ...readestBooks] : books;
   const hasBothSources = !!(readestBooks && readestBooks.length > 0 && books.length > 0);
+  const dedupedBooks = allBooks.reduce((acc, b) => {
+    const key = b.book.title.toLowerCase();
+    const existing = acc.get(key);
+    if (!existing) {
+      acc.set(key, b);
+    } else if (!existing.coverPath && b.coverPath) {
+      acc.set(key, b);
+    }
+    return acc;
+  }, /* @__PURE__ */ new Map());
+  const uniqueBooks = [...dedupedBooks.values()];
   const lines = [];
   lines.push(`# ${settings.indexNoteTitle}`);
   lines.push("");
   if (settings.showCoverCollage) {
-    const booksWithCovers = allBooks.filter((b) => b.coverPath);
+    const booksWithCovers = uniqueBooks.filter((b) => b.coverPath);
     if (booksWithCovers.length > 0) {
       let sortedCovers;
       if (settings.coverCollageSort === "recent") {
@@ -8471,7 +8482,7 @@ function generateIndexNote(books, settings, readestBooks) {
       lines.push("");
     }
   }
-  const totalBooks = allBooks.length;
+  const totalBooks = uniqueBooks.length;
   const totalHighlights = allBooks.reduce((sum, b) => sum + b.highlights.length, 0);
   const totalNotes = allBooks.reduce(
     (sum, b) => sum + b.highlights.filter((h) => h.note && h.note.trim()).length,

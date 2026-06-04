@@ -237,15 +237,28 @@ export function generateIndexNote(
 ): string {
 	const allBooks = readestBooks ? [...books, ...readestBooks] : books;
 	const hasBothSources = !!(readestBooks && readestBooks.length > 0 && books.length > 0);
+
+	// Deduplicated view for stats and collage — one entry per title across both sources
+	const dedupedBooks = allBooks.reduce((acc, b) => {
+		const key = b.book.title.toLowerCase();
+		const existing = acc.get(key);
+		if (!existing) {
+			acc.set(key, b);
+		} else if (!existing.coverPath && b.coverPath) {
+			acc.set(key, b); // prefer entry with a cover
+		}
+		return acc;
+	}, new Map<string, BookData>());
+	const uniqueBooks = [...dedupedBooks.values()];
 	const lines: string[] = [];
 
 	// Header
 	lines.push(`# ${settings.indexNoteTitle}`);
 	lines.push("");
 
-	// Cover collage across all books
+	// Cover collage — deduplicated so books in both sources appear only once
 	if (settings.showCoverCollage) {
-		const booksWithCovers = allBooks.filter((b) => b.coverPath);
+		const booksWithCovers = uniqueBooks.filter((b) => b.coverPath);
 		if (booksWithCovers.length > 0) {
 			let sortedCovers: BookData[];
 			if (settings.coverCollageSort === "recent") {
@@ -274,8 +287,8 @@ export function generateIndexNote(
 		}
 	}
 
-	// Stats across all books
-	const totalBooks = allBooks.length;
+	// Stats across deduplicated books (count each title once even if in both sources)
+	const totalBooks = uniqueBooks.length;
 	const totalHighlights = allBooks.reduce((sum, b) => sum + b.highlights.length, 0);
 	const totalNotes = allBooks.reduce(
 		(sum, b) => sum + b.highlights.filter((h) => h.note && h.note.trim()).length,
