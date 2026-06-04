@@ -27,7 +27,7 @@ Moon+ Reader and Readest sync your reading data to the cloud (Dropbox, WebDAV, o
 
 ## Readest Support
 
-MoonSync fully supports [Readest](https://readest.com), an open-source desktop e-reader. Readest support requires **WebDAV sync** to be enabled in Readest — MoonSync reads the sync data Readest writes to your WebDAV folder, not local app storage.
+MoonSync fully supports [Readest](https://readest.com), an open-source desktop e-reader. Readest support requires **WebDAV sync** to be enabled in Readest (added in Readest v0.11.3) — MoonSync reads the sync data Readest writes to your WebDAV folder, not local app storage.
 
 To use MoonSync with Readest:
 1. Enable WebDAV sync in Readest's settings and point it at your WebDAV server
