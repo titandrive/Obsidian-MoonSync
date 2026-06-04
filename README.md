@@ -32,6 +32,7 @@ MoonSync fully supports [Readest](https://readest.com), an open-source desktop e
 To use MoonSync with Readest:
 1. Enable WebDAV sync in Readest's settings and point it at your WebDAV server
 2. In MoonSync settings, set the **Readest Data Path** to the `Readest/` folder inside your WebDAV sync directory (e.g. `.../webdav/Readest/`)
+3. Before syncing MoonSync, **manually trigger a sync in Readest** — Readest does not sync to WebDAV automatically, so you need to push your data each time before running MoonSync
 
 MoonSync uses `library.json` as the authoritative source for Readest book titles and metadata, and cross-references Hardcover for enriched data. Highlights and reading progress are read from Readest's per-book cache files in that same folder.
 
@@ -162,8 +163,10 @@ MoonSync searches Hardcover by title to find matching books. Once matched, the `
 Every book note contains a section called "My Notes". You can add your own thoughts and notes here. As your reading progresses, MoonSync will continue to update your reading progress and add new highlights. Anything added in "My Notes" will be preserved.
 
 #### Typical Sync Workflow
-1. Read book and make highlights in Moon+ Reader or Readest
-2. Once you are finished reading, sync your progress to the cloud (Moon+ Reader) or let Readest write its local data
+1. Read your book and make highlights in Moon+ Reader or Readest
+2. Sync your progress to the cloud:
+   - **Moon+ Reader**: trigger a sync to Dropbox/WebDAV/FTP from within the app
+   - **Readest**: manually trigger a WebDAV sync from Readest's settings — it does not sync automatically
 3. Trigger MoonSync by opening Obsidian or clicking the ribbon button
 4. Your highlights and reading progress should immediately become available
 
