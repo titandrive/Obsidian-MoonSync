@@ -27,11 +27,13 @@ Moon+ Reader and Readest sync your reading data to the cloud (Dropbox, WebDAV, o
 
 ## Readest Support
 
-MoonSync fully supports [Readest](https://readest.com), an open-source desktop e-reader. Readest stores its data in a local `library.json` file and per-book highlight files. MoonSync reads these directly and creates the same rich book notes it creates for Moon+ Reader.
+MoonSync fully supports [Readest](https://readest.com), an open-source desktop e-reader. Readest support requires **WebDAV sync** to be enabled in Readest — MoonSync reads the sync data Readest writes to your WebDAV folder, not local app storage.
 
-To use MoonSync with Readest, point the **Readest Data Path** setting at your Readest data folder. On macOS this is typically `~/Library/Application Support/Readest/`.
+To use MoonSync with Readest:
+1. Enable WebDAV sync in Readest's settings and point it at your WebDAV server
+2. In MoonSync settings, set the **Readest Data Path** to the `Readest/` folder inside your WebDAV sync directory (e.g. `.../webdav/Readest/`)
 
-MoonSync uses `library.json` as the authoritative source for Readest book titles and metadata, and cross-references Hardcover for enriched data. Highlights and reading progress are read from Readest's per-book cache files.
+MoonSync uses `library.json` as the authoritative source for Readest book titles and metadata, and cross-references Hardcover for enriched data. Highlights and reading progress are read from Readest's per-book cache files in that same folder.
 
 Readest notes are stored in a `Books/Readest/` subfolder, separate from Moon+ Reader notes (`Books/MoonReader/`), so the two libraries stay organized independently.
 
@@ -79,7 +81,7 @@ If "Sync my shelf" is not enabled, MoonSync falls back to discovering books from
 ### Requirements
 
 - [Moon+ Reader](https://play.google.com/store/apps/details?id=com.flyersoft.moonreader) and/or [Readest](https://readest.com)
-- [Dropbox Desktop App](https://www.dropbox.com/desktop) or mounted WebDAV/FTP server (Moon+ Reader), or local Readest data folder (Readest)
+- [Dropbox Desktop App](https://www.dropbox.com/desktop) or mounted WebDAV/FTP server (required for Moon+ Reader; also required for Readest — point MoonSync at the `Readest/` subfolder in your WebDAV directory)
 - [Obsidian](https://obsidian.md/download)
 - [BRAT](https://github.com/TfTHacker/obsidian42-brat)
 
@@ -231,7 +233,7 @@ MoonSync has a variety of settings to customize how the plugin works. Default se
 These settings configure how MoonSync works.
 #### Configuration
 - **Moon Reader Sync Path** - path to your Moon+ Reader sync folder (Dropbox, mounted WebDAV, or FTP). For Dropbox this is typically `.../Dropbox/Apps/Books`. The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
-- **Readest Data Path** - path to your Readest data folder. On macOS this is typically `~/Library/Application Support/Readest/`.
+- **Readest Data Path** - path to the `Readest/` folder inside your WebDAV sync directory. Requires WebDAV sync to be enabled in Readest.
 - **Output Folder** - Where your book notes will be stored. Default: `/Books`. Moon+ Reader notes go into a `MoonReader/` subfolder, Readest notes into `Readest/`, and manual notes into `Manual Notes/` (if organizing is enabled).
 
 #### Sync Options
@@ -344,7 +346,7 @@ Cloud sync (Dropbox, WebDAV, FTP) is a Pro-only feature, so automatic syncing re
 <details>
 <summary>Does MoonSync support Readest?</summary>
 
-Yes. MoonSync fully supports [Readest](https://readest.com). Point the **Readest Data Path** setting at your Readest data folder and MoonSync will pick up highlights, progress, and metadata from both sources. Readest notes are stored in `Books/Readest/` and Moon+ Reader notes in `Books/MoonReader/`.
+Yes. MoonSync fully supports [Readest](https://readest.com), but requires **WebDAV sync** to be enabled in Readest. Point the **Readest Data Path** setting at the `Readest/` folder inside your WebDAV sync directory and MoonSync will pick up highlights, progress, and metadata. Readest notes are stored in `Books/Readest/` and Moon+ Reader notes in `Books/MoonReader/`.
 </details>
 
 <details>
