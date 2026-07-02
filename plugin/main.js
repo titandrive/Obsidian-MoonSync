@@ -9151,11 +9151,11 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
 }
 
 // src/sync.ts
-function koReaderToBookData(ko, coverVaultPath) {
+function koReaderToBookData(ko, coverVaultPath, effectiveTitle) {
   return {
     book: {
       id: 0,
-      title: ko.title,
+      title: effectiveTitle != null ? effectiveTitle : ko.title,
       filename: "",
       author: ko.author,
       description: "",
@@ -9726,7 +9726,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
               koreaderCacheModified = true;
             }
             result.booksProcessed++;
-            koreaderBooksForIndex.push(koReaderToBookData(book, coverVaultPath));
+            koreaderBooksForIndex.push(koReaderToBookData(book, coverVaultPath, effectiveCachedInfo == null ? void 0 : effectiveCachedInfo.title));
           } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
             result.failedBooks.push({ title: book.title, error: errorMsg });

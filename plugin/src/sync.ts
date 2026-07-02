@@ -14,10 +14,10 @@ import { syncBooksToHardcover, syncBookHighlights, HardcoverSyncItem } from "./h
 import { enrichBooksWithSyncData } from "./enrichment";
 import { getLocalCover } from "./parser/local-covers";
 
-function koReaderToBookData(ko: KOReaderBookData, coverVaultPath: string | null): BookData {
+function koReaderToBookData(ko: KOReaderBookData, coverVaultPath: string | null, effectiveTitle?: string): BookData {
 	return {
 		book: {
-			id: 0, title: ko.title, filename: "", author: ko.author,
+			id: 0, title: effectiveTitle ?? ko.title, filename: "", author: ko.author,
 			description: "", category: "", thumbFile: "", coverFile: "",
 			addTime: "", favorite: "",
 		},
@@ -742,7 +742,7 @@ export async function syncFromMoonReader(
 						result.booksProcessed++;
 
 						// Build BookData adapter for index + Hardcover
-						koreaderBooksForIndex.push(koReaderToBookData(book, coverVaultPath));
+						koreaderBooksForIndex.push(koReaderToBookData(book, coverVaultPath, effectiveCachedInfo?.title));
 					} catch (error) {
 						const errorMsg = error instanceof Error ? error.message : String(error);
 						result.failedBooks.push({ title: book.title, error: errorMsg });
