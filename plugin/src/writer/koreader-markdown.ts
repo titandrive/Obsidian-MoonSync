@@ -116,6 +116,7 @@ export function generateKOReaderBookNote(
 		lines.push(`reading_time: "${readingTime}"`);
 	}
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
+	lines.push(`book_source: koreader`);
 	lines.push(`koreader_hash: "${bookData.hash}"`);
 	lines.push(`highlights_count: ${bookData.annotations.length}`);
 	lines.push(`highlights_hash: "${computeAnnotationsHash(bookData.annotations)}"`);
@@ -229,12 +230,19 @@ export function mergeKOReaderNote(
 		if (section) userNotesContent = section;
 	}
 
-	// Preserve hardcover fields from existing frontmatter
+	// Preserve hardcover fields from existing frontmatter that generateKOReaderBookNote
+	// won't already re-write itself — otherwise they end up duplicated in the fresh output.
+	// hardcover_id/hardcover_url ARE written by the generator when cachedInfo has a match,
+	// but a manual "Update Hardcover link" writes them straight to frontmatter without
+	// touching the cache, so they still need preserving when cachedInfo has none.
 	const hardcoverFields: string[] = [];
-	const hcId = existingContent.match(/^hardcover_id: .+$/m);
-	if (hcId) hardcoverFields.push(hcId[0]);
-	const hcUrl = existingContent.match(/^hardcover_url: .+$/m);
-	if (hcUrl) hardcoverFields.push(hcUrl[0]);
+	if (!cachedInfo?.hardcoverId) {
+		const hcId = existingContent.match(/^hardcover_id: .+$/m);
+		if (hcId) hardcoverFields.push(hcId[0]);
+		const hcUrl = existingContent.match(/^hardcover_url: .+$/m);
+		if (hcUrl) hardcoverFields.push(hcUrl[0]);
+	}
+	// hardcover_progress is never written by the generator, always preserve it.
 	const hcProgress = existingContent.match(/^hardcover_progress: .+$/m);
 	if (hcProgress) hardcoverFields.push(hcProgress[0]);
 

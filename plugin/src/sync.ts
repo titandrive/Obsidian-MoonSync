@@ -1,4 +1,4 @@
-import { App, Notice, normalizePath } from "obsidian";
+import { App, Notice, normalizePath, TFile } from "obsidian";
 import { SyncSummaryModal } from "./modal";
 import { parseAnnotationFiles } from "./parser/annotations";
 import { readFile } from "fs/promises";
@@ -145,7 +145,7 @@ async function scanCustomBooks(
 	for (const p of paths) {
 		const books = await scanAllBookNotes(app, p);
 		for (const b of books) {
-			if (b.isMoonReader) continue;
+			if (b.isMoonReader || b.isReadest || b.isKOReader) continue;
 			if (b.filePath.endsWith(indexFilename)) continue;
 			if (seen.has(b.filePath)) continue;
 			seen.add(b.filePath);
@@ -708,9 +708,30 @@ export async function syncFromMoonReader(
 						// Determine the effective cachedInfo after potential update
 						const effectiveCachedInfo = getCachedInfo(koreaderCache, book.title, book.author);
 
-						// Skip-if-unchanged: compare highlights_hash and progress
 						const noteFilename = generateFilename(effectiveCachedInfo?.title ?? book.title);
 						const noteFilePath = normalizePath(`${koreaderOutputPath}/${noteFilename}.md`);
+
+						// If the resolved title changed since the last sync (e.g. Hardcover enrichment
+						// just matched this book), the old note lives under a different filename —
+						// rename it forward instead of leaving an orphaned duplicate behind.
+						const previousTitle = cachedInfo?.title ?? book.title;
+						const resolvedTitle = effectiveCachedInfo?.title ?? book.title;
+						if (previousTitle !== resolvedTitle) {
+							const oldFilePath = normalizePath(`${koreaderOutputPath}/${generateFilename(previousTitle)}.md`);
+							if (oldFilePath !== noteFilePath && await app.vault.adapter.exists(oldFilePath)) {
+								const oldFile = app.vault.getAbstractFileByPath(oldFilePath);
+								if (oldFile instanceof TFile) {
+									if (await app.vault.adapter.exists(noteFilePath)) {
+										// Destination already exists too — drop the stale duplicate.
+										await app.vault.delete(oldFile);
+									} else {
+										await app.fileManager.renameFile(oldFile, noteFilePath);
+									}
+								}
+							}
+						}
+
+						// Skip-if-unchanged: compare highlights_hash and progress
 						let skipBook = false;
 						if (await app.vault.adapter.exists(noteFilePath)) {
 							try {

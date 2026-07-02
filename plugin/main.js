@@ -8185,6 +8185,7 @@ function generateKOReaderBookNote(bookData, settings, cachedInfo, coverPath, rea
     lines.push(`reading_time: "${readingTime}"`);
   }
   lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
+  lines.push(`book_source: koreader`);
   lines.push(`koreader_hash: "${bookData.hash}"`);
   lines.push(`highlights_count: ${bookData.annotations.length}`);
   lines.push(`highlights_hash: "${computeAnnotationsHash(bookData.annotations)}"`);
@@ -8280,12 +8281,14 @@ function mergeKOReaderNote(existingContent, bookData, settings, cachedInfo, cove
       userNotesContent = section;
   }
   const hardcoverFields = [];
-  const hcId = existingContent.match(/^hardcover_id: .+$/m);
-  if (hcId)
-    hardcoverFields.push(hcId[0]);
-  const hcUrl = existingContent.match(/^hardcover_url: .+$/m);
-  if (hcUrl)
-    hardcoverFields.push(hcUrl[0]);
+  if (!(cachedInfo == null ? void 0 : cachedInfo.hardcoverId)) {
+    const hcId = existingContent.match(/^hardcover_id: .+$/m);
+    if (hcId)
+      hardcoverFields.push(hcId[0]);
+    const hcUrl = existingContent.match(/^hardcover_url: .+$/m);
+    if (hcUrl)
+      hardcoverFields.push(hcUrl[0]);
+  }
   const hcProgress = existingContent.match(/^hardcover_progress: .+$/m);
   if (hcProgress)
     hardcoverFields.push(hcProgress[0]);
@@ -8727,7 +8730,8 @@ function parseBookFrontmatter(content, filePath) {
     lastReadTimestamp,
     filePath,
     isMoonReader: parsed.bookSource === "moonreader" || parsed.bookSource === null && !!parsed.moonReaderPath,
-    isReadest: parsed.bookSource === "readest"
+    isReadest: parsed.bookSource === "readest",
+    isKOReader: parsed.bookSource === "koreader"
   };
 }
 function scannedBookToBookData(scanned) {
@@ -9295,7 +9299,7 @@ async function scanCustomBooks(app, baseOutputPath, mrOutputPath, koreaderOutput
   for (const p of paths) {
     const books = await scanAllBookNotes(app, p);
     for (const b of books) {
-      if (b.isMoonReader)
+      if (b.isMoonReader || b.isReadest || b.isKOReader)
         continue;
       if (b.filePath.endsWith(indexFilename))
         continue;
@@ -9417,7 +9421,7 @@ async function migrateToSubdirectories(app, settings) {
   }
 }
 async function syncFromMoonReader(app, settings, wasmPath) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
   const result = {
     success: false,
     booksProcessed: 0,
@@ -9721,6 +9725,21 @@ async function syncFromMoonReader(app, settings, wasmPath) {
             const effectiveCachedInfo = getCachedInfo(koreaderCache, book.title, book.author);
             const noteFilename = generateFilename((_e = effectiveCachedInfo == null ? void 0 : effectiveCachedInfo.title) != null ? _e : book.title);
             const noteFilePath = (0, import_obsidian7.normalizePath)(`${koreaderOutputPath}/${noteFilename}.md`);
+            const previousTitle = (_f = cachedInfo == null ? void 0 : cachedInfo.title) != null ? _f : book.title;
+            const resolvedTitle = (_g = effectiveCachedInfo == null ? void 0 : effectiveCachedInfo.title) != null ? _g : book.title;
+            if (previousTitle !== resolvedTitle) {
+              const oldFilePath = (0, import_obsidian7.normalizePath)(`${koreaderOutputPath}/${generateFilename(previousTitle)}.md`);
+              if (oldFilePath !== noteFilePath && await app.vault.adapter.exists(oldFilePath)) {
+                const oldFile = app.vault.getAbstractFileByPath(oldFilePath);
+                if (oldFile instanceof import_obsidian7.TFile) {
+                  if (await app.vault.adapter.exists(noteFilePath)) {
+                    await app.vault.delete(oldFile);
+                  } else {
+                    await app.fileManager.renameFile(oldFile, noteFilePath);
+                  }
+                }
+              }
+            }
             let skipBook = false;
             if (await app.vault.adapter.exists(noteFilePath)) {
               try {
@@ -9823,7 +9842,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
         const koreaderEntries = koreaderBooksForIndex.length > 0 && koreaderCache ? await buildEntries(koreaderBooksForIndex, koreaderOutputPath, koreaderCache) : [];
         const dedupMap = /* @__PURE__ */ new Map();
         for (const entry of [...mrEntries, ...koreaderEntries]) {
-          const key = entry.item.hardcoverId ? `id:${entry.item.hardcoverId}` : `ta:${entry.item.title.toLowerCase()}|${((_f = entry.item.author) != null ? _f : "").toLowerCase()}`;
+          const key = entry.item.hardcoverId ? `id:${entry.item.hardcoverId}` : `ta:${entry.item.title.toLowerCase()}|${((_h = entry.item.author) != null ? _h : "").toLowerCase()}`;
           const existing = dedupMap.get(key);
           if (!existing) {
             dedupMap.set(key, {
@@ -9833,9 +9852,9 @@ async function syncFromMoonReader(app, settings, wasmPath) {
               cacheRefs: [...entry.cacheRefs]
             });
           } else {
-            const entryTs = (_g = entry.lastReadTimestamp) != null ? _g : 0;
-            const existingTs = (_h = existing.lastReadTimestamp) != null ? _h : 0;
-            const entryWins = entryTs !== existingTs ? entryTs > existingTs : ((_i = entry.item.progress) != null ? _i : 0) > ((_j = existing.item.progress) != null ? _j : 0);
+            const entryTs = (_i = entry.lastReadTimestamp) != null ? _i : 0;
+            const existingTs = (_j = existing.lastReadTimestamp) != null ? _j : 0;
+            const entryWins = entryTs !== existingTs ? entryTs > existingTs : ((_k = entry.item.progress) != null ? _k : 0) > ((_l = existing.item.progress) != null ? _l : 0);
             if (entryWins) {
               existing.item.progress = entry.item.progress;
               existing.lastReadTimestamp = entry.lastReadTimestamp;
@@ -9969,7 +9988,7 @@ ${fields.join("\n")}
             hardcoverId,
             editionId,
             bookData.highlights,
-            (_k = bookData.source) != null ? _k : "moonreader",
+            (_m = bookData.source) != null ? _m : "moonreader",
             bookData.pageCount,
             lastSyncedAt,
             settings.hardcoverHighlightsPrivacy,
