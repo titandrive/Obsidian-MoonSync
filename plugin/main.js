@@ -8215,7 +8215,8 @@ function generateKOReaderBookNote(bookData, settings, cachedInfo, coverPath, rea
   const lines = [];
   const title = (_a = cachedInfo == null ? void 0 : cachedInfo.title) != null ? _a : bookData.title;
   const author = bookData.author;
-  const description = (_c = (_b = bookData.description) != null ? _b : cachedInfo == null ? void 0 : cachedInfo.description) != null ? _c : null;
+  const rawDescription = (_c = (_b = bookData.description) != null ? _b : cachedInfo == null ? void 0 : cachedInfo.description) != null ? _c : null;
+  const description = rawDescription ? stripHtml(rawDescription) : null;
   const publishedDate = (_e = (_d = bookData.publishedDate) != null ? _d : cachedInfo == null ? void 0 : cachedInfo.publishedDate) != null ? _e : null;
   const publisher = (_g = (_f = bookData.publisher) != null ? _f : cachedInfo == null ? void 0 : cachedInfo.publisher) != null ? _g : null;
   const pageCount = (_i = (_h = cachedInfo == null ? void 0 : cachedInfo.pageCount) != null ? _h : bookData.pageCount) != null ? _i : null;
@@ -9822,7 +9823,8 @@ async function syncFromMoonReader(app, settings, wasmPath) {
                   const existingProgress = parseFrontmatterField(fm, "progress");
                   const currentHash = computeKOReaderHash(book.annotations);
                   const currentProgress = book.progress !== null ? `${book.progress.toFixed(1)}%` : null;
-                  if (existingHash === currentHash && existingProgress === currentProgress && prefetchedInfo2 === void 0) {
+                  const looksCorrupted = /<\/?(p|div|br|strong|em|li)\b[^>]*>|&#\d+;/i.test(existingContent);
+                  if (existingHash === currentHash && existingProgress === currentProgress && prefetchedInfo2 === void 0 && !looksCorrupted) {
                     skipBook = true;
                   }
                 }

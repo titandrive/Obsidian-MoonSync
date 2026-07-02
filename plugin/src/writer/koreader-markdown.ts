@@ -1,5 +1,5 @@
 import { MoonSyncSettings, formatDuration, formatDate } from "../types";
-import { escapeYaml } from "../utils";
+import { escapeYaml, stripHtml } from "../utils";
 import { KOReaderAnnotation, KOReaderBookData } from "../parser/koreader";
 import { CachedBookInfo } from "../cache";
 
@@ -85,7 +85,11 @@ export function generateKOReaderBookNote(
 	// cachedInfo for fields the sidecar doesn't have.
 	const title = cachedInfo?.title ?? bookData.title;
 	const author = bookData.author;
-	const description = bookData.description ?? cachedInfo?.description ?? null;
+	const rawDescription = bookData.description ?? cachedInfo?.description ?? null;
+	// Defensive re-strip regardless of source — a description written by an older
+	// version of this note (before HTML-stripping existed) can otherwise persist
+	// forever, since a book with no other changes is never rewritten.
+	const description = rawDescription ? stripHtml(rawDescription) : null;
 	const publishedDate = bookData.publishedDate ?? cachedInfo?.publishedDate ?? null;
 	const publisher = bookData.publisher ?? cachedInfo?.publisher ?? null;
 	const pageCount = cachedInfo?.pageCount ?? bookData.pageCount ?? null;
