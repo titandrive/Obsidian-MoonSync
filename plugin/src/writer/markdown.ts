@@ -41,8 +41,8 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 		lines.push(`reading_time: "${formatDuration(statistics.usedTime)}"`);
 	}
 	lines.push(`last_synced: ${new Date().toISOString().split("T")[0]}`);
-	if (bookData.source === "readest") {
-		lines.push(`book_source: readest`);
+	if (bookData.source === "koreader") {
+		lines.push(`book_source: koreader`);
 	} else {
 		lines.push(`book_source: moonreader`);
 		lines.push(`moon_reader_path: "${escapeYaml(book.filename)}"`);
@@ -133,7 +133,7 @@ export function generateBookNote(bookData: BookData, settings: MoonSyncSettings)
 
 	// Highlights section
 	if (highlights.length > 0) {
-		lines.push(bookData.source === "readest" ? "## Readest highlights" : "## Moon Reader highlights");
+		lines.push(bookData.source === "koreader" ? "## KOReader highlights" : "## Moon Reader highlights");
 		lines.push("");
 
 		const reverse = settings.highlightSort.endsWith("-reverse");
@@ -278,11 +278,11 @@ export function generateIndexNote(
 				? sortedCovers.slice(0, settings.coverCollageLimit)
 				: sortedCovers;
 
-			const bothEnabled = settings.moonReaderEnabled && settings.readestEnabled;
+			const bothEnabled = settings.moonReaderEnabled && settings.koreaderEnabled;
 			const coverImgs = coversToShow.map(book => {
 				const noteFilename = generateFilename(book.book.title);
-				const coverSrc = bothEnabled && book.source === "readest"
-					? `Readest/${book.coverPath}`
+				const coverSrc = bothEnabled && book.source === "koreader"
+					? `KOReader/${book.coverPath}`
 					: bothEnabled && book.source === "moonreader"
 						? `MoonReader/${book.coverPath}`
 						: book.coverPath;
@@ -310,7 +310,7 @@ export function generateIndexNote(
 	lines.push(`- **Books:** ${totalBooks}`);
 	if (hasBothSources) {
 		lines.push(`  - Moon Reader: ${books.length}`);
-		lines.push(`  - Readest: ${readestBooks!.length}`);
+		lines.push(`  - KOReader: ${readestBooks!.length}`);
 	}
 	lines.push(`- **Highlights:** ${totalHighlights}`);
 	lines.push(`- **Notes:** ${totalNotes}`);
@@ -322,7 +322,7 @@ export function generateIndexNote(
 	if (hasBothSources) {
 		appendBookSection(lines, "## Moon Reader", books);
 		lines.push("");
-		appendBookSection(lines, "## Readest", readestBooks!);
+		appendBookSection(lines, "## KOReader", readestBooks!);
 	} else {
 		appendBookSection(lines, "## Books", allBooks);
 	}
@@ -340,7 +340,7 @@ function appendBookSection(lines: string[], heading: string, books: BookData[]):
 
 	for (const bookData of sorted) {
 		const rawFilename = bookData.book.filename;
-		// Source books (MR/Readest) always use generateFilename so the link matches the note filename.
+		// Source books (MR/KOReader) always use generateFilename so the link matches the note filename.
 		// User-created/scanned books use the actual filename on disk (rawFilename) since their
 		// note name may differ from the title.
 		const filename = bookData.source
