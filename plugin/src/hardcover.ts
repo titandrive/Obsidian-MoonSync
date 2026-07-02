@@ -45,8 +45,11 @@ function escapeGraphQL(str: string): string {
  * 3 = exact match, 2 = one starts with the other, 1 = one contains the other, 0 = no match
  */
 function titleMatchScore(candidate: string, search: string): number {
-	const c = candidate.toLowerCase();
-	const s = search.toLowerCase();
+	// Normalize punctuation on both sides — `search` is typically already run through
+	// cleanForSearch (periods/colons stripped), but raw Hardcover titles aren't, so
+	// "U.S. Marshals" vs "U S Marshals: Inside ..." would otherwise never match.
+	const c = cleanForSearch(candidate).toLowerCase();
+	const s = cleanForSearch(search).toLowerCase();
 	if (c === s) return 3;
 	if (c.startsWith(s) || s.startsWith(c)) return 2;
 	if (c.includes(s) || s.includes(c)) return 1;
@@ -78,12 +81,18 @@ const MIN_USERS_THRESHOLD = 10;
  * Shared by both batchSearchHardcover and searchHardcoverBook.
  */
 async function fullTextSearchForId(
-	cleanTitle: string,
-	cleanAuthor: string,
+	rawTitle: string,
+	rawAuthor: string,
 	token: string,
 	excludeId?: number
 ): Promise<{ id: number; title: string } | null> {
-	const searchQueries = buildSearchQueries(cleanTitle, cleanAuthor);
+	const cleanTitle = cleanForSearch(rawTitle);
+	const searchQueries = buildSearchQueries(cleanTitle, cleanForSearch(rawAuthor));
+	// Hardcover's search relevance is punctuation-sensitive (e.g. "U.S." abbreviations) —
+	// stripping periods/colons for the main query can return worse matches than the raw
+	// title, so use the original untouched text for the full query and only fall back to
+	// the cleaned progressive queries (half-title, main-word) for later attempts.
+	searchQueries[0] = (rawAuthor ? `${rawTitle} ${rawAuthor}` : rawTitle).trim();
 	const normalizedSearch = cleanTitle.toLowerCase();
 
 	for (const query of searchQueries) {
@@ -114,8 +123,13 @@ async function fullTextSearchForId(
 					}, validHits[0].document);
 					const docId = doc?.id ? parseInt(String(doc.id), 10) : null;
 					const docUsers = doc?.users_count || 0;
+					const docTitleScore = titleMatchScore((doc?.title || "").toLowerCase(), normalizedSearch);
+					// A strong title match (exact or one is a prefix of the other) is already
+					// good evidence on its own — the popularity gate exists to protect weaker
+					// "contains" matches from latching onto an unrelated popular book.
+					const meetsPopularityBar = docTitleScore >= 2 || docUsers >= MIN_USERS_THRESHOLD;
 					console.debug(`MoonSync: Hardcover search "${query}" — best hit: id=${docId}, users=${docUsers}, title="${doc?.title}"`);
-					if (docId && (!excludeId || docId !== excludeId) && docUsers >= MIN_USERS_THRESHOLD) {
+					if (docId && (!excludeId || docId !== excludeId) && meetsPopularityBar) {
 						// Verify the matched title shares meaningful words with the original title.
 						// Prevents short fallback queries (e.g. "How") from matching unrelated popular
 						// books (e.g. "How" by Dov Seidman when searching "How to Rule the World...").
@@ -129,7 +143,7 @@ async function fullTextSearchForId(
 						}
 						return { id: docId, title: doc.title || cleanTitle };
 					} else {
-						console.debug(`MoonSync: Hardcover search "${query}" — rejected (users=${docUsers}, need >= ${MIN_USERS_THRESHOLD})`);
+						console.debug(`MoonSync: Hardcover search "${query}" — rejected (users=${docUsers}, titleScore=${docTitleScore}, need users >= ${MIN_USERS_THRESHOLD} for weak title matches)`);
 					}
 				}
 			}
@@ -435,7 +449,7 @@ export async function batchSearchHardcover(
 
 		// Fallback: full-text search with progressive queries and title-similarity scoring
 		if (!foundId) {
-			const match = await fullTextSearchForId(cleanTitle, cleanAuthor, token);
+			const match = await fullTextSearchForId(book.title, book.author, token);
 			if (match) foundId = match.id;
 		}
 
@@ -535,8 +549,7 @@ async function searchHardcoverBook(
 	}
 
 	// Fallback to full-text search with progressive queries and title-similarity scoring
-	const cleanTitle = cleanForSearch(title);
-	const match = await fullTextSearchForId(cleanTitle, author, token, excludeId);
+	const match = await fullTextSearchForId(title, author, token, excludeId);
 	if (match) {
 		// Fetch slug and pages for the matched book
 		let pages: number | null = null;

@@ -139,6 +139,9 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.koreaderEnabled = value;
 						await this.plugin.saveSettings();
+						if (this.plugin.settings.watchForChanges) {
+							this.plugin.startKOReaderFileWatcher();
+						}
 						this.display();
 					})
 			);
@@ -161,6 +164,9 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 							this.plugin.settings.koreaderSyncPath = value;
 							await this.plugin.saveSettings();
 							this.validateKOReaderPath(value, koreaderValidationEl);
+							if (this.plugin.settings.watchForChanges) {
+								this.plugin.startKOReaderFileWatcher();
+							}
 						});
 				})
 				.addButton((button) =>
@@ -171,6 +177,9 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 							koreaderTextComponent.setValue(folder);
 							await this.plugin.saveSettings();
 							this.validateKOReaderPath(folder, koreaderValidationEl);
+							if (this.plugin.settings.watchForChanges) {
+								this.plugin.startKOReaderFileWatcher();
+							}
 						}
 					})
 				);
@@ -262,7 +271,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 
 		new Setting(container)
 			.setName("Automatic sync")
-			.setDesc("Automatically sync when Moon Reader cache files are updated. Best suited when Obsidian is hosted on an always-on server.")
+			.setDesc("Automatically sync when Moon Reader or KOReader sync files are updated. Best suited when Obsidian is hosted on an always-on server.")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.watchForChanges)
@@ -271,8 +280,10 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 						if (value) {
 							this.plugin.startFileWatcher();
+							this.plugin.startKOReaderFileWatcher();
 						} else {
 							this.plugin.stopFileWatcher();
+							this.plugin.stopKOReaderFileWatcher();
 						}
 					})
 			);

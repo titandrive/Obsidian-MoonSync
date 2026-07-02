@@ -16,6 +16,8 @@ export default class MoonSyncPlugin extends Plugin {
 	ribbonIconEl: HTMLElement | null = null;
 	private fileWatcher: FSWatcher | null = null;
 	private watchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private koreaderFileWatcher: FSWatcher | null = null;
+	private koreaderWatchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private isSyncing = false;
 
 	async onload() {
@@ -85,14 +87,16 @@ export default class MoonSyncPlugin extends Plugin {
 			});
 		}
 
-		// Start file watcher if enabled
+		// Start file watchers if enabled
 		if (this.settings.watchForChanges) {
 			this.startFileWatcher();
+			this.startKOReaderFileWatcher();
 		}
 	}
 
 	onunload() {
 		this.stopFileWatcher();
+		this.stopKOReaderFileWatcher();
 		document.body.classList.remove(
 			"moonsync-hide-covers",
 			"moonsync-hide-reading-progress",
@@ -195,6 +199,53 @@ export default class MoonSyncPlugin extends Plugin {
 			this.fileWatcher.close();
 			this.fileWatcher = null;
 			console.log("MoonSync: File watcher stopped");
+		}
+	}
+
+	startKOReaderFileWatcher(): void {
+		this.stopKOReaderFileWatcher();
+
+		if (!this.settings.koreaderEnabled || !this.settings.koreaderSyncPath) return;
+
+		try {
+			// Recursive watch: annotations/progress live under sync/<bookHash>/*.json
+			this.koreaderFileWatcher = watch(
+				this.settings.koreaderSyncPath,
+				{ persistent: false, recursive: true },
+				(_event, filename) => {
+					if (!filename) return;
+					const name = filename.toString();
+					if (!name.endsWith(".json")) return;
+
+					// Debounce: wait 3 seconds after last change before syncing
+					if (this.koreaderWatchDebounceTimer) clearTimeout(this.koreaderWatchDebounceTimer);
+					this.koreaderWatchDebounceTimer = setTimeout(() => {
+						console.log("MoonSync: KOReader file change detected, syncing...");
+						void this.runSync();
+					}, 3000);
+				}
+			);
+
+			this.koreaderFileWatcher.on("error", (err) => {
+				console.error("MoonSync: KOReader file watcher error", err);
+				this.stopKOReaderFileWatcher();
+			});
+
+			console.log("MoonSync: Watching for changes in", this.settings.koreaderSyncPath);
+		} catch (err) {
+			console.error("MoonSync: Failed to start KOReader file watcher", err);
+		}
+	}
+
+	stopKOReaderFileWatcher(): void {
+		if (this.koreaderWatchDebounceTimer) {
+			clearTimeout(this.koreaderWatchDebounceTimer);
+			this.koreaderWatchDebounceTimer = null;
+		}
+		if (this.koreaderFileWatcher) {
+			this.koreaderFileWatcher.close();
+			this.koreaderFileWatcher = null;
+			console.log("MoonSync: KOReader file watcher stopped");
 		}
 	}
 

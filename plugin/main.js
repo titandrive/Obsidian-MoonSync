@@ -171,8 +171,8 @@ function escapeGraphQL(str) {
   return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
 }
 function titleMatchScore(candidate, search) {
-  const c = candidate.toLowerCase();
-  const s = search.toLowerCase();
+  const c = cleanForSearch(candidate).toLowerCase();
+  const s = cleanForSearch(search).toLowerCase();
   if (c === s)
     return 3;
   if (c.startsWith(s) || s.startsWith(c))
@@ -196,9 +196,11 @@ function buildSearchQueries(cleanTitle, cleanAuthor) {
   }
   return queries;
 }
-async function fullTextSearchForId(cleanTitle, cleanAuthor, token, excludeId) {
+async function fullTextSearchForId(rawTitle, rawAuthor, token, excludeId) {
   var _a, _b, _c;
-  const searchQueries = buildSearchQueries(cleanTitle, cleanAuthor);
+  const cleanTitle = cleanForSearch(rawTitle);
+  const searchQueries = buildSearchQueries(cleanTitle, cleanForSearch(rawAuthor));
+  searchQueries[0] = (rawAuthor ? `${rawTitle} ${rawAuthor}` : rawTitle).trim();
   const normalizedSearch = cleanTitle.toLowerCase();
   for (const query of searchQueries) {
     try {
@@ -229,8 +231,10 @@ async function fullTextSearchForId(cleanTitle, cleanAuthor, token, excludeId) {
           }, validHits[0].document);
           const docId = (doc == null ? void 0 : doc.id) ? parseInt(String(doc.id), 10) : null;
           const docUsers = (doc == null ? void 0 : doc.users_count) || 0;
+          const docTitleScore = titleMatchScore(((doc == null ? void 0 : doc.title) || "").toLowerCase(), normalizedSearch);
+          const meetsPopularityBar = docTitleScore >= 2 || docUsers >= MIN_USERS_THRESHOLD;
           console.debug(`MoonSync: Hardcover search "${query}" \u2014 best hit: id=${docId}, users=${docUsers}, title="${doc == null ? void 0 : doc.title}"`);
-          if (docId && (!excludeId || docId !== excludeId) && docUsers >= MIN_USERS_THRESHOLD) {
+          if (docId && (!excludeId || docId !== excludeId) && meetsPopularityBar) {
             const candidateWords = new Set((doc.title || "").toLowerCase().split(/\s+/));
             const significantWords = cleanTitle.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
             const overlap = significantWords.filter((w) => candidateWords.has(w)).length;
@@ -241,7 +245,7 @@ async function fullTextSearchForId(cleanTitle, cleanAuthor, token, excludeId) {
             }
             return { id: docId, title: doc.title || cleanTitle };
           } else {
-            console.debug(`MoonSync: Hardcover search "${query}" \u2014 rejected (users=${docUsers}, need >= ${MIN_USERS_THRESHOLD})`);
+            console.debug(`MoonSync: Hardcover search "${query}" \u2014 rejected (users=${docUsers}, titleScore=${docTitleScore}, need users >= ${MIN_USERS_THRESHOLD} for weak title matches)`);
           }
         }
       }
@@ -483,7 +487,7 @@ async function batchSearchHardcover(books, token, onProgress) {
       }
     }
     if (!foundId) {
-      const match = await fullTextSearchForId(cleanTitle, cleanAuthor, token);
+      const match = await fullTextSearchForId(book.title, book.author, token);
       if (match)
         foundId = match.id;
     }
@@ -563,8 +567,7 @@ async function searchHardcoverBook(title, author, token, excludeId) {
   } catch (error) {
     console.debug("MoonSync: Hardcover title-only search failed", error);
   }
-  const cleanTitle = cleanForSearch(title);
-  const match = await fullTextSearchForId(cleanTitle, author, token, excludeId);
+  const match = await fullTextSearchForId(title, author, token, excludeId);
   if (match) {
     let pages = null;
     let slug = "";
@@ -6252,6 +6255,9 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       (toggle) => toggle.setValue(this.plugin.settings.koreaderEnabled).onChange(async (value) => {
         this.plugin.settings.koreaderEnabled = value;
         await this.plugin.saveSettings();
+        if (this.plugin.settings.watchForChanges) {
+          this.plugin.startKOReaderFileWatcher();
+        }
         this.display();
       })
     );
@@ -6266,6 +6272,9 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
           this.plugin.settings.koreaderSyncPath = value;
           await this.plugin.saveSettings();
           this.validateKOReaderPath(value, koreaderValidationEl);
+          if (this.plugin.settings.watchForChanges) {
+            this.plugin.startKOReaderFileWatcher();
+          }
         });
       }).addButton(
         (button) => button.setButtonText("Browse").onClick(async () => {
@@ -6275,6 +6284,9 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
             koreaderTextComponent.setValue(folder);
             await this.plugin.saveSettings();
             this.validateKOReaderPath(folder, koreaderValidationEl);
+            if (this.plugin.settings.watchForChanges) {
+              this.plugin.startKOReaderFileWatcher();
+            }
           }
         })
       );
@@ -6324,14 +6336,16 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian2.Setting(container).setName("Automatic sync").setDesc("Automatically sync when Moon Reader cache files are updated. Best suited when Obsidian is hosted on an always-on server.").addToggle(
+    new import_obsidian2.Setting(container).setName("Automatic sync").setDesc("Automatically sync when Moon Reader or KOReader sync files are updated. Best suited when Obsidian is hosted on an always-on server.").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.watchForChanges).onChange(async (value) => {
         this.plugin.settings.watchForChanges = value;
         await this.plugin.saveSettings();
         if (value) {
           this.plugin.startFileWatcher();
+          this.plugin.startKOReaderFileWatcher();
         } else {
           this.plugin.stopFileWatcher();
+          this.plugin.stopKOReaderFileWatcher();
         }
       })
     );
@@ -8095,7 +8109,10 @@ function getCalloutType2(color) {
   return "quote";
 }
 function computeAnnotationsHash(annotations) {
-  const str = annotations.map((a) => `${a.id}:${a.updatedAt}`).join("|");
+  const str = annotations.map((a) => {
+    var _a, _b, _c;
+    return `${a.id}:${a.type}:${a.page}:${(_a = a.color) != null ? _a : ""}:${(_b = a.text) != null ? _b : ""}:${(_c = a.note) != null ? _c : ""}`;
+  }).join("|");
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = Math.imul(31, hash) + str.charCodeAt(i) | 0;
@@ -10845,6 +10862,8 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
     this.ribbonIconEl = null;
     this.fileWatcher = null;
     this.watchDebounceTimer = null;
+    this.koreaderFileWatcher = null;
+    this.koreaderWatchDebounceTimer = null;
     this.isSyncing = false;
   }
   async onload() {
@@ -10907,10 +10926,12 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
     }
     if (this.settings.watchForChanges) {
       this.startFileWatcher();
+      this.startKOReaderFileWatcher();
     }
   }
   onunload() {
     this.stopFileWatcher();
+    this.stopKOReaderFileWatcher();
     document.body.classList.remove(
       "moonsync-hide-covers",
       "moonsync-hide-reading-progress",
@@ -11001,6 +11022,48 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
       this.fileWatcher.close();
       this.fileWatcher = null;
       console.log("MoonSync: File watcher stopped");
+    }
+  }
+  startKOReaderFileWatcher() {
+    this.stopKOReaderFileWatcher();
+    if (!this.settings.koreaderEnabled || !this.settings.koreaderSyncPath)
+      return;
+    try {
+      this.koreaderFileWatcher = (0, import_fs2.watch)(
+        this.settings.koreaderSyncPath,
+        { persistent: false, recursive: true },
+        (_event, filename) => {
+          if (!filename)
+            return;
+          const name = filename.toString();
+          if (!name.endsWith(".json"))
+            return;
+          if (this.koreaderWatchDebounceTimer)
+            clearTimeout(this.koreaderWatchDebounceTimer);
+          this.koreaderWatchDebounceTimer = setTimeout(() => {
+            console.log("MoonSync: KOReader file change detected, syncing...");
+            void this.runSync();
+          }, 3e3);
+        }
+      );
+      this.koreaderFileWatcher.on("error", (err) => {
+        console.error("MoonSync: KOReader file watcher error", err);
+        this.stopKOReaderFileWatcher();
+      });
+      console.log("MoonSync: Watching for changes in", this.settings.koreaderSyncPath);
+    } catch (err) {
+      console.error("MoonSync: Failed to start KOReader file watcher", err);
+    }
+  }
+  stopKOReaderFileWatcher() {
+    if (this.koreaderWatchDebounceTimer) {
+      clearTimeout(this.koreaderWatchDebounceTimer);
+      this.koreaderWatchDebounceTimer = null;
+    }
+    if (this.koreaderFileWatcher) {
+      this.koreaderFileWatcher.close();
+      this.koreaderFileWatcher = null;
+      console.log("MoonSync: KOReader file watcher stopped");
     }
   }
   /**

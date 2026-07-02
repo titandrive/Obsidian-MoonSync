@@ -24,7 +24,13 @@ function getCalloutType(color: string | undefined): string {
 }
 
 function computeAnnotationsHash(annotations: KOReaderAnnotation[]): string {
-	const str = annotations.map((a) => `${a.id}:${a.updatedAt}`).join("|");
+	// Hash on content, not updatedAt: KOReader re-saves the sidecar file (bumping
+	// updatedAt for every annotation) whenever the book is opened/paged through,
+	// even if no highlight actually changed — using updatedAt here would make the
+	// currently-open book "changed" on every sync regardless of real edits.
+	const str = annotations
+		.map((a) => `${a.id}:${a.type}:${a.page}:${a.color ?? ""}:${a.text ?? ""}:${a.note ?? ""}`)
+		.join("|");
 	let hash = 0;
 	for (let i = 0; i < str.length; i++) {
 		hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
