@@ -102,7 +102,7 @@ function splitIsbn(isbn: string | undefined): { isbn10: string | null; isbn13: s
 }
 
 /**
- * Find and read the "_<title>.json" metadata sidecar in a book's books/<hash>/ folder.
+ * Find and read the "_<title>.json" metadata sidecar in a book's sync/<hash>/ folder.
  * The filename is derived from the book's title, so we scan for the "_*.json" pattern
  * rather than guessing the exact name.
  */
@@ -127,14 +127,15 @@ export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[
 		library.books.map(async (entry) => {
 			const hash = entry.bookHash;
 			const bookDir = join(syncPath, "books", hash);
+			const syncDir = join(syncPath, "sync", hash);
 
 			const progressData = await readJson<{ configs: KOReaderProgress[] }>(
-				join(syncPath, "sync", hash, "progress.json")
+				join(syncDir, "progress.json")
 			);
 			const annotationsData = await readJson<{ notes: KOReaderAnnotation[] }>(
-				join(syncPath, "sync", hash, "annotations.json")
+				join(syncDir, "annotations.json")
 			);
-			const sidecar = await readMetadataSidecar(bookDir);
+			const sidecar = await readMetadataSidecar(syncDir);
 
 			const config = progressData?.configs?.[0] ?? null;
 			const annotations = (annotationsData?.notes ?? []).filter((n) => !n.deletedAt);

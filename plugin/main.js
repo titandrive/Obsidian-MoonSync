@@ -8088,13 +8088,14 @@ async function fetchAllBooks(syncPath) {
       var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
       const hash = entry.bookHash;
       const bookDir = (0, import_path3.join)(syncPath, "books", hash);
+      const syncDir = (0, import_path3.join)(syncPath, "sync", hash);
       const progressData = await readJson(
-        (0, import_path3.join)(syncPath, "sync", hash, "progress.json")
+        (0, import_path3.join)(syncDir, "progress.json")
       );
       const annotationsData = await readJson(
-        (0, import_path3.join)(syncPath, "sync", hash, "annotations.json")
+        (0, import_path3.join)(syncDir, "annotations.json")
       );
-      const sidecar = await readMetadataSidecar(bookDir);
+      const sidecar = await readMetadataSidecar(syncDir);
       const config = (_b = (_a2 = progressData == null ? void 0 : progressData.configs) == null ? void 0 : _a2[0]) != null ? _b : null;
       const annotations = ((_c = annotationsData == null ? void 0 : annotationsData.notes) != null ? _c : []).filter((n) => !n.deletedAt);
       let progressPercent = null;
