@@ -9376,9 +9376,13 @@ async function migrateToSubdirectories(app, settings) {
     const filename = filePath.split("/").pop();
     const dest = (0, import_obsidian7.normalizePath)(`${mrPath}/${filename}`);
     try {
-      const content = await app.vault.adapter.read(filePath);
-      await app.vault.adapter.write(dest, content);
-      await app.vault.adapter.remove(filePath);
+      if (await app.vault.adapter.exists(dest)) {
+        await app.vault.adapter.remove(filePath);
+      } else {
+        const content = await app.vault.adapter.read(filePath);
+        await app.vault.adapter.write(dest, content);
+        await app.vault.adapter.remove(filePath);
+      }
     } catch (e) {
     }
   }
@@ -9386,9 +9390,13 @@ async function migrateToSubdirectories(app, settings) {
     const filename = filePath.split("/").pop();
     const dest = (0, import_obsidian7.normalizePath)(`${koreaderPath}/${filename}`);
     try {
-      const content = await app.vault.adapter.read(filePath);
-      await app.vault.adapter.write(dest, content);
-      await app.vault.adapter.remove(filePath);
+      if (await app.vault.adapter.exists(dest)) {
+        await app.vault.adapter.remove(filePath);
+      } else {
+        const content = await app.vault.adapter.read(filePath);
+        await app.vault.adapter.write(dest, content);
+        await app.vault.adapter.remove(filePath);
+      }
     } catch (e) {
     }
   }
@@ -9452,16 +9460,14 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     const koreaderSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/KOReader`));
     let hasFlatMrNotes = false;
     let hasFlatKOReaderNotes = false;
-    if (settings.koreaderEnabled && !mrSubdirExists) {
+    if (settings.koreaderEnabled) {
       hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "book_source: moonreader") || await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
     }
-    if (settings.moonReaderEnabled && !koreaderSubdirExists) {
+    if (settings.moonReaderEnabled) {
       hasFlatKOReaderNotes = await hasNotesWithField(app, baseOutputPath, "book_source: koreader");
     }
     const useSeparateDirs = settings.moonReaderEnabled && settings.koreaderEnabled || settings.koreaderEnabled && (mrSubdirExists || hasFlatMrNotes) || settings.moonReaderEnabled && (koreaderSubdirExists || hasFlatKOReaderNotes);
-    if (useSeparateDirs && !mrSubdirExists && settings.moonReaderEnabled) {
-      await migrateToSubdirectories(app, settings);
-    } else if (useSeparateDirs && hasFlatMrNotes) {
+    if (useSeparateDirs && (hasFlatMrNotes || hasFlatKOReaderNotes)) {
       await migrateToSubdirectories(app, settings);
     }
     await migrateManualBooks(app, settings);
@@ -10293,7 +10299,7 @@ function updateTitleCacheAfterRename(titleCache, oldPath, newPath, newTitle) {
     }
   }
 }
-async function findExistingFile(app, outputPath, preferredFilename, bookTitle, titleCache, previousTitle = null) {
+async function findExistingFile(app, outputPath, preferredFilename, bookTitle, titleCache, previousTitle = null, legacyBasePath) {
   const preferredPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${preferredFilename}.md`);
   if (await app.vault.adapter.exists(preferredPath)) {
     return preferredPath;
@@ -10309,6 +10315,24 @@ async function findExistingFile(app, outputPath, preferredFilename, bookTitle, t
         return preferredPath;
       } catch (e) {
         return oldPath;
+      }
+    }
+  }
+  if (legacyBasePath && legacyBasePath !== outputPath) {
+    const rootCandidates = [preferredFilename];
+    if (previousTitle)
+      rootCandidates.push(generateFilename(previousTitle));
+    for (const candidateFilename of rootCandidates) {
+      const rootPath = (0, import_obsidian7.normalizePath)(`${legacyBasePath}/${candidateFilename}.md`);
+      if (await app.vault.adapter.exists(rootPath)) {
+        try {
+          await app.vault.adapter.rename(rootPath, preferredPath);
+          updateTitleCacheAfterRename(titleCache, rootPath, preferredPath, bookTitle);
+          console.debug(`MoonSync: Moved stray flat note "${candidateFilename}.md" \u2192 "${preferredPath}"`);
+          return preferredPath;
+        } catch (e) {
+          return rootPath;
+        }
       }
     }
   }
@@ -10346,7 +10370,8 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
   }
   const lookupTitle = (cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle && bookData.source !== "koreader" ? cachedInfo.title : bookData.book.title;
   const filename = generateFilename(lookupTitle);
-  let filePath = await findExistingFile(app, outputPath, filename, lookupTitle, titleCache, bookData.previousTitle);
+  const baseOutputPath = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+  let filePath = await findExistingFile(app, outputPath, filename, lookupTitle, titleCache, bookData.previousTitle, baseOutputPath);
   let cacheModified = false;
   const hasAttemptedBasicFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0);
   const hasAttemptedFetch = hasAttemptedBasicFetch && !(settings.hardcoverEnabled && settings.hardcoverToken && cachedInfo.source !== null && cachedInfo.source !== "hardcover" && !cachedInfo.hardcoverAttempted);

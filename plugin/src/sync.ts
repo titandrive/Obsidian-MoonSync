@@ -219,23 +219,34 @@ async function migrateToSubdirectories(app: App, settings: MoonSyncSettings): Pr
 		await app.vault.createFolder(koreaderPath);
 	}
 
-	// Move files — write then delete so a write failure leaves the original intact
+	// Move files — write then delete so a write failure leaves the original intact.
+	// If a note already exists at the destination (e.g. an already-synced, more
+	// enriched copy from a normal sync), the flat root copy is a stale duplicate —
+	// drop it instead of overwriting the good copy with older data.
 	for (const filePath of mrFiles) {
 		const filename = filePath.split("/").pop()!;
 		const dest = normalizePath(`${mrPath}/${filename}`);
 		try {
-			const content = await app.vault.adapter.read(filePath);
-			await app.vault.adapter.write(dest, content);
-			await app.vault.adapter.remove(filePath);
+			if (await app.vault.adapter.exists(dest)) {
+				await app.vault.adapter.remove(filePath);
+			} else {
+				const content = await app.vault.adapter.read(filePath);
+				await app.vault.adapter.write(dest, content);
+				await app.vault.adapter.remove(filePath);
+			}
 		} catch { /* skip — original stays, will retry on next sync */ }
 	}
 	for (const filePath of koreaderFiles) {
 		const filename = filePath.split("/").pop()!;
 		const dest = normalizePath(`${koreaderPath}/${filename}`);
 		try {
-			const content = await app.vault.adapter.read(filePath);
-			await app.vault.adapter.write(dest, content);
-			await app.vault.adapter.remove(filePath);
+			if (await app.vault.adapter.exists(dest)) {
+				await app.vault.adapter.remove(filePath);
+			} else {
+				const content = await app.vault.adapter.read(filePath);
+				await app.vault.adapter.write(dest, content);
+				await app.vault.adapter.remove(filePath);
+			}
 		} catch { /* skip */ }
 	}
 
@@ -334,14 +345,18 @@ export async function syncFromMoonReader(
 		const mrSubdirExists = await app.vault.adapter.exists(normalizePath(`${baseOutputPath}/MoonReader`));
 		const koreaderSubdirExists = await app.vault.adapter.exists(normalizePath(`${baseOutputPath}/KOReader`));
 
+		// Scan for stray flat notes regardless of whether the subdir already exists —
+		// otherwise a note left behind at the root (e.g. from an interrupted move, or one
+		// created before the other source was enabled) can never be picked up again once
+		// the destination subdir has been created once.
 		let hasFlatMrNotes = false;
 		let hasFlatKOReaderNotes = false;
-		if (settings.koreaderEnabled && !mrSubdirExists) {
+		if (settings.koreaderEnabled) {
 			// Check for MR notes: book_source: moonreader (new) or moon_reader_path (legacy)
 			hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "book_source: moonreader") ||
 				await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
 		}
-		if (settings.moonReaderEnabled && !koreaderSubdirExists) {
+		if (settings.moonReaderEnabled) {
 			// Check for KOReader notes: book_source: koreader
 			hasFlatKOReaderNotes = await hasNotesWithField(app, baseOutputPath, "book_source: koreader");
 		}
@@ -352,9 +367,7 @@ export async function syncFromMoonReader(
 			(settings.moonReaderEnabled && (koreaderSubdirExists || hasFlatKOReaderNotes));
 
 		// Run migration if needed
-		if (useSeparateDirs && !mrSubdirExists && settings.moonReaderEnabled) {
-			await migrateToSubdirectories(app, settings);
-		} else if (useSeparateDirs && hasFlatMrNotes) {
+		if (useSeparateDirs && (hasFlatMrNotes || hasFlatKOReaderNotes)) {
 			await migrateToSubdirectories(app, settings);
 		}
 
@@ -1465,7 +1478,8 @@ async function findExistingFile(
 	preferredFilename: string,
 	bookTitle: string,
 	titleCache: TitleCacheEntry[],
-	previousTitle: string | null = null
+	previousTitle: string | null = null,
+	legacyBasePath?: string
 ): Promise<string> {
 	const preferredPath = normalizePath(`${outputPath}/${preferredFilename}.md`);
 
@@ -1486,6 +1500,29 @@ async function findExistingFile(
 				return preferredPath;
 			} catch {
 				return oldPath;
+			}
+		}
+	}
+
+	// Also check the flat output root (when per-source subdirectories are in use) for a
+	// note left behind before the subdir switch, or one whose title changed at the same
+	// time it moved into a subdir — the bulk migration only runs once and only catches
+	// same-filename stragglers, so a title change combined with the subdir move can hide
+	// the old note from every other lookup here.
+	if (legacyBasePath && legacyBasePath !== outputPath) {
+		const rootCandidates = [preferredFilename];
+		if (previousTitle) rootCandidates.push(generateFilename(previousTitle));
+		for (const candidateFilename of rootCandidates) {
+			const rootPath = normalizePath(`${legacyBasePath}/${candidateFilename}.md`);
+			if (await app.vault.adapter.exists(rootPath)) {
+				try {
+					await app.vault.adapter.rename(rootPath, preferredPath);
+					updateTitleCacheAfterRename(titleCache, rootPath, preferredPath, bookTitle);
+					console.debug(`MoonSync: Moved stray flat note "${candidateFilename}.md" → "${preferredPath}"`);
+					return preferredPath;
+				} catch {
+					return rootPath;
+				}
 			}
 		}
 	}
@@ -1554,7 +1591,8 @@ async function processBook(
 		? cachedInfo.title
 		: bookData.book.title;
 	const filename = generateFilename(lookupTitle);
-	let filePath = await findExistingFile(app, outputPath, filename, lookupTitle, titleCache, bookData.previousTitle);
+	const baseOutputPath = normalizePath(settings.outputFolder);
+	let filePath = await findExistingFile(app, outputPath, filename, lookupTitle, titleCache, bookData.previousTitle, baseOutputPath);
 	let cacheModified = false;
 
 	// Check if we've already attempted to fetch metadata
