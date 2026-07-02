@@ -181,7 +181,7 @@ export async function fetchBookInfo(
  * Returns a Map of "title|author" -> BookInfoResult
  */
 export async function batchFetchBookInfo(
-	books: Array<{ title: string; author: string }>,
+	books: Array<{ title: string; author: string; isbn10?: string | null; isbn13?: string | null }>,
 	concurrency: number = 5,
 	onProgress?: (completed: number, total: number, currentTitle?: string) => void,
 	hardcoverToken?: string

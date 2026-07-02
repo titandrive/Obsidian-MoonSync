@@ -80,15 +80,18 @@ export function generateKOReaderBookNote(
 ): string {
 	const lines: string[] = [];
 
+	// Prefer metadata straight from the book's own file (via the KOReader sidecar) over
+	// whatever an external API guessed via title/author search — only fill gaps from
+	// cachedInfo for fields the sidecar doesn't have.
 	const title = cachedInfo?.title ?? bookData.title;
 	const author = bookData.author;
-	const description = cachedInfo?.description ?? null;
-	const publishedDate = cachedInfo?.publishedDate ?? null;
-	const publisher = cachedInfo?.publisher ?? null;
+	const description = bookData.description ?? cachedInfo?.description ?? null;
+	const publishedDate = bookData.publishedDate ?? cachedInfo?.publishedDate ?? null;
+	const publisher = bookData.publisher ?? cachedInfo?.publisher ?? null;
 	const pageCount = cachedInfo?.pageCount ?? bookData.pageCount ?? null;
 	const genres = cachedInfo?.genres ?? null;
-	const series = cachedInfo?.series ?? null;
-	const language = cachedInfo?.language ?? null;
+	const series = bookData.series ?? cachedInfo?.series ?? null;
+	const language = bookData.language ?? cachedInfo?.language ?? null;
 	const notesCount = bookData.annotations.filter(
 		(a) => (a as KOReaderAnnotation & { note?: string }).note?.trim()
 	).length;

@@ -439,8 +439,32 @@ async function searchHardcoverBooks(title, author, token, maxResults = 10) {
     return [];
   }
 }
+async function searchHardcoverByISBN(isbn10, isbn13, token) {
+  var _a, _b, _c;
+  const isbn = isbn13 || isbn10;
+  if (!isbn)
+    return null;
+  try {
+    await rateLimitDelay();
+    const query = `
+			query FindEditionByISBN($isbn: String!) {
+				editions(
+					where: { _or: [{ isbn_13: { _eq: $isbn } }, { isbn_10: { _eq: $isbn } }] },
+					limit: 1
+				) {
+					book_id
+				}
+			}`;
+    const result = await hardcoverGraphQL(query, token, { isbn });
+    const bookId = (_c = (_b = (_a = result.data) == null ? void 0 : _a.editions) == null ? void 0 : _b[0]) == null ? void 0 : _c.book_id;
+    return bookId ? parseInt(String(bookId), 10) : null;
+  } catch (error) {
+    console.debug("MoonSync: Hardcover ISBN lookup failed", error);
+    return null;
+  }
+}
 async function batchSearchHardcover(books, token, onProgress) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e, _f;
   const results = /* @__PURE__ */ new Map();
   const idToKeys = /* @__PURE__ */ new Map();
   for (let i = 0; i < books.length; i++) {
@@ -449,7 +473,10 @@ async function batchSearchHardcover(books, token, onProgress) {
     const cleanAuthor = cleanForSearch(book.author);
     const key = `${book.title}|${book.author}`;
     let foundId = null;
-    if (cleanAuthor) {
+    if (book.isbn10 || book.isbn13) {
+      foundId = await searchHardcoverByISBN((_a = book.isbn10) != null ? _a : null, (_b = book.isbn13) != null ? _b : null, token);
+    }
+    if (!foundId && cleanAuthor) {
       try {
         await rateLimitDelay();
         const exactQuery = `{
@@ -463,7 +490,7 @@ async function batchSearchHardcover(books, token, onProgress) {
 					) { id }
 				}`;
         const result = await hardcoverGraphQL(exactQuery, token);
-        if (((_b = (_a = result.data) == null ? void 0 : _a.books) == null ? void 0 : _b.length) > 0) {
+        if (((_d = (_c = result.data) == null ? void 0 : _c.books) == null ? void 0 : _d.length) > 0) {
           foundId = result.data.books[0].id;
         }
       } catch (e) {
@@ -480,7 +507,7 @@ async function batchSearchHardcover(books, token, onProgress) {
 					) { id }
 				}`;
         const result = await hardcoverGraphQL(titleQuery, token);
-        if (((_d = (_c = result.data) == null ? void 0 : _c.books) == null ? void 0 : _d.length) > 0) {
+        if (((_f = (_e = result.data) == null ? void 0 : _e.books) == null ? void 0 : _f.length) > 0) {
           foundId = result.data.books[0].id;
         }
       } catch (e) {
@@ -8028,6 +8055,27 @@ async function fileExists(filePath) {
     return false;
   }
 }
+function splitIsbn(isbn) {
+  if (!isbn)
+    return { isbn10: null, isbn13: null };
+  const clean = isbn.replace(/[^0-9Xx]/g, "");
+  if (clean.length === 13)
+    return { isbn10: null, isbn13: clean };
+  if (clean.length === 10)
+    return { isbn10: clean, isbn13: null };
+  return { isbn10: null, isbn13: null };
+}
+async function readMetadataSidecar(bookDir) {
+  try {
+    const files = await (0, import_promises2.readdir)(bookDir);
+    const sidecarName = files.find((f) => f.startsWith("_") && f.endsWith(".json"));
+    if (!sidecarName)
+      return null;
+    return await readJson((0, import_path3.join)(bookDir, sidecarName));
+  } catch (e) {
+    return null;
+  }
+}
 async function fetchAllBooks(syncPath) {
   var _a;
   const library = await readJson(
@@ -8037,14 +8085,16 @@ async function fetchAllBooks(syncPath) {
     return [];
   const books = await Promise.all(
     library.books.map(async (entry) => {
-      var _a2, _b, _c, _d, _e;
+      var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
       const hash = entry.bookHash;
+      const bookDir = (0, import_path3.join)(syncPath, "books", hash);
       const progressData = await readJson(
         (0, import_path3.join)(syncPath, "sync", hash, "progress.json")
       );
       const annotationsData = await readJson(
         (0, import_path3.join)(syncPath, "sync", hash, "annotations.json")
       );
+      const sidecar = await readMetadataSidecar(bookDir);
       const config = (_b = (_a2 = progressData == null ? void 0 : progressData.configs) == null ? void 0 : _a2[0]) != null ? _b : null;
       const annotations = ((_c = annotationsData == null ? void 0 : annotationsData.notes) != null ? _c : []).filter((n) => !n.deletedAt);
       let progressPercent = null;
@@ -8061,8 +8111,10 @@ async function fetchAllBooks(syncPath) {
         currentPage = cur;
         pageCount = total;
       }
-      const coverFilePath = (0, import_path3.join)(syncPath, "books", hash, "cover.png");
+      const coverFilename = (sidecar == null ? void 0 : sidecar.coverFile) || "cover.png";
+      const coverFilePath = (0, import_path3.join)(bookDir, coverFilename);
       const hasCover = await fileExists(coverFilePath);
+      const { isbn10, isbn13 } = splitIsbn(sidecar == null ? void 0 : sidecar.isbn);
       return {
         hash,
         title: entry.title,
@@ -8073,7 +8125,15 @@ async function fetchAllBooks(syncPath) {
         readingStatus: (_d = entry.readingStatus) != null ? _d : null,
         lastUpdatedAt: (_e = entry.updatedAt) != null ? _e : null,
         annotations,
-        coverPath: hasCover ? coverFilePath : null
+        coverPath: hasCover ? coverFilePath : null,
+        isbn10,
+        isbn13,
+        publisher: (_g = (_f = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _f.publisher) != null ? _g : null,
+        publishedDate: (_i = (_h = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _h.published) != null ? _i : null,
+        series: (_k = (_j = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _j.series) != null ? _k : null,
+        seriesIndex: (_m = (_l = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _l.series_index) != null ? _m : null,
+        language: (_o = (_n = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _n.language) != null ? _o : null,
+        description: (_q = (_p = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _p.description) != null ? _q : null
       };
     })
   );
@@ -8145,17 +8205,17 @@ function computeKOReaderHash(annotations) {
   return computeAnnotationsHash(annotations);
 }
 function generateKOReaderBookNote(bookData, settings, cachedInfo, coverPath, readingTime) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
   const lines = [];
   const title = (_a = cachedInfo == null ? void 0 : cachedInfo.title) != null ? _a : bookData.title;
   const author = bookData.author;
-  const description = (_b = cachedInfo == null ? void 0 : cachedInfo.description) != null ? _b : null;
-  const publishedDate = (_c = cachedInfo == null ? void 0 : cachedInfo.publishedDate) != null ? _c : null;
-  const publisher = (_d = cachedInfo == null ? void 0 : cachedInfo.publisher) != null ? _d : null;
-  const pageCount = (_f = (_e = cachedInfo == null ? void 0 : cachedInfo.pageCount) != null ? _e : bookData.pageCount) != null ? _f : null;
-  const genres = (_g = cachedInfo == null ? void 0 : cachedInfo.genres) != null ? _g : null;
-  const series = (_h = cachedInfo == null ? void 0 : cachedInfo.series) != null ? _h : null;
-  const language = (_i = cachedInfo == null ? void 0 : cachedInfo.language) != null ? _i : null;
+  const description = (_c = (_b = bookData.description) != null ? _b : cachedInfo == null ? void 0 : cachedInfo.description) != null ? _c : null;
+  const publishedDate = (_e = (_d = bookData.publishedDate) != null ? _d : cachedInfo == null ? void 0 : cachedInfo.publishedDate) != null ? _e : null;
+  const publisher = (_g = (_f = bookData.publisher) != null ? _f : cachedInfo == null ? void 0 : cachedInfo.publisher) != null ? _g : null;
+  const pageCount = (_i = (_h = cachedInfo == null ? void 0 : cachedInfo.pageCount) != null ? _h : bookData.pageCount) != null ? _i : null;
+  const genres = (_j = cachedInfo == null ? void 0 : cachedInfo.genres) != null ? _j : null;
+  const series = (_l = (_k = bookData.series) != null ? _k : cachedInfo == null ? void 0 : cachedInfo.series) != null ? _l : null;
+  const language = (_n = (_m = bookData.language) != null ? _m : cachedInfo == null ? void 0 : cachedInfo.language) != null ? _n : null;
   const notesCount = bookData.annotations.filter(
     (a) => {
       var _a2;
@@ -9210,15 +9270,15 @@ function koReaderToBookData(ko, coverVaultPath, effectiveTitle) {
     currentChapter: null,
     lastReadTimestamp: ko.lastUpdatedAt,
     coverPath: coverVaultPath,
-    fetchedDescription: null,
-    publishedDate: null,
-    publisher: null,
+    fetchedDescription: ko.description,
+    publishedDate: ko.publishedDate,
+    publisher: ko.publisher,
     pageCount: ko.pageCount,
     genres: null,
-    series: null,
-    isbn10: null,
-    isbn13: null,
-    language: null,
+    series: ko.series,
+    isbn10: ko.isbn10,
+    isbn13: ko.isbn13,
+    language: ko.language,
     previousTitle: null,
     hardcoverId: null,
     hardcoverSlug: null,
@@ -9679,7 +9739,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
           const needsHardcoverRefetch = hasAttemptedFetch && settings.hardcoverEnabled && settings.hardcoverToken && cachedInfo.source !== null && cachedInfo.source !== "hardcover" && !cachedInfo.hardcoverAttempted;
           const hardcoverPending = settings.hardcoverEnabled && settings.hardcoverToken && (cachedInfo == null ? void 0 : cachedInfo.hardcoverAttempted) !== true;
           if (needsHardcoverRefetch || hardcoverPending || !hasAttemptedFetch) {
-            koreaderToFetch.push({ title: book.title, author: book.author });
+            koreaderToFetch.push({ title: book.title, author: book.author, isbn10: book.isbn10, isbn13: book.isbn13 });
           }
         }
         if (koreaderToFetch.length > 0) {

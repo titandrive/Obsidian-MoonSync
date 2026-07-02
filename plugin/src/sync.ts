@@ -42,15 +42,15 @@ function koReaderToBookData(ko: KOReaderBookData, coverVaultPath: string | null,
 		currentChapter: null,
 		lastReadTimestamp: ko.lastUpdatedAt,
 		coverPath: coverVaultPath,
-		fetchedDescription: null,
-		publishedDate: null,
-		publisher: null,
+		fetchedDescription: ko.description,
+		publishedDate: ko.publishedDate,
+		publisher: ko.publisher,
 		pageCount: ko.pageCount,
 		genres: null,
-		series: null,
-		isbn10: null,
-		isbn13: null,
-		language: null,
+		series: ko.series,
+		isbn10: ko.isbn10,
+		isbn13: ko.isbn13,
+		language: ko.language,
 		previousTitle: null,
 		hardcoverId: null,
 		hardcoverSlug: null,
@@ -645,7 +645,7 @@ export async function syncFromMoonReader(
 				}
 
 				// Determine which KOReader books need metadata fetch
-				const koreaderToFetch: Array<{ title: string; author: string }> = [];
+				const koreaderToFetch: Array<{ title: string; author: string; isbn10?: string | null; isbn13?: string | null }> = [];
 				for (const book of koBooks) {
 					const cachedInfo = getCachedInfo(koreaderCache, book.title, book.author);
 					const hasAttemptedFetch = cachedInfo && (
@@ -660,7 +660,7 @@ export async function syncFromMoonReader(
 					const hardcoverPending = settings.hardcoverEnabled && settings.hardcoverToken &&
 						cachedInfo?.hardcoverAttempted !== true;
 					if (needsHardcoverRefetch || hardcoverPending || !hasAttemptedFetch) {
-						koreaderToFetch.push({ title: book.title, author: book.author });
+						koreaderToFetch.push({ title: book.title, author: book.author, isbn10: book.isbn10, isbn13: book.isbn13 });
 					}
 				}
 

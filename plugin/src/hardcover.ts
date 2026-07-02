@@ -387,12 +387,44 @@ export async function searchHardcoverBooks(
 }
 
 /**
+ * Look up a book's Hardcover ID by ISBN-10 or ISBN-13 — an exact, unambiguous match
+ * with no fuzzy title/author logic involved. Preferred over search whenever available.
+ */
+async function searchHardcoverByISBN(
+	isbn10: string | null,
+	isbn13: string | null,
+	token: string
+): Promise<number | null> {
+	const isbn = isbn13 || isbn10;
+	if (!isbn) return null;
+
+	try {
+		await rateLimitDelay();
+		const query = `
+			query FindEditionByISBN($isbn: String!) {
+				editions(
+					where: { _or: [{ isbn_13: { _eq: $isbn } }, { isbn_10: { _eq: $isbn } }] },
+					limit: 1
+				) {
+					book_id
+				}
+			}`;
+		const result = await hardcoverGraphQL(query, token, { isbn });
+		const bookId = result.data?.editions?.[0]?.book_id;
+		return bookId ? parseInt(String(bookId), 10) : null;
+	} catch (error) {
+		console.debug("MoonSync: Hardcover ISBN lookup failed", error);
+		return null;
+	}
+}
+
+/**
  * Batch search multiple books on Hardcover, then hydrate all results in one query.
  * Returns a Map of "title|author" -> BookInfoResult.
  * Much faster than searching+hydrating each book individually (N+1 calls instead of 2N).
  */
 export async function batchSearchHardcover(
-	books: Array<{ title: string; author: string }>,
+	books: Array<{ title: string; author: string; isbn10?: string | null; isbn13?: string | null }>,
 	token: string,
 	onProgress?: (completed: number, total: number, currentTitle?: string) => void
 ): Promise<Map<string, BookInfoResult>> {
@@ -400,7 +432,7 @@ export async function batchSearchHardcover(
 	// Map from book ID to the key(s) that searched for it
 	const idToKeys = new Map<number, string>();
 
-	// Step 1: Search for each book's ID — try exact match first, then full-text search
+	// Step 1: Search for each book's ID — ISBN first (exact), then title match, then full-text search
 	for (let i = 0; i < books.length; i++) {
 		const book = books[i];
 		const cleanTitle = cleanForSearch(book.title);
@@ -408,8 +440,13 @@ export async function batchSearchHardcover(
 		const key = `${book.title}|${book.author}`;
 		let foundId: number | null = null;
 
+		// Try ISBN match first — exact and unambiguous, no fuzzy logic needed
+		if (book.isbn10 || book.isbn13) {
+			foundId = await searchHardcoverByISBN(book.isbn10 ?? null, book.isbn13 ?? null, token);
+		}
+
 		// Try exact title + author match (most reliable)
-		if (cleanAuthor) {
+		if (!foundId && cleanAuthor) {
 			try {
 				await rateLimitDelay();
 				const exactQuery = `{
