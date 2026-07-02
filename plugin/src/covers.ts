@@ -1,5 +1,5 @@
 import { requestUrl } from "obsidian";
-import { cleanForSearch } from "./utils";
+import { cleanForSearch, stripHtml } from "./utils";
 
 export interface BookInfoResult {
 	title: string | null;
@@ -335,10 +335,11 @@ async function fetchFromOpenLibrary(
 
 					if (workData.description) {
 						// Description can be a string or an object with "value" property
-						result.description =
+						const rawDescription =
 							typeof workData.description === "string"
 								? workData.description
 								: workData.description.value || null;
+						result.description = rawDescription ? stripHtml(rawDescription) : null;
 					}
 
 					// Check for series information
@@ -406,9 +407,9 @@ async function fetchFromGoogleBooks(
 				)?.replace("http://", "https://"); // Ensure HTTPS
 			}
 
-			// Get description
+			// Get description — Google Books descriptions commonly include raw HTML
 			if (volumeInfo?.description) {
-				result.description = volumeInfo.description;
+				result.description = stripHtml(volumeInfo.description);
 			}
 
 			// Get author

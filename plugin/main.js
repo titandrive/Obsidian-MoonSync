@@ -49,6 +49,9 @@ function cleanForSearch(str) {
 function escapeYaml(str) {
   return str.replace(/"/g, '\\"').replace(/\n/g, " ");
 }
+function stripHtml(html) {
+  return html.replace(/<\/(p|div|li)>/gi, "\n\n").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&apos;|&#39;/gi, "'").replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10))).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
 function extractAuthorFromFilename(filename) {
   const name = filename.replace(/\.[^.]+$/, "");
   const dashIndex = name.lastIndexOf(" - ");
@@ -6930,7 +6933,8 @@ async function fetchFromOpenLibrary(title, author) {
           const workResponse = await (0, import_obsidian3.requestUrl)({ url: workUrl });
           const workData = workResponse.json;
           if (workData.description) {
-            result.description = typeof workData.description === "string" ? workData.description : workData.description.value || null;
+            const rawDescription = typeof workData.description === "string" ? workData.description : workData.description.value || null;
+            result.description = rawDescription ? stripHtml(rawDescription) : null;
           }
           if (workData.series && workData.series.length > 0) {
             result.series = workData.series[0];
@@ -6976,7 +6980,7 @@ async function fetchFromGoogleBooks(title, author) {
         result.coverUrl = (_a = imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail) == null ? void 0 : _a.replace("http://", "https://");
       }
       if (volumeInfo == null ? void 0 : volumeInfo.description) {
-        result.description = volumeInfo.description;
+        result.description = stripHtml(volumeInfo.description);
       }
       if ((volumeInfo == null ? void 0 : volumeInfo.authors) && volumeInfo.authors.length > 0) {
         result.author = volumeInfo.authors[0];
@@ -8039,6 +8043,7 @@ var import_promises7 = require("fs/promises");
 // src/parser/koreader.ts
 var import_promises2 = require("fs/promises");
 var import_path3 = require("path");
+init_utils();
 async function readJson(filePath) {
   try {
     const data = await (0, import_promises2.readFile)(filePath, "utf-8");
@@ -8085,7 +8090,7 @@ async function fetchAllBooks(syncPath) {
     return [];
   const books = await Promise.all(
     library.books.map(async (entry) => {
-      var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
+      var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
       const hash = entry.bookHash;
       const bookDir = (0, import_path3.join)(syncPath, "books", hash);
       const syncDir = (0, import_path3.join)(syncPath, "sync", hash);
@@ -8134,7 +8139,7 @@ async function fetchAllBooks(syncPath) {
         series: (_k = (_j = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _j.series) != null ? _k : null,
         seriesIndex: (_m = (_l = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _l.series_index) != null ? _m : null,
         language: (_o = (_n = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _n.language) != null ? _o : null,
-        description: (_q = (_p = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _p.description) != null ? _q : null
+        description: ((_p = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _p.description) ? stripHtml(sidecar.metadata.description) : null
       };
     })
   );

@@ -20,6 +20,27 @@ export function escapeYaml(str: string): string {
 }
 
 /**
+ * Strip HTML tags and decode entities from a description sourced from raw file
+ * metadata (e.g. an epub's own blurb). Regex-based rather than parsed, so even
+ * truncated/unclosed tags (which would otherwise make Obsidian's markdown
+ * renderer swallow everything after them) are removed safely.
+ */
+export function stripHtml(html: string): string {
+	return html
+		.replace(/<\/(p|div|li)>/gi, "\n\n")
+		.replace(/<br\s*\/?>/gi, "\n")
+		.replace(/<[^>]+>/g, "")
+		.replace(/&nbsp;/gi, " ")
+		.replace(/&amp;/gi, "&")
+		.replace(/&quot;/gi, '"')
+		.replace(/&apos;|&#39;/gi, "'")
+		.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+		.replace(/[ \t]+\n/g, "\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
+/**
  * Extract author from a "Title - Author.ext" filename pattern
  * Returns null if the pattern isn't found
  */

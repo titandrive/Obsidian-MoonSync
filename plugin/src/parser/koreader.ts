@@ -1,5 +1,6 @@
 import { readFile, readdir } from "fs/promises";
 import { join } from "path";
+import { stripHtml } from "../utils";
 
 export interface KOReaderLibraryEntry {
 	bookHash: string;
@@ -179,7 +180,7 @@ export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[
 				series: sidecar?.metadata?.series ?? null,
 				seriesIndex: sidecar?.metadata?.series_index ?? null,
 				language: sidecar?.metadata?.language ?? null,
-				description: sidecar?.metadata?.description ?? null,
+				description: sidecar?.metadata?.description ? stripHtml(sidecar.metadata.description) : null,
 			};
 		})
 	);
