@@ -8102,7 +8102,12 @@ async function fetchAllBooks(syncPath) {
       );
       const sidecar = await readMetadataSidecar(syncDir);
       const config = (_b = (_a2 = progressData == null ? void 0 : progressData.configs) == null ? void 0 : _a2[0]) != null ? _b : null;
-      const annotations = ((_c = annotationsData == null ? void 0 : annotationsData.notes) != null ? _c : []).filter((n) => !n.deletedAt);
+      const annotations = ((_c = annotationsData == null ? void 0 : annotationsData.notes) != null ? _c : []).filter(
+        (n) => {
+          var _a3;
+          return !n.deletedAt && !(n.type === "bookmark" && !((_a3 = n.note) == null ? void 0 : _a3.trim()));
+        }
+      );
       let progressPercent = null;
       let currentPage = null;
       let pageCount = null;

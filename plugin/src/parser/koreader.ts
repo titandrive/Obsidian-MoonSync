@@ -139,7 +139,12 @@ export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[
 			const sidecar = await readMetadataSidecar(syncDir);
 
 			const config = progressData?.configs?.[0] ?? null;
-			const annotations = (annotationsData?.notes ?? []).filter((n) => !n.deletedAt);
+			// Skip deleted annotations, and plain bookmarks (auto-labeled "in CHAPTER X"
+			// with no highlighted text) that carry no user-added note — nothing of
+			// substance to put in the note.
+			const annotations = (annotationsData?.notes ?? []).filter(
+				(n) => !n.deletedAt && !(n.type === "bookmark" && !n.note?.trim())
+			);
 
 			let progressPercent: number | null = null;
 			let currentPage: number | null = null;
