@@ -15,13 +15,28 @@ import { enrichBooksWithSyncData } from "./enrichment";
 import { getLocalCover } from "./parser/local-covers";
 
 function koReaderToBookData(ko: KOReaderBookData, coverVaultPath: string | null, effectiveTitle?: string): BookData {
+	const title = effectiveTitle ?? ko.title;
 	return {
 		book: {
-			id: 0, title: effectiveTitle ?? ko.title, filename: "", author: ko.author,
+			id: 0, title, filename: "", author: ko.author,
 			description: "", category: "", thumbFile: "", coverFile: "",
 			addTime: "", favorite: "",
 		},
-		highlights: [],
+		highlights: ko.annotations.map((a, i) => ({
+			id: i,
+			book: title,
+			filename: "",
+			chapter: 0,
+			position: a.page,
+			highlightLength: 0,
+			highlightColor: 0,
+			timestamp: a.createdAt,
+			bookmark: "",
+			note: a.note ?? "",
+			originalText: a.text ?? "",
+			underline: false,
+			strikethrough: false,
+		})),
 		statistics: null,
 		progress: ko.progress,
 		currentChapter: null,

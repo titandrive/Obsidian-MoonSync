@@ -1078,7 +1078,7 @@ export async function syncBookHighlights(
 	bookId: number,
 	editionId: number | null,
 	highlights: MoonReaderHighlight[],
-	source: "moonreader" | "readest",
+	source: "moonreader" | "koreader",
 	totalPages: number | null,
 	lastSyncedAt: number | null,
 	privacySetting: number,
@@ -1121,8 +1121,8 @@ export async function syncBookHighlights(
 			eventType = "note";
 		}
 
-		// Readest highlights have actual page numbers in position; MR has character offsets
-		const page = source === "readest" ? h.position : null;
+		// KOReader highlights have actual page numbers in position; MR has character offsets
+		const page = source === "koreader" ? h.position : null;
 
 		const ok = await insertJournalEntry(
 			bookId, editionId, text, eventType, page, totalPages, privacySetting, token

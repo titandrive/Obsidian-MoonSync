@@ -909,7 +909,7 @@ ${h.note.trim()}`;
       text = h.note.trim();
       eventType = "note";
     }
-    const page = source === "readest" ? h.position : null;
+    const page = source === "koreader" ? h.position : null;
     const ok = await insertJournalEntry(
       bookId,
       editionId,
@@ -9152,10 +9152,11 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
 
 // src/sync.ts
 function koReaderToBookData(ko, coverVaultPath, effectiveTitle) {
+  const title = effectiveTitle != null ? effectiveTitle : ko.title;
   return {
     book: {
       id: 0,
-      title: effectiveTitle != null ? effectiveTitle : ko.title,
+      title,
       filename: "",
       author: ko.author,
       description: "",
@@ -9165,7 +9166,24 @@ function koReaderToBookData(ko, coverVaultPath, effectiveTitle) {
       addTime: "",
       favorite: ""
     },
-    highlights: [],
+    highlights: ko.annotations.map((a, i) => {
+      var _a, _b;
+      return {
+        id: i,
+        book: title,
+        filename: "",
+        chapter: 0,
+        position: a.page,
+        highlightLength: 0,
+        highlightColor: 0,
+        timestamp: a.createdAt,
+        bookmark: "",
+        note: (_a = a.note) != null ? _a : "",
+        originalText: (_b = a.text) != null ? _b : "",
+        underline: false,
+        strikethrough: false
+      };
+    }),
     statistics: null,
     progress: ko.progress,
     currentChapter: null,
