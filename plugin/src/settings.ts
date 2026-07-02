@@ -127,57 +127,57 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			}
 		}
 
-		// --- Readest ---
-		new Setting(container).setName("Readest").setHeading();
+		// --- KOReader ---
+		new Setting(container).setName("KOReader").setHeading();
 
 		new Setting(container)
-			.setName("Enable Readest sync")
-			.setDesc("Sync highlights and progress from Readest")
+			.setName("Enable KOReader sync")
+			.setDesc("Sync highlights and progress from KOReader via a local sync folder")
 			.addToggle((toggle) =>
 				toggle
-					.setValue(this.plugin.settings.readestEnabled)
+					.setValue(this.plugin.settings.koreaderEnabled)
 					.onChange(async (value) => {
-						this.plugin.settings.readestEnabled = value;
+						this.plugin.settings.koreaderEnabled = value;
 						await this.plugin.saveSettings();
 						this.display();
 					})
 			);
 
-		if (this.plugin.settings.readestEnabled) {
-			let readestTextComponent: TextComponent;
-			let readestValidationEl: HTMLElement;
+		if (this.plugin.settings.koreaderEnabled) {
+			let koreaderTextComponent: TextComponent;
+			let koreaderValidationEl: HTMLElement;
 
-			const readestPathSetting = new Setting(container)
-				.setName("Readest sync path")
+			const koreaderPathSetting = new Setting(container)
+				.setName("KOReader sync path")
 				.setDesc(
-					"Path to the folder where Readest stores its book data (contains subfolders, one per book)."
+					"Path to the mounted KOReader sync folder (contains library.json, sync/, and books/ subfolders)."
 				)
 				.addText((text) => {
-					readestTextComponent = text;
+					koreaderTextComponent = text;
 					text
-						.setPlaceholder("/path/to/readest/data")
-						.setValue(this.plugin.settings.readestSyncPath)
+						.setPlaceholder("/Volumes/webdav/syncest")
+						.setValue(this.plugin.settings.koreaderSyncPath)
 						.onChange(async (value) => {
-							this.plugin.settings.readestSyncPath = value;
+							this.plugin.settings.koreaderSyncPath = value;
 							await this.plugin.saveSettings();
-							this.validateReadestPath(value, readestValidationEl);
+							this.validateKOReaderPath(value, koreaderValidationEl);
 						});
 				})
 				.addButton((button) =>
 					button.setButtonText("Browse").onClick(async () => {
-						const folder = await this.openFolderPicker("Select Readest sync folder");
+						const folder = await this.openFolderPicker("Select KOReader sync folder");
 						if (folder) {
-							this.plugin.settings.readestSyncPath = folder;
-							readestTextComponent.setValue(folder);
+							this.plugin.settings.koreaderSyncPath = folder;
+							koreaderTextComponent.setValue(folder);
 							await this.plugin.saveSettings();
-							this.validateReadestPath(folder, readestValidationEl);
+							this.validateKOReaderPath(folder, koreaderValidationEl);
 						}
 					})
 				);
 
-			readestValidationEl = readestPathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
-			if (this.plugin.settings.readestSyncPath) {
-				this.validateReadestPath(this.plugin.settings.readestSyncPath, readestValidationEl);
+			koreaderValidationEl = koreaderPathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
+			if (this.plugin.settings.koreaderSyncPath) {
+				this.validateKOReaderPath(this.plugin.settings.koreaderSyncPath, koreaderValidationEl);
 			}
 		}
 
@@ -186,7 +186,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 
 		new Setting(container)
 			.setName("Output folder")
-			.setDesc("Top-level folder in your vault where book notes will be created. When both sources are enabled, notes go into MoonReader/ and Readest/ subfolders automatically.")
+			.setDesc("Top-level folder in your vault where book notes will be created. When both sources are enabled, notes go into MoonReader/ and KOReader/ subfolders automatically.")
 			.addText((text) =>
 				text
 					.setPlaceholder("Books")
@@ -728,7 +728,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 		}
 	}
 
-	private validateReadestPath(path: string, validationEl: HTMLElement): void {
+	private validateKOReaderPath(path: string, validationEl: HTMLElement): void {
 		validationEl.empty();
 
 		if (!path) {
@@ -743,33 +743,17 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			return;
 		}
 
-		const { readdirSync, statSync } = require("fs");
+		// KOReader syncest format: library.json at root
+		const hasLibrary = existsSync(join(path, "library.json"));
 
-		// Readest stores books under <path>/books/ — check both the path itself and the books subdir
-		const pathsToCheck = [path, join(path, "books")];
-		const hasBookFolder = pathsToCheck.some(dir => {
-			try {
-				return readdirSync(dir).some((entry: string) => {
-					try {
-						return statSync(join(dir, entry)).isDirectory() &&
-							existsSync(join(dir, entry, "config.json"));
-					} catch {
-						return false;
-					}
-				});
-			} catch {
-				return false;
-			}
-		});
-
-		if (hasBookFolder) {
+		if (hasLibrary) {
 			validationEl.createSpan({
-				text: "✓ Readest sync folder found",
+				text: "✓ KOReader sync folder found",
 				attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" }
 			});
 		} else {
 			validationEl.createSpan({
-				text: "⚠ Folder exists but no Readest book data found",
+				text: "⚠ Folder exists but no library.json found",
 				attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
 			});
 		}

@@ -6099,8 +6099,8 @@ var import_obsidian8 = require("obsidian");
 var DEFAULT_SETTINGS = {
   syncPath: "",
   moonReaderEnabled: true,
-  readestEnabled: false,
-  readestSyncPath: "",
+  koreaderEnabled: false,
+  koreaderSyncPath: "",
   outputFolder: "Books",
   syncOnStartup: true,
   watchForChanges: false,
@@ -6247,44 +6247,44 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
         this.validateSyncPath(this.plugin.settings.syncPath, validationEl);
       }
     }
-    new import_obsidian2.Setting(container).setName("Readest").setHeading();
-    new import_obsidian2.Setting(container).setName("Enable Readest sync").setDesc("Sync highlights and progress from Readest").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.readestEnabled).onChange(async (value) => {
-        this.plugin.settings.readestEnabled = value;
+    new import_obsidian2.Setting(container).setName("KOReader").setHeading();
+    new import_obsidian2.Setting(container).setName("Enable KOReader sync").setDesc("Sync highlights and progress from KOReader via a local sync folder").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.koreaderEnabled).onChange(async (value) => {
+        this.plugin.settings.koreaderEnabled = value;
         await this.plugin.saveSettings();
         this.display();
       })
     );
-    if (this.plugin.settings.readestEnabled) {
-      let readestTextComponent;
-      let readestValidationEl;
-      const readestPathSetting = new import_obsidian2.Setting(container).setName("Readest sync path").setDesc(
-        "Path to the folder where Readest stores its book data (contains subfolders, one per book)."
+    if (this.plugin.settings.koreaderEnabled) {
+      let koreaderTextComponent;
+      let koreaderValidationEl;
+      const koreaderPathSetting = new import_obsidian2.Setting(container).setName("KOReader sync path").setDesc(
+        "Path to the mounted KOReader sync folder (contains library.json, sync/, and books/ subfolders)."
       ).addText((text) => {
-        readestTextComponent = text;
-        text.setPlaceholder("/path/to/readest/data").setValue(this.plugin.settings.readestSyncPath).onChange(async (value) => {
-          this.plugin.settings.readestSyncPath = value;
+        koreaderTextComponent = text;
+        text.setPlaceholder("/Volumes/webdav/syncest").setValue(this.plugin.settings.koreaderSyncPath).onChange(async (value) => {
+          this.plugin.settings.koreaderSyncPath = value;
           await this.plugin.saveSettings();
-          this.validateReadestPath(value, readestValidationEl);
+          this.validateKOReaderPath(value, koreaderValidationEl);
         });
       }).addButton(
         (button) => button.setButtonText("Browse").onClick(async () => {
-          const folder = await this.openFolderPicker("Select Readest sync folder");
+          const folder = await this.openFolderPicker("Select KOReader sync folder");
           if (folder) {
-            this.plugin.settings.readestSyncPath = folder;
-            readestTextComponent.setValue(folder);
+            this.plugin.settings.koreaderSyncPath = folder;
+            koreaderTextComponent.setValue(folder);
             await this.plugin.saveSettings();
-            this.validateReadestPath(folder, readestValidationEl);
+            this.validateKOReaderPath(folder, koreaderValidationEl);
           }
         })
       );
-      readestValidationEl = readestPathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
-      if (this.plugin.settings.readestSyncPath) {
-        this.validateReadestPath(this.plugin.settings.readestSyncPath, readestValidationEl);
+      koreaderValidationEl = koreaderPathSetting.descEl.createDiv({ cls: "moonsync-path-validation" });
+      if (this.plugin.settings.koreaderSyncPath) {
+        this.validateKOReaderPath(this.plugin.settings.koreaderSyncPath, koreaderValidationEl);
       }
     }
     new import_obsidian2.Setting(container).setName("Output").setHeading();
-    new import_obsidian2.Setting(container).setName("Output folder").setDesc("Top-level folder in your vault where book notes will be created. When both sources are enabled, notes go into MoonReader/ and Readest/ subfolders automatically.").addText(
+    new import_obsidian2.Setting(container).setName("Output folder").setDesc("Top-level folder in your vault where book notes will be created. When both sources are enabled, notes go into MoonReader/ and KOReader/ subfolders automatically.").addText(
       (text) => text.setPlaceholder("Books").setValue(this.plugin.settings.outputFolder).onChange(async (value) => {
         this.plugin.settings.outputFolder = value || "Books";
         await this.plugin.saveSettings();
@@ -6617,7 +6617,7 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       });
     }
   }
-  validateReadestPath(path, validationEl) {
+  validateKOReaderPath(path, validationEl) {
     validationEl.empty();
     if (!path) {
       return;
@@ -6629,29 +6629,15 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       });
       return;
     }
-    const { readdirSync, statSync } = require("fs");
-    const pathsToCheck = [path, (0, import_path.join)(path, "books")];
-    const hasBookFolder = pathsToCheck.some((dir) => {
-      try {
-        return readdirSync(dir).some((entry) => {
-          try {
-            return statSync((0, import_path.join)(dir, entry)).isDirectory() && (0, import_fs.existsSync)((0, import_path.join)(dir, entry, "config.json"));
-          } catch (e) {
-            return false;
-          }
-        });
-      } catch (e) {
-        return false;
-      }
-    });
-    if (hasBookFolder) {
+    const hasLibrary = (0, import_fs.existsSync)((0, import_path.join)(path, "library.json"));
+    if (hasLibrary) {
       validationEl.createSpan({
-        text: "\u2713 Readest sync folder found",
+        text: "\u2713 KOReader sync folder found",
         attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" }
       });
     } else {
       validationEl.createSpan({
-        text: "\u26A0 Folder exists but no Readest book data found",
+        text: "\u26A0 Folder exists but no library.json found",
         attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
       });
     }
@@ -8006,290 +7992,298 @@ async function parseAnnotationFiles(syncPath, trackBooksWithoutHighlights = fals
   }
 }
 
-// src/parser/readest.ts
+// src/sync.ts
+var import_promises7 = require("fs/promises");
+
+// src/parser/koreader.ts
 var import_promises2 = require("fs/promises");
 var import_path3 = require("path");
-var COLOR_MAP = {
-  yellow: 4294967040,
-  blue: 4278190335,
-  green: 4278255360,
-  red: 4294901760,
-  violet: 4286578943,
-  purple: 4286578943,
-  pink: 4294928820,
-  orange: 4294937600
-};
-function colorToArgb(color) {
-  var _a;
-  if (!color)
-    return 4294967040;
-  return (_a = COLOR_MAP[color.toLowerCase()]) != null ? _a : 4294967040;
-}
-function cfiToChapter(cfi) {
-  const match = cfi.match(/\/6\/(\d+)/);
-  if (match)
-    return Math.floor(parseInt(match[1], 10) / 2);
-  return 0;
-}
-function cleanComicTitle(title) {
-  let cleaned = title.replace(/(\s*\([^)]*\))+\s*$/, "").trim();
-  cleaned = cleaned.replace(/\s*[-–]\s*$/, "").trim();
-  return cleaned || title;
-}
-function stripHtml(html) {
-  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim();
-}
-function resolveAuthor(entry) {
-  var _a, _b;
-  if (entry.author)
-    return entry.author;
-  const meta = (_a = entry.metadata) == null ? void 0 : _a.author;
-  if (!meta)
-    return "";
-  if (typeof meta === "string")
-    return meta;
-  return (_b = meta.name) != null ? _b : "";
-}
-function resolveGenres(entry) {
-  var _a;
-  const subject = (_a = entry.metadata) == null ? void 0 : _a.subject;
-  if (!subject)
+async function readJson(filePath) {
+  try {
+    const data = await (0, import_promises2.readFile)(filePath, "utf-8");
+    return JSON.parse(data);
+  } catch (e) {
     return null;
-  if (Array.isArray(subject))
-    return subject.filter(Boolean);
-  if (typeof subject === "string" && subject.trim())
-    return [subject.trim()];
-  return null;
-}
-function resolveSeries(entry) {
-  var _a, _b, _c, _d;
-  const series = ((_c = (_b = (_a = entry.metadata) == null ? void 0 : _a.belongsTo) == null ? void 0 : _b.series) == null ? void 0 : _c.name) || ((_d = entry.metadata) == null ? void 0 : _d.series);
-  return series != null ? series : null;
-}
-function makeBook(title, author) {
-  return {
-    id: 0,
-    title,
-    filename: title,
-    author,
-    description: "",
-    category: "",
-    thumbFile: "",
-    coverFile: "",
-    addTime: "",
-    favorite: ""
-  };
-}
-async function resolveBooksDir(syncPath) {
-  const booksSubdir = (0, import_path3.join)(syncPath, "books");
-  try {
-    const info = await (0, import_promises2.stat)(booksSubdir);
-    if (info.isDirectory())
-      return booksSubdir;
-  } catch (e) {
   }
-  return syncPath;
 }
-async function parseReadestFiles(syncPath) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D;
-  const results = [];
-  const booksDir = await resolveBooksDir(syncPath);
-  const libraryPath = (0, import_path3.join)(syncPath, "library.json");
-  let library = null;
+async function fileExists(filePath) {
   try {
-    const raw = await (0, import_promises2.readFile)(libraryPath, "utf-8");
-    library = JSON.parse(raw);
+    await (0, import_promises2.readFile)(filePath);
+    return true;
   } catch (e) {
+    return false;
   }
-  if ((_a = library == null ? void 0 : library.books) == null ? void 0 : _a.length) {
-    for (const entry of library.books) {
-      if (entry.deletedAt !== null)
-        continue;
-      const bookDir = (0, import_path3.join)(booksDir, entry.hash);
-      let bookConfig = null;
-      try {
-        const raw = await (0, import_promises2.readFile)((0, import_path3.join)(bookDir, "config.json"), "utf-8");
-        bookConfig = JSON.parse(raw);
-      } catch (e) {
-      }
-      let title = entry.title || entry.sourceTitle || entry.hash;
-      const isRawFilename = entry.format !== "EPUB" && entry.format !== "MOBI" && !((_b = entry.metadata) == null ? void 0 : _b.description) && !((_c = entry.metadata) == null ? void 0 : _c.publisher);
-      if (isRawFilename)
-        title = cleanComicTitle(title);
-      const author = resolveAuthor(entry);
-      let progress = null;
-      const progressArr = (_e = (_d = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _d.progress) != null ? _e : entry.progress;
-      if (progressArr && progressArr[1] > 0) {
-        progress = progressArr[0] / progressArr[1] * 100;
-      }
-      const lastReadTimestamp = (_i = (_h = (_g = (_f = bookConfig == null ? void 0 : bookConfig.config) == null ? void 0 : _f.updatedAt) != null ? _g : bookConfig == null ? void 0 : bookConfig.updatedAt) != null ? _h : entry.updatedAt) != null ? _i : null;
-      const annotations = ((_j = bookConfig == null ? void 0 : bookConfig.booknotes) != null ? _j : []).filter(
-        (n) => n.deletedAt === null && n.type !== "bookmark"
+}
+async function fetchAllBooks(syncPath) {
+  var _a;
+  const library = await readJson(
+    (0, import_path3.join)(syncPath, "library.json")
+  );
+  if (!((_a = library == null ? void 0 : library.books) == null ? void 0 : _a.length))
+    return [];
+  const books = await Promise.all(
+    library.books.map(async (entry) => {
+      var _a2, _b, _c, _d, _e;
+      const hash = entry.bookHash;
+      const progressData = await readJson(
+        (0, import_path3.join)(syncPath, "sync", hash, "progress.json")
       );
-      const highlights = annotations.map((ann) => {
-        var _a2, _b2, _c2, _d2;
-        return {
-          id: parseInt(ann.id, 36) || ann.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0),
-          book: title,
-          filename: title,
-          chapter: cfiToChapter(ann.cfi),
-          position: ann.page,
-          highlightLength: (_b2 = (_a2 = ann.text) == null ? void 0 : _a2.length) != null ? _b2 : 0,
-          highlightColor: colorToArgb(ann.color),
-          timestamp: ann.createdAt,
-          bookmark: "",
-          note: (_c2 = ann.note) != null ? _c2 : "",
-          originalText: (_d2 = ann.text) != null ? _d2 : "",
-          underline: ann.style === "underline",
-          strikethrough: ann.style === "strikethrough"
-        };
-      });
-      const meta = (_k = entry.metadata) != null ? _k : {};
-      const description = meta.description ? stripHtml(meta.description) : null;
-      const publisher = (_l = meta.publisher) != null ? _l : null;
-      const publishedDate = (_m = meta.published) != null ? _m : null;
-      const isbn = (_n = meta.isbn) != null ? _n : null;
-      const language = (_o = entry.primaryLanguage) != null ? _o : typeof meta.language === "string" ? meta.language.split("-")[0].toLowerCase() : null;
-      const genres = resolveGenres(entry);
-      const series = resolveSeries(entry);
-      const seriesIndex = (_u = (_t = (_r = (_q = (_p = entry.metadata) == null ? void 0 : _p.belongsTo) == null ? void 0 : _q.series) == null ? void 0 : _r.position) != null ? _t : (_s = entry.metadata) == null ? void 0 : _s.seriesIndex) != null ? _u : null;
-      const seriesStr = series && seriesIndex ? `${series} #${seriesIndex}` : series;
-      let localCoverData = null;
-      for (const coverName of ["cover.png", "cover.jpg", "cover.jpeg"]) {
-        try {
-          localCoverData = await (0, import_promises2.readFile)((0, import_path3.join)(bookDir, coverName));
-          break;
-        } catch (e) {
-        }
+      const annotationsData = await readJson(
+        (0, import_path3.join)(syncPath, "sync", hash, "annotations.json")
+      );
+      const config = (_b = (_a2 = progressData == null ? void 0 : progressData.configs) == null ? void 0 : _a2[0]) != null ? _b : null;
+      const annotations = ((_c = annotationsData == null ? void 0 : annotationsData.notes) != null ? _c : []).filter((n) => !n.deletedAt);
+      let progressPercent = null;
+      let currentPage = null;
+      let pageCount = null;
+      if (config) {
+        progressPercent = config.progressPercent * 100;
+        currentPage = config.currentPage;
+        pageCount = config.pageCount;
+      } else if (entry.progress) {
+        const [cur, total] = entry.progress;
+        if (total > 0)
+          progressPercent = cur / total * 100;
+        currentPage = cur;
+        pageCount = total;
       }
-      const bookData = {
-        book: makeBook(title, author),
-        highlights,
-        statistics: null,
-        progress,
-        currentChapter: null,
-        lastReadTimestamp,
-        coverPath: null,
-        fetchedDescription: description,
-        publishedDate,
-        publisher,
-        pageCount: (_v = progressArr == null ? void 0 : progressArr[1]) != null ? _v : null,
-        genres,
-        series: seriesStr,
-        isbn10: null,
-        isbn13: isbn != null ? isbn : null,
-        language,
-        previousTitle: entry.hash,
-        // rename any old hash-named notes to title-based names
-        hardcoverId: null,
-        hardcoverSlug: null,
-        source: "readest"
-      };
-      if (localCoverData) {
-        bookData._readestCoverData = localCoverData;
-      }
-      results.push(bookData);
-    }
-    return results;
-  }
-  let entries;
-  try {
-    entries = await (0, import_promises2.readdir)(booksDir);
-  } catch (e) {
-    return results;
-  }
-  for (const entry of entries) {
-    const bookDir = (0, import_path3.join)(booksDir, entry);
-    try {
-      const info = await (0, import_promises2.stat)(bookDir);
-      if (!info.isDirectory())
-        continue;
-    } catch (e) {
-      continue;
-    }
-    const configPath = (0, import_path3.join)(bookDir, "config.json");
-    let raw;
-    try {
-      raw = await (0, import_promises2.readFile)(configPath, "utf-8");
-    } catch (e) {
-      continue;
-    }
-    let config;
-    try {
-      config = JSON.parse(raw);
-    } catch (e) {
-      continue;
-    }
-    let title = entry;
-    try {
-      const dirEntries = await (0, import_promises2.readdir)(bookDir);
-      const epubFile = dirEntries.find((f) => /\.(epub|mobi|pdf|azw3?|fb2|txt)$/i.test(f));
-      if (epubFile)
-        title = epubFile.replace(/\.(epub|mobi|pdf|azw3?|fb2|txt)$/i, "").trim();
-    } catch (e) {
-    }
-    let progress = null;
-    if (((_w = config.config) == null ? void 0 : _w.progress) && config.config.progress[1] > 0) {
-      progress = config.config.progress[0] / config.config.progress[1] * 100;
-    }
-    const lastReadTimestamp = (_z = (_y = (_x = config.config) == null ? void 0 : _x.updatedAt) != null ? _y : config.updatedAt) != null ? _z : null;
-    const annotations = ((_A = config.booknotes) != null ? _A : []).filter(
-      (n) => n.deletedAt === null && n.type !== "bookmark"
-    );
-    const highlights = annotations.map((ann) => {
-      var _a2, _b2, _c2, _d2;
+      const coverFilePath = (0, import_path3.join)(syncPath, "books", hash, "cover.png");
+      const hasCover = await fileExists(coverFilePath);
       return {
-        id: parseInt(ann.id, 36) || ann.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0),
-        book: title,
-        filename: title,
-        chapter: cfiToChapter(ann.cfi),
-        position: ann.page,
-        highlightLength: (_b2 = (_a2 = ann.text) == null ? void 0 : _a2.length) != null ? _b2 : 0,
-        highlightColor: colorToArgb(ann.color),
-        timestamp: ann.createdAt,
-        bookmark: "",
-        note: (_c2 = ann.note) != null ? _c2 : "",
-        originalText: (_d2 = ann.text) != null ? _d2 : "",
-        underline: ann.style === "underline",
-        strikethrough: ann.style === "strikethrough"
+        hash,
+        title: entry.title,
+        author: entry.author,
+        progress: progressPercent,
+        currentPage,
+        pageCount,
+        readingStatus: (_d = entry.readingStatus) != null ? _d : null,
+        lastUpdatedAt: (_e = entry.updatedAt) != null ? _e : null,
+        annotations,
+        coverPath: hasCover ? coverFilePath : null
       };
-    });
-    let localCoverData = null;
-    for (const coverName of ["cover.png", "cover.jpg", "cover.jpeg"]) {
-      try {
-        localCoverData = await (0, import_promises2.readFile)((0, import_path3.join)(bookDir, coverName));
-        break;
-      } catch (e) {
-      }
-    }
-    const bookData = {
-      book: makeBook(title, ""),
-      highlights,
-      statistics: null,
-      progress,
-      currentChapter: null,
-      lastReadTimestamp,
-      coverPath: null,
-      fetchedDescription: null,
-      publishedDate: null,
-      publisher: null,
-      pageCount: (_D = (_C = (_B = config.config) == null ? void 0 : _B.progress) == null ? void 0 : _C[1]) != null ? _D : null,
-      genres: null,
-      series: null,
-      isbn10: null,
-      isbn13: null,
-      language: null,
-      previousTitle: null,
-      hardcoverId: null,
-      hardcoverSlug: null,
-      source: "readest"
-    };
-    if (localCoverData) {
-      bookData._readestCoverData = localCoverData;
-    }
-    results.push(bookData);
+    })
+  );
+  return books;
+}
+
+// src/writer/koreader-markdown.ts
+init_utils();
+function getCalloutType2(color) {
+  if (!color)
+    return "quote";
+  const c = color.toLowerCase();
+  if (c === "yellow")
+    return "quote";
+  if (c === "green")
+    return "tip";
+  if (c === "blue")
+    return "info";
+  if (c === "red" || c === "violet" || c === "purple")
+    return "warning";
+  const hex = c.replace("#", "");
+  if (hex.length === 6) {
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    if (g > r && g > b && g > 120)
+      return "tip";
+    if (b > r && b > g && b > 120)
+      return "info";
+    if (r > g && r > b && r > 120)
+      return "warning";
   }
-  return results;
+  return "quote";
+}
+function computeAnnotationsHash(annotations) {
+  const str = annotations.map((a) => `${a.id}:${a.updatedAt}`).join("|");
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = Math.imul(31, hash) + str.charCodeAt(i) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+function formatAnnotation(annotation, useColors) {
+  const calloutType = useColors ? getCalloutType2(annotation.color) : "quote";
+  const dateStr = annotation.createdAt ? formatDate(annotation.createdAt) : "";
+  const header = dateStr ? `> [!${calloutType}] ${dateStr}` : `> [!${calloutType}]`;
+  const lines = [header];
+  if (annotation.text) {
+    const textLines = annotation.text.trim().split("\n");
+    for (const line of textLines) {
+      lines.push(`> ${line}`);
+    }
+  }
+  if (annotation.type === "bookmark" && !annotation.xpointer1) {
+    lines[0] = `> [!note] Bookmark \u2022 ${dateStr}`;
+  }
+  const noteText = annotation.note;
+  if (noteText && noteText.trim()) {
+    lines.push(">");
+    lines.push("> ---");
+    lines.push(`> **Note:** ${noteText.trim()}`);
+  }
+  return lines.join("\n");
+}
+function computeKOReaderHash(annotations) {
+  return computeAnnotationsHash(annotations);
+}
+function generateKOReaderBookNote(bookData, settings, cachedInfo, coverPath, readingTime) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const lines = [];
+  const title = (_a = cachedInfo == null ? void 0 : cachedInfo.title) != null ? _a : bookData.title;
+  const author = bookData.author;
+  const description = (_b = cachedInfo == null ? void 0 : cachedInfo.description) != null ? _b : null;
+  const publishedDate = (_c = cachedInfo == null ? void 0 : cachedInfo.publishedDate) != null ? _c : null;
+  const publisher = (_d = cachedInfo == null ? void 0 : cachedInfo.publisher) != null ? _d : null;
+  const pageCount = (_f = (_e = cachedInfo == null ? void 0 : cachedInfo.pageCount) != null ? _e : bookData.pageCount) != null ? _f : null;
+  const genres = (_g = cachedInfo == null ? void 0 : cachedInfo.genres) != null ? _g : null;
+  const series = (_h = cachedInfo == null ? void 0 : cachedInfo.series) != null ? _h : null;
+  const language = (_i = cachedInfo == null ? void 0 : cachedInfo.language) != null ? _i : null;
+  const notesCount = bookData.annotations.filter(
+    (a) => {
+      var _a2;
+      return (_a2 = a.note) == null ? void 0 : _a2.trim();
+    }
+  ).length;
+  lines.push("---");
+  lines.push(`title: "${escapeYaml(title)}"`);
+  if (author)
+    lines.push(`author: "${escapeYaml(author)}"`);
+  if (bookData.progress !== null) {
+    lines.push(`progress: ${bookData.progress.toFixed(1)}%`);
+  }
+  if (bookData.currentPage !== null) {
+    lines.push(`current_page: ${bookData.currentPage}`);
+  }
+  if (pageCount !== null) {
+    lines.push(`page_count: ${pageCount}`);
+  }
+  if (bookData.readingStatus) {
+    lines.push(`reading_status: "${bookData.readingStatus}"`);
+  }
+  if (bookData.lastUpdatedAt) {
+    lines.push(`last_read: ${new Date(bookData.lastUpdatedAt).toISOString().split("T")[0]}`);
+  }
+  if (readingTime) {
+    lines.push(`reading_time: "${readingTime}"`);
+  }
+  lines.push(`last_synced: ${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`);
+  lines.push(`koreader_hash: "${bookData.hash}"`);
+  lines.push(`highlights_count: ${bookData.annotations.length}`);
+  lines.push(`highlights_hash: "${computeAnnotationsHash(bookData.annotations)}"`);
+  lines.push(`notes_count: ${notesCount}`);
+  if (publishedDate)
+    lines.push(`published_date: "${escapeYaml(publishedDate)}"`);
+  if (publisher)
+    lines.push(`publisher: "${escapeYaml(publisher)}"`);
+  if (genres && genres.length > 0) {
+    lines.push("genres:");
+    for (const g of genres)
+      lines.push(`  - "${escapeYaml(g)}"`);
+  }
+  if (series)
+    lines.push(`series: "${escapeYaml(series)}"`);
+  if (language)
+    lines.push(`language: "${language}"`);
+  if (coverPath)
+    lines.push(`cover: "${coverPath}"`);
+  if (cachedInfo == null ? void 0 : cachedInfo.hardcoverId) {
+    lines.push(`hardcover_id: ${cachedInfo.hardcoverId}`);
+  }
+  if (cachedInfo == null ? void 0 : cachedInfo.hardcoverSlug) {
+    lines.push(`hardcover_url: "https://hardcover.app/books/${cachedInfo.hardcoverSlug}"`);
+  }
+  lines.push("---");
+  lines.push("");
+  lines.push(`# ${title}`);
+  if (author)
+    lines.push(`**Author:** ${author}`);
+  lines.push("");
+  if (coverPath) {
+    lines.push(`![[${coverPath}|200]]`);
+    lines.push("");
+  }
+  if (bookData.progress !== null || bookData.lastUpdatedAt !== null) {
+    lines.push("> [!moonsync-reading-progress]+ Reading progress");
+    if (bookData.progress !== null) {
+      lines.push(`> - **Progress:** ${bookData.progress.toFixed(1)}%`);
+    }
+    if (bookData.currentPage !== null && bookData.pageCount !== null) {
+      lines.push(`> - **Page:** ${bookData.currentPage} of ${bookData.pageCount}`);
+    }
+    if (bookData.readingStatus) {
+      const label = bookData.readingStatus === "finished" ? "Finished" : bookData.readingStatus === "reading" ? "Reading" : bookData.readingStatus;
+      lines.push(`> - **Status:** ${label}`);
+    }
+    if (bookData.lastUpdatedAt) {
+      lines.push(`> - **Last read:** ${formatDate(bookData.lastUpdatedAt)}`);
+    }
+    if (readingTime) {
+      lines.push(`> - **Reading time:** ${readingTime}`);
+    }
+    lines.push("");
+  }
+  if (description && description.trim()) {
+    lines.push("> [!moonsync-description]+ Description");
+    for (const line of description.trim().split("\n")) {
+      lines.push(`> ${line}`);
+    }
+    lines.push("");
+  }
+  if (bookData.annotations.length > 0) {
+    lines.push("## KOReader highlights");
+    lines.push("");
+    const reverse = settings.highlightSort.endsWith("-reverse");
+    const sortByDate = settings.highlightSort.startsWith("date");
+    const sorted = [...bookData.annotations].sort((a, b) => {
+      const cmp = sortByDate ? a.createdAt - b.createdAt : a.page - b.page;
+      return reverse ? -cmp : cmp;
+    });
+    for (const annotation of sorted) {
+      lines.push(formatAnnotation(annotation, settings.showHighlightColors));
+      lines.push("");
+    }
+  }
+  lines.push("## My notes");
+  lines.push("");
+  lines.push("> [!moonsync-user-notes]+ Your notes");
+  lines.push("> Add your thoughts, analysis, and notes here. This section is preserved across syncs.");
+  lines.push("");
+  return lines.join("\n");
+}
+function mergeKOReaderNote(existingContent, bookData, settings, cachedInfo, coverPath, readingTime) {
+  const myNotesPattern = /\n## My [Nn]otes\n([\s\S]*?)(?=\n## |\n---|\s*$)/;
+  const myNotesMatch = existingContent.match(myNotesPattern);
+  let userNotesContent = "";
+  if (myNotesMatch) {
+    let section = myNotesMatch[1];
+    const placeholderPattern = /^> \[!moonsync-user-notes\]\+ Your [Nn]otes\n> Add your thoughts, analysis, and notes here\. This section is preserved across syncs\.\n?/;
+    section = section.replace(placeholderPattern, "").trim();
+    if (section)
+      userNotesContent = section;
+  }
+  const hardcoverFields = [];
+  const hcId = existingContent.match(/^hardcover_id: .+$/m);
+  if (hcId)
+    hardcoverFields.push(hcId[0]);
+  const hcUrl = existingContent.match(/^hardcover_url: .+$/m);
+  if (hcUrl)
+    hardcoverFields.push(hcUrl[0]);
+  const hcProgress = existingContent.match(/^hardcover_progress: .+$/m);
+  if (hcProgress)
+    hardcoverFields.push(hcProgress[0]);
+  let fresh = generateKOReaderBookNote(bookData, settings, cachedInfo, coverPath, readingTime);
+  if (hardcoverFields.length > 0) {
+    fresh = fresh.replace(/\n---\n/, `
+${hardcoverFields.join("\n")}
+---
+`);
+  }
+  if (userNotesContent) {
+    const placeholder = "> [!moonsync-user-notes]+ Your notes\n> Add your thoughts, analysis, and notes here. This section is preserved across syncs.";
+    fresh = fresh.replace(placeholder, userNotesContent);
+  }
+  return fresh;
 }
 
 // src/writer/markdown.ts
@@ -9157,6 +9151,41 @@ async function enrichBooksWithSyncData(books, syncPath, wasmPath, trackBooksWith
 }
 
 // src/sync.ts
+function koReaderToBookData(ko, coverVaultPath) {
+  return {
+    book: {
+      id: 0,
+      title: ko.title,
+      filename: "",
+      author: ko.author,
+      description: "",
+      category: "",
+      thumbFile: "",
+      coverFile: "",
+      addTime: "",
+      favorite: ""
+    },
+    highlights: [],
+    statistics: null,
+    progress: ko.progress,
+    currentChapter: null,
+    lastReadTimestamp: ko.lastUpdatedAt,
+    coverPath: coverVaultPath,
+    fetchedDescription: null,
+    publishedDate: null,
+    publisher: null,
+    pageCount: ko.pageCount,
+    genres: null,
+    series: null,
+    isbn10: null,
+    isbn13: null,
+    language: null,
+    previousTitle: null,
+    hardcoverId: null,
+    hardcoverSlug: null,
+    source: "koreader"
+  };
+}
 function getManualOutputPath(settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
   if (settings.organizeManualBooks) {
@@ -9172,7 +9201,7 @@ async function migrateManualBooks(app, settings) {
   const searchPaths = Array.from(/* @__PURE__ */ new Set([
     base,
     getMoonReaderOutputPath(settings),
-    getReadestOutputPath(settings)
+    getKOReaderOutputPath(settings)
   ]));
   const toMove = [];
   for (const searchPath of searchPaths) {
@@ -9212,26 +9241,26 @@ async function migrateManualBooks(app, settings) {
 }
 function getMoonReaderOutputPath(settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
-  if (settings.moonReaderEnabled && settings.readestEnabled) {
+  if (settings.moonReaderEnabled && settings.koreaderEnabled) {
     return (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
   }
   return base;
 }
-function getReadestOutputPath(settings) {
+function getKOReaderOutputPath(settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
-  if (settings.moonReaderEnabled && settings.readestEnabled) {
-    return (0, import_obsidian7.normalizePath)(`${base}/Readest`);
+  if (settings.moonReaderEnabled && settings.koreaderEnabled) {
+    return (0, import_obsidian7.normalizePath)(`${base}/KOReader`);
   }
   return base;
 }
-async function scanCustomBooks(app, baseOutputPath, mrOutputPath, readestOutputPath, indexFilename, manualOutputPath) {
-  const paths = Array.from(/* @__PURE__ */ new Set([baseOutputPath, mrOutputPath, readestOutputPath, ...manualOutputPath ? [manualOutputPath] : []]));
+async function scanCustomBooks(app, baseOutputPath, mrOutputPath, koreaderOutputPath, indexFilename, manualOutputPath) {
+  const paths = Array.from(/* @__PURE__ */ new Set([baseOutputPath, mrOutputPath, koreaderOutputPath, ...manualOutputPath ? [manualOutputPath] : []]));
   const all = [];
   const seen = /* @__PURE__ */ new Set();
   for (const p of paths) {
     const books = await scanAllBookNotes(app, p);
     for (const b of books) {
-      if (b.isMoonReader || b.isReadest)
+      if (b.isMoonReader)
         continue;
       if (b.filePath.endsWith(indexFilename))
         continue;
@@ -9263,7 +9292,7 @@ async function hasNotesWithField(app, folderPath, field) {
 async function migrateToSubdirectories(app, settings) {
   const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
   const mrPath = (0, import_obsidian7.normalizePath)(`${base}/MoonReader`);
-  const readestPath = (0, import_obsidian7.normalizePath)(`${base}/Readest`);
+  const koreaderPath = (0, import_obsidian7.normalizePath)(`${base}/KOReader`);
   let listing;
   try {
     listing = await app.vault.adapter.list(base);
@@ -9274,35 +9303,35 @@ async function migrateToSubdirectories(app, settings) {
   if (mdFiles.length === 0)
     return;
   const mrFiles = [];
-  const readestFiles = [];
+  const koreaderFiles = [];
   const mrCovers = [];
-  const readestCovers = [];
+  const koreaderCovers = [];
   for (const filePath of mdFiles) {
     try {
       const content = await app.vault.adapter.read(filePath);
       const isMr = content.includes("book_source: moonreader") || /^moon_reader_path:/m.test(content);
-      const isReadest = content.includes("book_source: readest") || content.includes("readest_book: true");
+      const isKOReader = content.includes("book_source: koreader");
       if (isMr) {
         mrFiles.push(filePath);
         const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
         if (coverMatch)
           mrCovers.push(coverMatch[1].split("/").pop());
-      } else if (isReadest) {
-        readestFiles.push(filePath);
+      } else if (isKOReader) {
+        koreaderFiles.push(filePath);
         const coverMatch = content.match(/^cover: "?([^"\n]+)"?/m);
         if (coverMatch)
-          readestCovers.push(coverMatch[1].split("/").pop());
+          koreaderCovers.push(coverMatch[1].split("/").pop());
       }
     } catch (e) {
     }
   }
-  if (mrFiles.length === 0 && readestFiles.length === 0)
+  if (mrFiles.length === 0 && koreaderFiles.length === 0)
     return;
   if (mrFiles.length > 0 && !await app.vault.adapter.exists(mrPath)) {
     await app.vault.createFolder(mrPath);
   }
-  if (readestFiles.length > 0 && !await app.vault.adapter.exists(readestPath)) {
-    await app.vault.createFolder(readestPath);
+  if (koreaderFiles.length > 0 && !await app.vault.adapter.exists(koreaderPath)) {
+    await app.vault.createFolder(koreaderPath);
   }
   for (const filePath of mrFiles) {
     const filename = filePath.split("/").pop();
@@ -9314,9 +9343,9 @@ async function migrateToSubdirectories(app, settings) {
     } catch (e) {
     }
   }
-  for (const filePath of readestFiles) {
+  for (const filePath of koreaderFiles) {
     const filename = filePath.split("/").pop();
-    const dest = (0, import_obsidian7.normalizePath)(`${readestPath}/${filename}`);
+    const dest = (0, import_obsidian7.normalizePath)(`${koreaderPath}/${filename}`);
     try {
       const content = await app.vault.adapter.read(filePath);
       await app.vault.adapter.write(dest, content);
@@ -9340,7 +9369,7 @@ async function migrateToSubdirectories(app, settings) {
       for (const coverFile of coversListing.files) {
         const coverName = coverFile.split("/").pop();
         const data = await app.vault.adapter.readBinary(coverFile);
-        const destDir = readestCovers.includes(coverName) ? (0, import_obsidian7.normalizePath)(`${readestPath}/moonsync-covers`) : (0, import_obsidian7.normalizePath)(`${mrPath}/moonsync-covers`);
+        const destDir = koreaderCovers.includes(coverName) ? (0, import_obsidian7.normalizePath)(`${koreaderPath}/moonsync-covers`) : (0, import_obsidian7.normalizePath)(`${mrPath}/moonsync-covers`);
         if (!await app.vault.adapter.exists(destDir)) {
           await app.vault.createFolder(destDir);
         }
@@ -9353,7 +9382,7 @@ async function migrateToSubdirectories(app, settings) {
   }
 }
 async function syncFromMoonReader(app, settings, wasmPath) {
-  var _a, _b, _c, _d, _e, _f;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
   const result = {
     success: false,
     booksProcessed: 0,
@@ -9370,8 +9399,8 @@ async function syncFromMoonReader(app, settings, wasmPath) {
   };
   const progressNotice = new import_obsidian7.Notice("MoonSync: Syncing...", 0);
   try {
-    if (!settings.moonReaderEnabled && !settings.readestEnabled) {
-      result.errors.push("No sync source enabled. Enable Moon Reader or Readest in settings.");
+    if (!settings.moonReaderEnabled && !settings.koreaderEnabled) {
+      result.errors.push("No sync source enabled. Enable Moon Reader or KOReader in settings.");
       progressNotice.hide();
       return result;
     }
@@ -9381,16 +9410,16 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       result.isFirstSync = true;
     }
     const mrSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`));
-    const readestSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/Readest`));
+    const koreaderSubdirExists = await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${baseOutputPath}/KOReader`));
     let hasFlatMrNotes = false;
-    let hasFlatReadestNotes = false;
-    if (settings.readestEnabled && !mrSubdirExists) {
+    let hasFlatKOReaderNotes = false;
+    if (settings.koreaderEnabled && !mrSubdirExists) {
       hasFlatMrNotes = await hasNotesWithField(app, baseOutputPath, "book_source: moonreader") || await hasNotesWithField(app, baseOutputPath, "moon_reader_path:");
     }
-    if (settings.moonReaderEnabled && !readestSubdirExists) {
-      hasFlatReadestNotes = await hasNotesWithField(app, baseOutputPath, "book_source: readest") || await hasNotesWithField(app, baseOutputPath, "readest_book:");
+    if (settings.moonReaderEnabled && !koreaderSubdirExists) {
+      hasFlatKOReaderNotes = await hasNotesWithField(app, baseOutputPath, "book_source: koreader");
     }
-    const useSeparateDirs = settings.moonReaderEnabled && settings.readestEnabled || settings.readestEnabled && (mrSubdirExists || hasFlatMrNotes) || settings.moonReaderEnabled && (readestSubdirExists || hasFlatReadestNotes);
+    const useSeparateDirs = settings.moonReaderEnabled && settings.koreaderEnabled || settings.koreaderEnabled && (mrSubdirExists || hasFlatMrNotes) || settings.moonReaderEnabled && (koreaderSubdirExists || hasFlatKOReaderNotes);
     if (useSeparateDirs && !mrSubdirExists && settings.moonReaderEnabled) {
       await migrateToSubdirectories(app, settings);
     } else if (useSeparateDirs && hasFlatMrNotes) {
@@ -9398,7 +9427,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     }
     await migrateManualBooks(app, settings);
     const outputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/MoonReader`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
-    const readestOutputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/Readest`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
+    const koreaderOutputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/KOReader`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
     let booksWithHighlights = [];
     let booksWithSufficientMetadata = /* @__PURE__ */ new Set();
     if (settings.moonReaderEnabled) {
@@ -9453,8 +9482,8 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     );
     const cache = await loadCache(app, outputPath);
     let cacheModified = false;
-    let readestCache = null;
-    let readestCacheModified = false;
+    let koreaderCache = null;
+    let koreaderCacheModified = false;
     progressNotice.setMessage("MoonSync: Scanning existing notes...");
     const titleCache = await buildTitleCache(app, outputPath);
     progressNotice.setMessage("MoonSync: Fetching book metadata...");
@@ -9536,7 +9565,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       app,
       baseOutputPath,
       outputPath,
-      readestOutputPath,
+      koreaderOutputPath,
       `${settings.indexNoteTitle}.md`,
       settings.organizeManualBooks ? getManualOutputPath(settings) : void 0
     );
@@ -9567,75 +9596,147 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     if (cacheModified) {
       await saveCache(app, outputPath, cache);
     }
-    const readestBooksForIndex = [];
-    if (settings.readestEnabled && settings.readestSyncPath) {
-      progressNotice.setMessage("MoonSync: Parsing Readest books...");
-      if (!await app.vault.adapter.exists(readestOutputPath)) {
-        await app.vault.createFolder(readestOutputPath);
+    const koreaderBooksForIndex = [];
+    if (settings.koreaderEnabled && settings.koreaderSyncPath) {
+      progressNotice.setMessage("MoonSync: Parsing KOReader books...");
+      if (!await app.vault.adapter.exists(koreaderOutputPath)) {
+        await app.vault.createFolder(koreaderOutputPath);
       }
-      const readestBooks = await parseReadestFiles(settings.readestSyncPath);
-      if (readestBooks.length > 0) {
-        readestCache = await loadCache(app, readestOutputPath);
-        const readestTitleCache = await buildTitleCache(app, readestOutputPath);
-        const readestCoversFolder = (0, import_obsidian7.normalizePath)(`${readestOutputPath}/moonsync-covers`);
+      const koBooks = await fetchAllBooks(settings.koreaderSyncPath);
+      if (koBooks.length > 0) {
+        koreaderCache = await loadCache(app, koreaderOutputPath);
+        const koreaderCoversFolder = (0, import_obsidian7.normalizePath)(`${koreaderOutputPath}/moonsync-covers`);
         const hardcoverToken2 = settings.hardcoverEnabled && settings.hardcoverToken ? settings.hardcoverToken : void 0;
-        for (const bookData of readestBooks) {
-          const coverData = bookData._readestCoverData;
-          if (coverData) {
-            if (!await app.vault.adapter.exists(readestCoversFolder)) {
-              await app.vault.createFolder(readestCoversFolder);
+        const coverVaultPaths = /* @__PURE__ */ new Map();
+        for (const book of koBooks) {
+          if (book.coverPath) {
+            if (!await app.vault.adapter.exists(koreaderCoversFolder)) {
+              await app.vault.createFolder(koreaderCoversFolder);
             }
-            const isPng = coverData[0] === 137 && coverData[1] === 80;
-            const ext = isPng ? "png" : "jpg";
-            const coverFilename = `${generateFilename(bookData.book.title)}.${ext}`;
-            const coverVaultPath = (0, import_obsidian7.normalizePath)(`${readestCoversFolder}/${coverFilename}`);
+            const coverFilename = `${generateFilename(book.title)}.png`;
+            const coverVaultPath = (0, import_obsidian7.normalizePath)(`${koreaderCoversFolder}/${coverFilename}`);
             if (!await app.vault.adapter.exists(coverVaultPath)) {
-              await app.vault.adapter.writeBinary(coverVaultPath, coverData);
+              try {
+                const coverData = await (0, import_promises7.readFile)(book.coverPath);
+                await app.vault.adapter.writeBinary(coverVaultPath, coverData);
+              } catch (e) {
+              }
             }
-            bookData.coverPath = `moonsync-covers/${coverFilename}`;
+            coverVaultPaths.set(book.hash, `moonsync-covers/${coverFilename}`);
+          } else {
+            coverVaultPaths.set(book.hash, null);
           }
         }
-        const readestToFetch = [];
-        for (const bookData of readestBooks) {
-          const cachedInfo = getCachedInfo(readestCache, bookData.book.title, bookData.book.author);
+        const koreaderToFetch = [];
+        for (const book of koBooks) {
+          const cachedInfo = getCachedInfo(koreaderCache, book.title, book.author);
           const hasAttemptedFetch = cachedInfo && (cachedInfo.publishedDate !== void 0 && cachedInfo.publisher !== void 0 && cachedInfo.pageCount !== void 0);
           const needsHardcoverRefetch = hasAttemptedFetch && settings.hardcoverEnabled && settings.hardcoverToken && cachedInfo.source !== null && cachedInfo.source !== "hardcover" && !cachedInfo.hardcoverAttempted;
-          const hasLibraryMetadata = !!(bookData.fetchedDescription || bookData.publishedDate || bookData.publisher);
           const hardcoverPending = settings.hardcoverEnabled && settings.hardcoverToken && (cachedInfo == null ? void 0 : cachedInfo.hardcoverAttempted) !== true;
-          if (needsHardcoverRefetch || hardcoverPending || !hasAttemptedFetch && !hasLibraryMetadata) {
-            readestToFetch.push({ title: bookData.book.title, author: bookData.book.author });
+          if (needsHardcoverRefetch || hardcoverPending || !hasAttemptedFetch) {
+            koreaderToFetch.push({ title: book.title, author: book.author });
           }
         }
-        if (readestToFetch.length > 0) {
-          progressNotice.setMessage(`MoonSync: Fetching Readest metadata (0/${readestToFetch.length})...`);
+        if (koreaderToFetch.length > 0) {
+          progressNotice.setMessage(`MoonSync: Fetching KOReader metadata (0/${koreaderToFetch.length})...`);
         }
-        const prefetchedReadest = readestToFetch.length > 0 ? await batchFetchBookInfo(readestToFetch, 5, (done, total, title) => {
-          progressNotice.setMessage(`MoonSync: Fetching Readest metadata (${done}/${total})${title ? ` \u2014 ${title}` : ""}...`);
+        const prefetchedKOReader = koreaderToFetch.length > 0 ? await batchFetchBookInfo(koreaderToFetch, 5, (done, total, title) => {
+          progressNotice.setMessage(`MoonSync: Fetching KOReader metadata (${done}/${total})${title ? ` \u2014 ${title}` : ""}...`);
         }, hardcoverToken2) : /* @__PURE__ */ new Map();
-        const readestChangedTitles = /* @__PURE__ */ new Set();
-        progressNotice.setMessage("MoonSync: Processing Readest books...");
-        for (const bookData of readestBooks) {
+        progressNotice.setMessage("MoonSync: Processing KOReader books...");
+        for (const book of koBooks) {
           try {
-            const prevCreated = result.booksCreated;
-            const prevUpdated = result.booksUpdated;
-            const processed = await processBook(app, readestOutputPath, bookData, settings, result, readestCache, prefetchedReadest, readestTitleCache);
-            if (processed)
-              readestCacheModified = true;
-            if (result.booksCreated > prevCreated || result.booksUpdated > prevUpdated) {
-              readestChangedTitles.add(bookData.book.title);
+            const coverVaultPath = (_a = coverVaultPaths.get(book.hash)) != null ? _a : null;
+            const cachedInfo = getCachedInfo(koreaderCache, book.title, book.author);
+            const prefetchKey = `${book.title}|${book.author}`;
+            const prefetchedInfo2 = prefetchedKOReader.get(prefetchKey);
+            if (prefetchedInfo2) {
+              setCachedInfo(koreaderCache, book.title, book.author, {
+                title: (_b = prefetchedInfo2.title) != null ? _b : book.title,
+                description: prefetchedInfo2.description,
+                author: prefetchedInfo2.author,
+                publishedDate: prefetchedInfo2.publishedDate,
+                publisher: prefetchedInfo2.publisher,
+                pageCount: (_c = prefetchedInfo2.pageCount) != null ? _c : book.pageCount,
+                genres: prefetchedInfo2.genres,
+                series: prefetchedInfo2.series,
+                language: prefetchedInfo2.language,
+                source: prefetchedInfo2.source,
+                hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken),
+                hardcoverId: prefetchedInfo2.hardcoverId,
+                hardcoverSlug: (_d = prefetchedInfo2.hardcoverSlug) != null ? _d : void 0
+              });
+              koreaderCacheModified = true;
+            } else if (!cachedInfo) {
+              setCachedInfo(koreaderCache, book.title, book.author, {
+                title: book.title,
+                description: null,
+                author: book.author,
+                publishedDate: null,
+                publisher: null,
+                pageCount: book.pageCount,
+                genres: null,
+                series: null,
+                language: null,
+                source: null,
+                hardcoverAttempted: !!(settings.hardcoverEnabled && settings.hardcoverToken)
+              });
+              koreaderCacheModified = true;
+            }
+            const effectiveCachedInfo = getCachedInfo(koreaderCache, book.title, book.author);
+            const noteFilename = generateFilename((_e = effectiveCachedInfo == null ? void 0 : effectiveCachedInfo.title) != null ? _e : book.title);
+            const noteFilePath = (0, import_obsidian7.normalizePath)(`${koreaderOutputPath}/${noteFilename}.md`);
+            let skipBook = false;
+            if (await app.vault.adapter.exists(noteFilePath)) {
+              try {
+                const existingContent = await app.vault.adapter.read(noteFilePath);
+                const fm = extractFrontmatter(existingContent);
+                if (fm) {
+                  const existingHash = parseFrontmatterField(fm, "highlights_hash");
+                  const existingProgress = parseFrontmatterField(fm, "progress");
+                  const currentHash = computeKOReaderHash(book.annotations);
+                  const currentProgress = book.progress !== null ? `${book.progress.toFixed(1)}%` : null;
+                  if (existingHash === currentHash && existingProgress === currentProgress && prefetchedInfo2 === void 0) {
+                    skipBook = true;
+                  }
+                }
+              } catch (e) {
+              }
+            }
+            if (skipBook) {
+              result.booksSkipped++;
+            } else {
+              let markdown;
+              const fileExists2 = await app.vault.adapter.exists(noteFilePath);
+              if (fileExists2) {
+                const existingContent = await app.vault.adapter.read(noteFilePath);
+                markdown = mergeKOReaderNote(existingContent, book, settings, effectiveCachedInfo != null ? effectiveCachedInfo : null, coverVaultPath, null);
+                await app.vault.adapter.write(noteFilePath, markdown);
+                result.booksUpdated++;
+              } else {
+                markdown = generateKOReaderBookNote(book, settings, effectiveCachedInfo != null ? effectiveCachedInfo : null, coverVaultPath, null);
+                try {
+                  await app.vault.create(noteFilePath, markdown);
+                  result.booksCreated++;
+                } catch (e) {
+                  await app.vault.adapter.write(noteFilePath, markdown);
+                  result.booksUpdated++;
+                }
+              }
+              koreaderCacheModified = true;
             }
             result.booksProcessed++;
+            koreaderBooksForIndex.push(koReaderToBookData(book, coverVaultPath));
           } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
-            result.failedBooks.push({ title: bookData.book.title, error: errorMsg });
-            result.errors.push(`Error processing Readest "${bookData.book.title}": ${errorMsg}`);
+            result.failedBooks.push({ title: book.title, error: errorMsg });
+            result.errors.push(`Error processing KOReader "${book.title}": ${errorMsg}`);
           }
         }
-        if (readestCacheModified) {
-          await saveCache(app, readestOutputPath, readestCache);
-          readestCacheModified = false;
+        if (koreaderCacheModified) {
+          await saveCache(app, koreaderOutputPath, koreaderCache);
+          koreaderCacheModified = false;
         }
-        readestBooksForIndex.push(...readestBooks);
       }
     }
     if (settings.hardcoverEnabled && settings.hardcoverToken && settings.hardcoverSyncProgress) {
@@ -9684,10 +9785,10 @@ async function syncFromMoonReader(app, settings, wasmPath) {
           return entries;
         };
         const mrEntries = settings.moonReaderEnabled ? await buildEntries(booksWithHighlights, outputPath, cache) : [];
-        const readestEntries = readestBooksForIndex.length > 0 && readestCache ? await buildEntries(readestBooksForIndex, readestOutputPath, readestCache) : [];
+        const koreaderEntries = koreaderBooksForIndex.length > 0 && koreaderCache ? await buildEntries(koreaderBooksForIndex, koreaderOutputPath, koreaderCache) : [];
         const dedupMap = /* @__PURE__ */ new Map();
-        for (const entry of [...mrEntries, ...readestEntries]) {
-          const key = entry.item.hardcoverId ? `id:${entry.item.hardcoverId}` : `ta:${entry.item.title.toLowerCase()}|${((_a = entry.item.author) != null ? _a : "").toLowerCase()}`;
+        for (const entry of [...mrEntries, ...koreaderEntries]) {
+          const key = entry.item.hardcoverId ? `id:${entry.item.hardcoverId}` : `ta:${entry.item.title.toLowerCase()}|${((_f = entry.item.author) != null ? _f : "").toLowerCase()}`;
           const existing = dedupMap.get(key);
           if (!existing) {
             dedupMap.set(key, {
@@ -9697,9 +9798,9 @@ async function syncFromMoonReader(app, settings, wasmPath) {
               cacheRefs: [...entry.cacheRefs]
             });
           } else {
-            const entryTs = (_b = entry.lastReadTimestamp) != null ? _b : 0;
-            const existingTs = (_c = existing.lastReadTimestamp) != null ? _c : 0;
-            const entryWins = entryTs !== existingTs ? entryTs > existingTs : ((_d = entry.item.progress) != null ? _d : 0) > ((_e = existing.item.progress) != null ? _e : 0);
+            const entryTs = (_g = entry.lastReadTimestamp) != null ? _g : 0;
+            const existingTs = (_h = existing.lastReadTimestamp) != null ? _h : 0;
+            const entryWins = entryTs !== existingTs ? entryTs > existingTs : ((_i = entry.item.progress) != null ? _i : 0) > ((_j = existing.item.progress) != null ? _j : 0);
             if (entryWins) {
               existing.item.progress = entry.item.progress;
               existing.lastReadTimestamp = entry.lastReadTimestamp;
@@ -9775,14 +9876,14 @@ ${fields.join("\n")}
                 if (ref.bookCache === cache)
                   cacheModified = true;
                 else
-                  readestCacheModified = true;
+                  koreaderCacheModified = true;
               }
             }
           }
           if (cacheModified)
             await saveCache(app, outputPath, cache);
-          if (readestCacheModified && readestCache)
-            await saveCache(app, readestOutputPath, readestCache);
+          if (koreaderCacheModified && koreaderCache)
+            await saveCache(app, koreaderOutputPath, koreaderCache);
         }
       } catch (error) {
         console.debug("MoonSync: Hardcover sync failed", error);
@@ -9792,18 +9893,18 @@ ${fields.join("\n")}
       try {
         const allBooksWithPaths = [
           ...booksWithHighlights.map((b) => ({ bookData: b, srcPath: outputPath })),
-          ...readestBooksForIndex.map((b) => ({ bookData: b, srcPath: readestOutputPath }))
+          ...koreaderBooksForIndex.map((b) => ({ bookData: b, srcPath: koreaderOutputPath }))
         ];
         let highlightsSynced = 0;
         for (const { bookData, srcPath } of allBooksWithPaths) {
           if (bookData.highlights.length === 0)
             continue;
           const cachedBook = getCachedInfo(
-            srcPath === outputPath ? cache : readestCache != null ? readestCache : cache,
+            srcPath === outputPath ? cache : koreaderCache != null ? koreaderCache : cache,
             bookData.book.title,
             bookData.book.author
           );
-          const lookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title && bookData.source !== "readest" ? cachedBook.title : bookData.book.title;
+          const lookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title && bookData.source !== "koreader" ? cachedBook.title : bookData.book.title;
           const filePath = (0, import_obsidian7.normalizePath)(`${srcPath}/${generateFilename(lookupTitle)}.md`);
           let hardcoverId = null;
           let editionId = null;
@@ -9833,7 +9934,7 @@ ${fields.join("\n")}
             hardcoverId,
             editionId,
             bookData.highlights,
-            (_f = bookData.source) != null ? _f : "moonreader",
+            (_k = bookData.source) != null ? _k : "moonreader",
             bookData.pageCount,
             lastSyncedAt,
             settings.hardcoverHighlightsPrivacy,
@@ -9880,7 +9981,7 @@ hardcover_highlights_synced_at: ${hResult.newSyncedAt}
       if (hasManualBooks) {
         result.manualBooksAdded = customBooks.length;
       }
-      if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !indexExists || hasManualBooks || readestBooksForIndex.length > 0) {
+      if (result.booksCreated > 0 || result.booksUpdated > 0 || result.booksDeleted > 0 || !indexExists || hasManualBooks || koreaderBooksForIndex.length > 0) {
         const mrCoversFolder = (0, import_obsidian7.normalizePath)(`${outputPath}/moonsync-covers`);
         let mrExistingCovers = /* @__PURE__ */ new Set();
         try {
@@ -9903,7 +10004,7 @@ hardcover_highlights_synced_at: ${hResult.newSyncedAt}
           baseOutputPath,
           booksWithHighlights,
           settings,
-          readestBooksForIndex.length > 0 ? readestBooksForIndex : void 0,
+          koreaderBooksForIndex.length > 0 ? koreaderBooksForIndex : void 0,
           customBooks
         );
       }
@@ -10186,10 +10287,10 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
   const originalTitle = bookData.book.title;
   const originalAuthor = bookData.book.author;
   const cachedInfo = getCachedInfo(cache, originalTitle, originalAuthor);
-  if ((cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && bookData.source !== "readest") {
+  if ((cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && bookData.source !== "koreader") {
     bookData.book.title = cachedInfo.title;
   }
-  const lookupTitle = (cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle && bookData.source !== "readest" ? cachedInfo.title : bookData.book.title;
+  const lookupTitle = (cachedInfo == null ? void 0 : cachedInfo.source) === "hardcover" && cachedInfo.title && cachedInfo.title !== originalTitle && bookData.source !== "koreader" ? cachedInfo.title : bookData.book.title;
   const filename = generateFilename(lookupTitle);
   let filePath = await findExistingFile(app, outputPath, filename, lookupTitle, titleCache, bookData.previousTitle);
   let cacheModified = false;
@@ -10198,7 +10299,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
   const prefetchKey = `${originalTitle}|${originalAuthor}`;
   const prefetchedBookInfo = prefetchedInfo.get(prefetchKey);
   if (prefetchedBookInfo) {
-    const isCurated = prefetchedBookInfo.source === "hardcover" && bookData.source !== "readest";
+    const isCurated = prefetchedBookInfo.source === "hardcover" && bookData.source !== "koreader";
     setCachedInfo(cache, originalTitle, originalAuthor, {
       title: isCurated && prefetchedBookInfo.title ? prefetchedBookInfo.title : originalTitle,
       description: prefetchedBookInfo.description,
@@ -10217,9 +10318,9 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
     cacheModified = true;
   }
   const existingData = await getExistingBookData(app, filePath);
-  const fileExists = existingData !== null;
+  const fileExists2 = existingData !== null;
   if (bookData.highlights.length === 0) {
-    if (!fileExists) {
+    if (!fileExists2) {
       if (!settings.trackBooksWithoutHighlights) {
         result.booksSkipped++;
         return cacheModified;
@@ -10248,7 +10349,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       return cacheModified;
     }
   }
-  if (fileExists) {
+  if (fileExists2) {
     const currentHash = computeHighlightsHash(bookData.highlights, settings.highlightSort);
     const highlightsUnchanged = existingData.highlightsHash ? existingData.highlightsHash === currentHash : existingData.highlightsCount === bookData.highlights.length;
     const progressUnchanged = existingData.progress === bookData.progress;
@@ -10277,7 +10378,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
       }
     }
     if (cachedInfo) {
-      const isCurated = cachedInfo.source === "hardcover" && bookData.source !== "readest";
+      const isCurated = cachedInfo.source === "hardcover" && bookData.source !== "koreader";
       if (isCurated && cachedInfo.title) {
         bookData.book.title = cachedInfo.title;
       }
@@ -10322,7 +10423,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
           bookData.coverPath = `moonsync-covers/${coverFilename}`;
         }
       }
-      const isCurated = bookInfo.source === "hardcover" && bookData.source !== "readest";
+      const isCurated = bookInfo.source === "hardcover" && bookData.source !== "koreader";
       if (isCurated && bookInfo.title) {
         bookData.book.title = bookInfo.title;
       }
@@ -10397,7 +10498,7 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
     const newFilename = generateFilename(bookData.book.title);
     const newFilePath = (0, import_obsidian7.normalizePath)(`${outputPath}/${newFilename}.md`);
     if (newFilePath !== filePath) {
-      if (fileExists && !await app.vault.adapter.exists(newFilePath)) {
+      if (fileExists2 && !await app.vault.adapter.exists(newFilePath)) {
         try {
           await app.vault.adapter.rename(filePath, newFilePath);
           updateTitleCacheAfterRename(titleCache, filePath, newFilePath, bookData.book.title);
@@ -10405,20 +10506,20 @@ async function processBook(app, outputPath, bookData, settings, result, cache, p
           filePath = newFilePath;
         } catch (e) {
         }
-      } else if (!fileExists) {
+      } else if (!fileExists2) {
         filePath = newFilePath;
       }
     }
   }
   let markdown;
-  if (fileExists && existingData.isManualNote) {
+  if (fileExists2 && existingData.isManualNote) {
     markdown = mergeManualNoteWithMoonReader(existingData.fullContent, bookData, settings);
-  } else if (fileExists) {
+  } else if (fileExists2) {
     markdown = mergeExistingNoteWithHighlights(existingData.fullContent, bookData, settings);
   } else {
     markdown = generateBookNote(bookData, settings);
   }
-  if (fileExists) {
+  if (fileExists2) {
     await app.vault.adapter.write(filePath, markdown);
     result.booksUpdated++;
   } else {
@@ -10536,10 +10637,10 @@ function updateCustomBookFrontmatter(content, bookInfo, settings) {
   lines.push("---");
   return lines.join("\n") + contentAfterFrontmatter;
 }
-async function updateIndexNote(app, outputPath, moonReaderBooks, settings, readestBooks, customBooks) {
+async function updateIndexNote(app, outputPath, moonReaderBooks, settings, koreaderBooks, customBooks) {
   const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
   const allMrBooks = customBooks && customBooks.length > 0 ? mergeBookLists(moonReaderBooks, customBooks) : moonReaderBooks;
-  const markdown = generateIndexNote(allMrBooks, settings, readestBooks);
+  const markdown = generateIndexNote(allMrBooks, settings, koreaderBooks);
   if (await app.vault.adapter.exists(indexPath)) {
     await app.vault.adapter.write(indexPath, markdown);
   } else {
@@ -10575,14 +10676,15 @@ async function refreshIndexNote(app, settings) {
         }
       }
     }
-    let readestBooks;
-    if (settings.readestEnabled && settings.readestSyncPath) {
+    let koreaderBooks;
+    if (settings.koreaderEnabled && settings.koreaderSyncPath) {
       try {
-        readestBooks = await parseReadestFiles(settings.readestSyncPath);
+        const koBooks = await fetchAllBooks(settings.koreaderSyncPath);
+        koreaderBooks = koBooks.map((b) => koReaderToBookData(b, null));
       } catch (e) {
       }
     }
-    await updateIndexNote(app, baseOutputPath, moonReaderBooks, settings, readestBooks);
+    await updateIndexNote(app, baseOutputPath, moonReaderBooks, settings, koreaderBooks);
     new import_obsidian7.Notice("MoonSync: Index refreshed");
   } catch (error) {
     console.error("MoonSync: Failed to refresh index", error);
