@@ -340,7 +340,9 @@ async function hydrateHardcoverBooks(ids, token) {
 			contributions(order_by: { id: asc }, limit: 3) {
 				author { name }
 			}
-			taggings(limit: 10) {
+			taggings(where: { tag: { tag_category_id: { _eq: 1 } } }, limit: 10) {
+				# tag_category_id 1 = "Genre" \u2014 Hardcover's tagging system also covers
+				# Mood, Pace, Content Warning, etc., which we don't want here
 				tag { tag }
 			}
 			book_series {
