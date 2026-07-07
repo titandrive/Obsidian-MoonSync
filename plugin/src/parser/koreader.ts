@@ -2,17 +2,6 @@ import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import { stripHtml } from "../utils";
 
-export interface KOReaderLibraryEntry {
-	bookHash: string;
-	title: string;
-	author: string;
-	progress?: [number, number];
-	readingStatus?: string;
-	readingStatusUpdatedAt?: number;
-	updatedAt: number;
-	createdAt: number;
-}
-
 export interface KOReaderProgress {
 	currentPage: number;
 	pageCount: number;
@@ -39,8 +28,12 @@ export interface KOReaderAnnotation {
 
 interface KOReaderMetadataSidecar {
 	bookHash: string;
+	title?: string;
+	author?: string;
 	isbn?: string;
 	coverFile?: string;
+	updatedAt?: number;
+	bookUpdatedAt?: number;
 	metadata?: {
 		language?: string;
 		description?: string;
@@ -118,27 +111,40 @@ async function readMetadataSidecar(bookDir: string): Promise<KOReaderMetadataSid
 	}
 }
 
+/**
+ * Discover books by scanning sync/<hash>/ folders directly, rather than relying on
+ * library.json — that file is only written when a book is exported to a cloud
+ * library, which isn't always done, so it can't be trusted as the source of truth
+ * for which books exist.
+ */
 export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[]> {
-	const library = await readJson<{ books: KOReaderLibraryEntry[] }>(
-		join(syncPath, "library.json")
-	);
-	if (!library?.books?.length) return [];
+	const syncRoot = join(syncPath, "sync");
+	let hashDirs: string[];
+	try {
+		const entries = await readdir(syncRoot, { withFileTypes: true });
+		hashDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+	} catch {
+		return [];
+	}
 
-	const books: KOReaderBookData[] = await Promise.all(
-		library.books.map(async (entry) => {
-			const hash = entry.bookHash;
+	const books = await Promise.all(
+		hashDirs.map(async (hash): Promise<KOReaderBookData | null> => {
 			const bookDir = join(syncPath, "books", hash);
-			const syncDir = join(syncPath, "sync", hash);
+			const syncDir = join(syncRoot, hash);
 
-			const progressData = await readJson<{ configs: KOReaderProgress[] }>(
-				join(syncDir, "progress.json")
-			);
+			const progressData = await readJson<{
+				configs: KOReaderProgress[];
+				readingStatus?: string;
+				readingStatusUpdatedAt?: number;
+			}>(join(syncDir, "progress.json"));
 			const annotationsData = await readJson<{ notes: KOReaderAnnotation[] }>(
 				join(syncDir, "annotations.json")
 			);
 			const sidecar = await readMetadataSidecar(syncDir);
 
-			const config = progressData?.configs?.[0] ?? null;
+			// Without the sidecar there's no way to know the book's title/author.
+			if (!sidecar?.title) return null;
+
 			// Skip deleted annotations, and plain bookmarks (auto-labeled "in CHAPTER X"
 			// with no highlighted text) that carry no user-added note — nothing of
 			// substance to put in the note.
@@ -146,6 +152,7 @@ export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[
 				(n) => !n.deletedAt && !(n.type === "bookmark" && !n.note?.trim())
 			);
 
+			const config = progressData?.configs?.[0] ?? null;
 			let progressPercent: number | null = null;
 			let currentPage: number | null = null;
 			let pageCount: number | null = null;
@@ -154,41 +161,48 @@ export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[
 				progressPercent = config.progressPercent * 100;
 				currentPage = config.currentPage;
 				pageCount = config.pageCount;
-			} else if (entry.progress) {
-				const [cur, total] = entry.progress;
-				if (total > 0) progressPercent = (cur / total) * 100;
-				currentPage = cur;
-				pageCount = total;
 			}
 
-			const coverFilename = sidecar?.coverFile || "cover.png";
+			const coverFilename = sidecar.coverFile || "cover.png";
 			const coverFilePath = join(bookDir, coverFilename);
 			const hasCover = await fileExists(coverFilePath);
 
-			const { isbn10, isbn13 } = splitIsbn(sidecar?.isbn);
+			const { isbn10, isbn13 } = splitIsbn(sidecar.isbn);
+
+			// Prefer the real reading status from progress.json; fall back to a
+			// rough approximation from progress percent if it's not present.
+			const readingStatus = progressData?.readingStatus ?? (
+				progressPercent === null ? null
+					: progressPercent >= 99 ? "finished"
+					: progressPercent > 0 ? "reading"
+					: null
+			);
 
 			return {
 				hash,
-				title: entry.title,
-				author: entry.author,
+				title: sidecar.title,
+				// Some sidecars join multiple contributors with literal newlines
+				// (e.g. graphic novels crediting author/illustrator/adapter) — that
+				// breaks YAML frontmatter, so normalize to a comma-separated list.
+				author: (sidecar.author ?? "").replace(/\n+/g, ", ").trim(),
 				progress: progressPercent,
 				currentPage,
 				pageCount,
-				readingStatus: entry.readingStatus ?? null,
-				lastUpdatedAt: entry.updatedAt ?? null,
+				readingStatus,
+				lastUpdatedAt: sidecar.updatedAt ?? sidecar.bookUpdatedAt ?? null,
 				annotations,
 				coverPath: hasCover ? coverFilePath : null,
 				isbn10,
 				isbn13,
-				publisher: sidecar?.metadata?.publisher ?? null,
-				publishedDate: sidecar?.metadata?.published ?? null,
-				series: sidecar?.metadata?.series ?? null,
-				seriesIndex: sidecar?.metadata?.series_index ?? null,
-				language: sidecar?.metadata?.language ?? null,
-				description: sidecar?.metadata?.description ? stripHtml(sidecar.metadata.description) : null,
+				publisher: sidecar.metadata?.publisher ?? null,
+				publishedDate: sidecar.metadata?.published ?? null,
+				series: sidecar.metadata?.series ?? null,
+				seriesIndex: sidecar.metadata?.series_index ?? null,
+				language: sidecar.metadata?.language ?? null,
+				description: sidecar.metadata?.description ? stripHtml(sidecar.metadata.description) : null,
 			};
 		})
 	);
 
-	return books;
+	return books.filter((b): b is KOReaderBookData => b !== null);
 }

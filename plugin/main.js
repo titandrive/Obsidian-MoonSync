@@ -8084,32 +8084,33 @@ async function readMetadataSidecar(bookDir) {
   }
 }
 async function fetchAllBooks(syncPath) {
-  var _a;
-  const library = await readJson(
-    (0, import_path3.join)(syncPath, "library.json")
-  );
-  if (!((_a = library == null ? void 0 : library.books) == null ? void 0 : _a.length))
+  const syncRoot = (0, import_path3.join)(syncPath, "sync");
+  let hashDirs;
+  try {
+    const entries = await (0, import_promises2.readdir)(syncRoot, { withFileTypes: true });
+    hashDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch (e) {
     return [];
+  }
   const books = await Promise.all(
-    library.books.map(async (entry) => {
-      var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
-      const hash = entry.bookHash;
+    hashDirs.map(async (hash) => {
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
       const bookDir = (0, import_path3.join)(syncPath, "books", hash);
-      const syncDir = (0, import_path3.join)(syncPath, "sync", hash);
-      const progressData = await readJson(
-        (0, import_path3.join)(syncDir, "progress.json")
-      );
+      const syncDir = (0, import_path3.join)(syncRoot, hash);
+      const progressData = await readJson((0, import_path3.join)(syncDir, "progress.json"));
       const annotationsData = await readJson(
         (0, import_path3.join)(syncDir, "annotations.json")
       );
       const sidecar = await readMetadataSidecar(syncDir);
-      const config = (_b = (_a2 = progressData == null ? void 0 : progressData.configs) == null ? void 0 : _a2[0]) != null ? _b : null;
-      const annotations = ((_c = annotationsData == null ? void 0 : annotationsData.notes) != null ? _c : []).filter(
+      if (!(sidecar == null ? void 0 : sidecar.title))
+        return null;
+      const annotations = ((_a = annotationsData == null ? void 0 : annotationsData.notes) != null ? _a : []).filter(
         (n) => {
-          var _a3;
-          return !n.deletedAt && !(n.type === "bookmark" && !((_a3 = n.note) == null ? void 0 : _a3.trim()));
+          var _a2;
+          return !n.deletedAt && !(n.type === "bookmark" && !((_a2 = n.note) == null ? void 0 : _a2.trim()));
         }
       );
+      const config = (_c = (_b = progressData == null ? void 0 : progressData.configs) == null ? void 0 : _b[0]) != null ? _c : null;
       let progressPercent = null;
       let currentPage = null;
       let pageCount = null;
@@ -8117,40 +8118,38 @@ async function fetchAllBooks(syncPath) {
         progressPercent = config.progressPercent * 100;
         currentPage = config.currentPage;
         pageCount = config.pageCount;
-      } else if (entry.progress) {
-        const [cur, total] = entry.progress;
-        if (total > 0)
-          progressPercent = cur / total * 100;
-        currentPage = cur;
-        pageCount = total;
       }
-      const coverFilename = (sidecar == null ? void 0 : sidecar.coverFile) || "cover.png";
+      const coverFilename = sidecar.coverFile || "cover.png";
       const coverFilePath = (0, import_path3.join)(bookDir, coverFilename);
       const hasCover = await fileExists(coverFilePath);
-      const { isbn10, isbn13 } = splitIsbn(sidecar == null ? void 0 : sidecar.isbn);
+      const { isbn10, isbn13 } = splitIsbn(sidecar.isbn);
+      const readingStatus = (_d = progressData == null ? void 0 : progressData.readingStatus) != null ? _d : progressPercent === null ? null : progressPercent >= 99 ? "finished" : progressPercent > 0 ? "reading" : null;
       return {
         hash,
-        title: entry.title,
-        author: entry.author,
+        title: sidecar.title,
+        // Some sidecars join multiple contributors with literal newlines
+        // (e.g. graphic novels crediting author/illustrator/adapter) — that
+        // breaks YAML frontmatter, so normalize to a comma-separated list.
+        author: ((_e = sidecar.author) != null ? _e : "").replace(/\n+/g, ", ").trim(),
         progress: progressPercent,
         currentPage,
         pageCount,
-        readingStatus: (_d = entry.readingStatus) != null ? _d : null,
-        lastUpdatedAt: (_e = entry.updatedAt) != null ? _e : null,
+        readingStatus,
+        lastUpdatedAt: (_g = (_f = sidecar.updatedAt) != null ? _f : sidecar.bookUpdatedAt) != null ? _g : null,
         annotations,
         coverPath: hasCover ? coverFilePath : null,
         isbn10,
         isbn13,
-        publisher: (_g = (_f = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _f.publisher) != null ? _g : null,
-        publishedDate: (_i = (_h = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _h.published) != null ? _i : null,
-        series: (_k = (_j = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _j.series) != null ? _k : null,
-        seriesIndex: (_m = (_l = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _l.series_index) != null ? _m : null,
-        language: (_o = (_n = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _n.language) != null ? _o : null,
-        description: ((_p = sidecar == null ? void 0 : sidecar.metadata) == null ? void 0 : _p.description) ? stripHtml(sidecar.metadata.description) : null
+        publisher: (_i = (_h = sidecar.metadata) == null ? void 0 : _h.publisher) != null ? _i : null,
+        publishedDate: (_k = (_j = sidecar.metadata) == null ? void 0 : _j.published) != null ? _k : null,
+        series: (_m = (_l = sidecar.metadata) == null ? void 0 : _l.series) != null ? _m : null,
+        seriesIndex: (_o = (_n = sidecar.metadata) == null ? void 0 : _n.series_index) != null ? _o : null,
+        language: (_q = (_p = sidecar.metadata) == null ? void 0 : _p.language) != null ? _q : null,
+        description: ((_r = sidecar.metadata) == null ? void 0 : _r.description) ? stripHtml(sidecar.metadata.description) : null
       };
     })
   );
-  return books;
+  return books.filter((b) => b !== null);
 }
 
 // src/writer/koreader-markdown.ts
