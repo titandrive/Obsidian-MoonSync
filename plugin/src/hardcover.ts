@@ -1096,7 +1096,7 @@ async function insertJournalEntry(
 	totalPages: number | null,
 	privacySetting: number,
 	token: string
-): Promise<boolean> {
+): Promise<number | null> {
 	const query = `
 		mutation InsertReadingJournalEntry($object: ReadingJournalCreateType!) {
 			insert_reading_journal(object: $object) {
@@ -1120,17 +1120,38 @@ async function insertJournalEntry(
 
 	try {
 		const result = await hardcoverGraphQL(query, token, { object });
-		return !!(result?.data?.insert_reading_journal?.reading_journal?.id);
+		const id = result?.data?.insert_reading_journal?.reading_journal?.id;
+		return id ? Number(id) : null;
+	} catch {
+		return null;
+	}
+}
+
+async function deleteJournalEntry(id: number, token: string): Promise<boolean> {
+	const query = `
+		mutation DeleteReadingJournalEntry($id: Int!) {
+			delete_reading_journal(id: $id) {
+				id
+			}
+		}`;
+	try {
+		const result = await hardcoverGraphQL(query, token, { id });
+		return !!(result?.data?.delete_reading_journal?.id);
 	} catch {
 		return false;
 	}
 }
 
+/**
+ * Sync Moon Reader highlights to Hardcover's reading journal. Timestamp-based:
+ * only ever inserts highlights newer than the last sync. Moon Reader highlights
+ * don't carry a stable per-highlight id, so unlike syncKOReaderHighlights this
+ * can't detect or clean up deleted highlights.
+ */
 export async function syncBookHighlights(
 	bookId: number,
 	editionId: number | null,
 	highlights: MoonReaderHighlight[],
-	source: "moonreader" | "koreader",
 	totalPages: number | null,
 	lastSyncedAt: number | null,
 	privacySetting: number,
@@ -1173,14 +1194,11 @@ export async function syncBookHighlights(
 			eventType = "note";
 		}
 
-		// KOReader highlights have actual page numbers in position; MR has character offsets
-		const page = source === "koreader" ? h.position : null;
-
-		const ok = await insertJournalEntry(
-			bookId, editionId, text, eventType, page, totalPages, privacySetting, token
+		const entryId = await insertJournalEntry(
+			bookId, editionId, text, eventType, null, totalPages, privacySetting, token
 		);
 
-		if (ok) {
+		if (entryId !== null) {
 			result.synced++;
 		} else {
 			result.failed++;
@@ -1193,5 +1211,96 @@ export async function syncBookHighlights(
 	}
 
 	onProgress?.(toSync.length, toSync.length);
+	return result;
+}
+
+export interface HardcoverKOReaderHighlightSyncResult {
+	synced: number;
+	failed: number;
+	deleted: number;
+	journalMap: Record<string, number | null>;
+}
+
+/**
+ * Sync KOReader highlights to Hardcover's reading journal using a stable
+ * per-highlight id map (KOReader annotation id -> Hardcover journal entry id),
+ * rather than a timestamp cutoff. This lets a deleted highlight's journal entry
+ * get cleaned up too, not just new highlights getting inserted.
+ */
+export async function syncKOReaderHighlights(
+	bookId: number,
+	editionId: number | null,
+	highlights: MoonReaderHighlight[],
+	totalPages: number | null,
+	journalMap: Record<string, number | null>,
+	privacySetting: number,
+	token: string,
+	onProgress?: (done: number, total: number) => void
+): Promise<HardcoverKOReaderHighlightSyncResult> {
+	const result: HardcoverKOReaderHighlightSyncResult = {
+		synced: 0,
+		failed: 0,
+		deleted: 0,
+		journalMap: { ...journalMap },
+	};
+
+	const withContent = highlights.filter(h => {
+		const hasContent = (h.originalText && h.originalText.trim()) || (h.note && h.note.trim());
+		return hasContent && !!h.highlightId;
+	});
+	const currentIds = new Set(withContent.map(h => h.highlightId as string));
+	const toInsert = withContent.filter(h => !(h.highlightId as string in result.journalMap));
+
+	for (let i = 0; i < toInsert.length; i++) {
+		const h = toInsert[i];
+		onProgress?.(i, toInsert.length);
+
+		const hasText = !!(h.originalText && h.originalText.trim());
+		const hasNote = !!(h.note && h.note.trim());
+
+		let text: string;
+		let eventType: "quote" | "note";
+
+		if (hasText && hasNote) {
+			text = `${h.originalText.trim()}\n\n${h.note.trim()}`;
+			eventType = "quote";
+		} else if (hasText) {
+			text = h.originalText.trim();
+			eventType = "quote";
+		} else {
+			text = h.note.trim();
+			eventType = "note";
+		}
+
+		// KOReader highlights have actual page numbers in position
+		const entryId = await insertJournalEntry(
+			bookId, editionId, text, eventType, h.position, totalPages, privacySetting, token
+		);
+
+		if (entryId !== null) {
+			result.synced++;
+			result.journalMap[h.highlightId as string] = entryId;
+		} else {
+			result.failed++;
+		}
+
+		if (i < toInsert.length - 1) {
+			await new Promise(r => setTimeout(r, 150));
+		}
+	}
+
+	// Clean up entries whose highlight no longer exists locally (deleted in KOReader)
+	const idsToRemove = Object.keys(result.journalMap).filter(id => !currentIds.has(id));
+	for (const id of idsToRemove) {
+		const entryId = result.journalMap[id];
+		if (entryId !== null) {
+			const ok = await deleteJournalEntry(entryId, token);
+			if (ok) result.deleted++;
+			await new Promise(r => setTimeout(r, 150));
+		}
+		delete result.journalMap[id];
+	}
+
+	onProgress?.(toInsert.length, toInsert.length);
 	return result;
 }

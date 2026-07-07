@@ -13,6 +13,10 @@ export interface MoonReaderBook {
 
 export interface MoonReaderHighlight {
 	id: number;
+	// Stable per-highlight identifier from the source (e.g. a KOReader annotation's
+	// own id) used to track which Hardcover reading-journal entry it maps to, so a
+	// deleted highlight's entry can be removed rather than just re-inserting everything.
+	highlightId?: string;
 	book: string;
 	filename: string;
 	chapter: number;

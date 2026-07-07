@@ -167,6 +167,7 @@ __export(hardcover_exports, {
   searchHardcoverBooks: () => searchHardcoverBooks,
   syncBookHighlights: () => syncBookHighlights,
   syncBooksToHardcover: () => syncBooksToHardcover,
+  syncKOReaderHighlights: () => syncKOReaderHighlights,
   updateHardcoverBook: () => updateHardcoverBook,
   validateHardcoverToken: () => validateHardcoverToken
 });
@@ -906,12 +907,28 @@ async function insertJournalEntry(bookId, editionId, text, eventType, page, tota
   }
   try {
     const result = await hardcoverGraphQL(query, token, { object });
-    return !!((_c = (_b = (_a = result == null ? void 0 : result.data) == null ? void 0 : _a.insert_reading_journal) == null ? void 0 : _b.reading_journal) == null ? void 0 : _c.id);
+    const id = (_c = (_b = (_a = result == null ? void 0 : result.data) == null ? void 0 : _a.insert_reading_journal) == null ? void 0 : _b.reading_journal) == null ? void 0 : _c.id;
+    return id ? Number(id) : null;
+  } catch (e) {
+    return null;
+  }
+}
+async function deleteJournalEntry(id, token) {
+  var _a, _b;
+  const query = `
+		mutation DeleteReadingJournalEntry($id: Int!) {
+			delete_reading_journal(id: $id) {
+				id
+			}
+		}`;
+  try {
+    const result = await hardcoverGraphQL(query, token, { id });
+    return !!((_b = (_a = result == null ? void 0 : result.data) == null ? void 0 : _a.delete_reading_journal) == null ? void 0 : _b.id);
   } catch (e) {
     return false;
   }
 }
-async function syncBookHighlights(bookId, editionId, highlights, source, totalPages, lastSyncedAt, privacySetting, token, onProgress) {
+async function syncBookHighlights(bookId, editionId, highlights, totalPages, lastSyncedAt, privacySetting, token, onProgress) {
   const result = {
     synced: 0,
     failed: 0,
@@ -944,18 +961,17 @@ ${h.note.trim()}`;
       text = h.note.trim();
       eventType = "note";
     }
-    const page = source === "koreader" ? h.position : null;
-    const ok = await insertJournalEntry(
+    const entryId = await insertJournalEntry(
       bookId,
       editionId,
       text,
       eventType,
-      page,
+      null,
       totalPages,
       privacySetting,
       token
     );
-    if (ok) {
+    if (entryId !== null) {
       result.synced++;
     } else {
       result.failed++;
@@ -965,6 +981,72 @@ ${h.note.trim()}`;
     }
   }
   onProgress == null ? void 0 : onProgress(toSync.length, toSync.length);
+  return result;
+}
+async function syncKOReaderHighlights(bookId, editionId, highlights, totalPages, journalMap, privacySetting, token, onProgress) {
+  const result = {
+    synced: 0,
+    failed: 0,
+    deleted: 0,
+    journalMap: { ...journalMap }
+  };
+  const withContent = highlights.filter((h) => {
+    const hasContent = h.originalText && h.originalText.trim() || h.note && h.note.trim();
+    return hasContent && !!h.highlightId;
+  });
+  const currentIds = new Set(withContent.map((h) => h.highlightId));
+  const toInsert = withContent.filter((h) => !(h.highlightId in result.journalMap));
+  for (let i = 0; i < toInsert.length; i++) {
+    const h = toInsert[i];
+    onProgress == null ? void 0 : onProgress(i, toInsert.length);
+    const hasText = !!(h.originalText && h.originalText.trim());
+    const hasNote = !!(h.note && h.note.trim());
+    let text;
+    let eventType;
+    if (hasText && hasNote) {
+      text = `${h.originalText.trim()}
+
+${h.note.trim()}`;
+      eventType = "quote";
+    } else if (hasText) {
+      text = h.originalText.trim();
+      eventType = "quote";
+    } else {
+      text = h.note.trim();
+      eventType = "note";
+    }
+    const entryId = await insertJournalEntry(
+      bookId,
+      editionId,
+      text,
+      eventType,
+      h.position,
+      totalPages,
+      privacySetting,
+      token
+    );
+    if (entryId !== null) {
+      result.synced++;
+      result.journalMap[h.highlightId] = entryId;
+    } else {
+      result.failed++;
+    }
+    if (i < toInsert.length - 1) {
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+  const idsToRemove = Object.keys(result.journalMap).filter((id) => !currentIds.has(id));
+  for (const id of idsToRemove) {
+    const entryId = result.journalMap[id];
+    if (entryId !== null) {
+      const ok = await deleteJournalEntry(entryId, token);
+      if (ok)
+        result.deleted++;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    delete result.journalMap[id];
+  }
+  onProgress == null ? void 0 : onProgress(toInsert.length, toInsert.length);
   return result;
 }
 var import_obsidian, HARDCOVER_API, STATUS_WANT_TO_READ, STATUS_CURRENTLY_READING, STATUS_READ, STATUS_DNF, MIN_USERS_THRESHOLD, lastRequestTime, USER_BOOK_PARTS, INSERT_USER_BOOK, UPDATE_USER_BOOK_READ, INSERT_USER_BOOK_READ, FIND_USER_BOOK, DELETE_USER_BOOK_READ, DELETE_USER_BOOK;
@@ -9267,6 +9349,7 @@ function koReaderToBookData(ko, coverVaultPath, effectiveTitle) {
       var _a, _b;
       return {
         id: i,
+        highlightId: a.id,
         book: title,
         filename: "",
         chapter: 0,
@@ -9505,7 +9588,7 @@ async function migrateToSubdirectories(app, settings) {
   }
 }
 async function syncFromMoonReader(app, settings, wasmPath) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
   const result = {
     success: false,
     booksProcessed: 0,
@@ -10033,14 +10116,15 @@ ${fields.join("\n")}
           ...koreaderBooksForIndex.map((b) => ({ bookData: b, srcPath: koreaderOutputPath }))
         ];
         let highlightsSynced = 0;
+        let highlightsDeleted = 0;
+        let hcCacheModified = false;
+        let hcKoreaderCacheModified = false;
         for (const { bookData, srcPath } of allBooksWithPaths) {
           if (bookData.highlights.length === 0)
             continue;
-          const cachedBook = getCachedInfo(
-            srcPath === outputPath ? cache : koreaderCache != null ? koreaderCache : cache,
-            bookData.book.title,
-            bookData.book.author
-          );
+          const isKOReader = bookData.source === "koreader";
+          const targetCache = srcPath === outputPath ? cache : koreaderCache != null ? koreaderCache : cache;
+          const cachedBook = getCachedInfo(targetCache, bookData.book.title, bookData.book.author);
           const lookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title && bookData.source !== "koreader" ? cachedBook.title : bookData.book.title;
           const filePath = (0, import_obsidian7.normalizePath)(`${srcPath}/${generateFilename(lookupTitle)}.md`);
           let hardcoverId = null;
@@ -10067,44 +10151,83 @@ ${fields.join("\n")}
           if (!hardcoverId)
             continue;
           progressNotice.setMessage(`MoonSync: Syncing highlights \u2014 ${bookData.book.title}`);
-          const hResult = await syncBookHighlights(
-            hardcoverId,
-            editionId,
-            bookData.highlights,
-            (_m = bookData.source) != null ? _m : "moonreader",
-            bookData.pageCount,
-            lastSyncedAt,
-            settings.hardcoverHighlightsPrivacy,
-            settings.hardcoverToken,
-            (done, total) => {
-              if (total > 5) {
-                progressNotice.setMessage(
-                  `MoonSync: Syncing highlights \u2014 ${bookData.book.title} (${done}/${total})`
-                );
+          if (isKOReader) {
+            let journalMap = cachedBook == null ? void 0 : cachedBook.hardcoverJournalMap;
+            if (!journalMap && lastSyncedAt !== null) {
+              journalMap = {};
+              for (const h of bookData.highlights) {
+                if (h.highlightId)
+                  journalMap[h.highlightId] = null;
               }
             }
-          );
-          if (hResult.synced > 0) {
+            const hResult = await syncKOReaderHighlights(
+              hardcoverId,
+              editionId,
+              bookData.highlights,
+              bookData.pageCount,
+              journalMap != null ? journalMap : {},
+              settings.hardcoverHighlightsPrivacy,
+              settings.hardcoverToken,
+              (done, total) => {
+                if (total > 5) {
+                  progressNotice.setMessage(
+                    `MoonSync: Syncing highlights \u2014 ${bookData.book.title} (${done}/${total})`
+                  );
+                }
+              }
+            );
             highlightsSynced += hResult.synced;
-            try {
-              if (await app.vault.adapter.exists(filePath)) {
-                let content = await app.vault.adapter.read(filePath);
-                content = content.replace(/^hardcover_highlights_synced_at: .*\n/gm, "");
-                content = content.replace(
-                  /\n---\n/,
-                  `
+            highlightsDeleted += hResult.deleted;
+            if (cachedBook) {
+              cachedBook.hardcoverJournalMap = hResult.journalMap;
+              if (targetCache === cache)
+                hcCacheModified = true;
+              else
+                hcKoreaderCacheModified = true;
+            }
+          } else {
+            const hResult = await syncBookHighlights(
+              hardcoverId,
+              editionId,
+              bookData.highlights,
+              bookData.pageCount,
+              lastSyncedAt,
+              settings.hardcoverHighlightsPrivacy,
+              settings.hardcoverToken,
+              (done, total) => {
+                if (total > 5) {
+                  progressNotice.setMessage(
+                    `MoonSync: Syncing highlights \u2014 ${bookData.book.title} (${done}/${total})`
+                  );
+                }
+              }
+            );
+            if (hResult.synced > 0) {
+              highlightsSynced += hResult.synced;
+              try {
+                if (await app.vault.adapter.exists(filePath)) {
+                  let content = await app.vault.adapter.read(filePath);
+                  content = content.replace(/^hardcover_highlights_synced_at: .*\n/gm, "");
+                  content = content.replace(
+                    /\n---\n/,
+                    `
 hardcover_highlights_synced_at: ${hResult.newSyncedAt}
 ---
 `
-                );
-                await app.vault.adapter.write(filePath, content);
+                  );
+                  await app.vault.adapter.write(filePath, content);
+                }
+              } catch (e) {
               }
-            } catch (e) {
             }
           }
         }
-        if (highlightsSynced > 0) {
-          console.debug(`MoonSync: Synced ${highlightsSynced} highlights to Hardcover`);
+        if (hcCacheModified)
+          await saveCache(app, outputPath, cache);
+        if (hcKoreaderCacheModified && koreaderCache)
+          await saveCache(app, koreaderOutputPath, koreaderCache);
+        if (highlightsSynced > 0 || highlightsDeleted > 0) {
+          console.debug(`MoonSync: Synced ${highlightsSynced} highlights to Hardcover${highlightsDeleted > 0 ? `, removed ${highlightsDeleted}` : ""}`);
         }
       } catch (error) {
         console.debug("MoonSync: Hardcover highlights sync failed", error);

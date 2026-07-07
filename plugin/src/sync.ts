@@ -10,7 +10,7 @@ import { MoonSyncSettings, BookData } from "./types";
 import { loadCache, saveCache, getCachedInfo, setCachedInfo, BookInfoCache } from "./cache";
 import { scanAllBookNotes, mergeBookLists } from "./scanner";
 import { computeHighlightsHash, parseFrontmatter, parseFrontmatterField, extractFrontmatter, escapeYaml, extractAuthorFromFilename, stripAuthorSuffix } from "./utils";
-import { syncBooksToHardcover, syncBookHighlights, HardcoverSyncItem } from "./hardcover";
+import { syncBooksToHardcover, syncBookHighlights, syncKOReaderHighlights, HardcoverSyncItem } from "./hardcover";
 import { enrichBooksWithSyncData } from "./enrichment";
 import { getLocalCover } from "./parser/local-covers";
 
@@ -24,6 +24,7 @@ function koReaderToBookData(ko: KOReaderBookData, coverVaultPath: string | null,
 		},
 		highlights: ko.annotations.map((a, i) => ({
 			id: i,
+			highlightId: a.id,
 			book: title,
 			filename: "",
 			chapter: 0,
@@ -991,15 +992,17 @@ export async function syncFromMoonReader(
 				];
 
 				let highlightsSynced = 0;
+				let highlightsDeleted = 0;
+				let hcCacheModified = false;
+				let hcKoreaderCacheModified = false;
 				for (const { bookData, srcPath } of allBooksWithPaths) {
 					if (bookData.highlights.length === 0) continue;
 
+					const isKOReader = bookData.source === "koreader";
+					const targetCache = srcPath === outputPath ? cache : (koreaderCache ?? cache);
+
 					// Find note and read hardcover_id + hardcover_highlights_synced_at
-					const cachedBook = getCachedInfo(
-						srcPath === outputPath ? cache : (koreaderCache ?? cache),
-						bookData.book.title,
-						bookData.book.author
-					);
+					const cachedBook = getCachedInfo(targetCache, bookData.book.title, bookData.book.author);
 					const lookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title && bookData.source !== "koreader")
 						? cachedBook.title : bookData.book.title;
 					const filePath = normalizePath(`${srcPath}/${generateFilename(lookupTitle)}.md`);
@@ -1027,43 +1030,86 @@ export async function syncFromMoonReader(
 
 					progressNotice.setMessage(`MoonSync: Syncing highlights — ${bookData.book.title}`);
 
-					const hResult = await syncBookHighlights(
-						hardcoverId,
-						editionId,
-						bookData.highlights,
-						bookData.source ?? "moonreader",
-						bookData.pageCount,
-						lastSyncedAt,
-						settings.hardcoverHighlightsPrivacy,
-						settings.hardcoverToken,
-						(done, total) => {
-							if (total > 5) {
-								progressNotice.setMessage(
-									`MoonSync: Syncing highlights — ${bookData.book.title} (${done}/${total})`
-								);
+					if (isKOReader) {
+						// One-time migration: a book already synced under the old timestamp
+						// system has no journal map yet — seed it with the highlights that
+						// currently exist so they aren't re-inserted as duplicates. Their real
+						// Hardcover entry id isn't known, so a future delete of one of these
+						// specific highlights won't be auto-cleaned up on Hardcover's side.
+						let journalMap = cachedBook?.hardcoverJournalMap;
+						if (!journalMap && lastSyncedAt !== null) {
+							journalMap = {};
+							for (const h of bookData.highlights) {
+								if (h.highlightId) journalMap[h.highlightId] = null;
 							}
 						}
-					);
 
-					if (hResult.synced > 0) {
-						highlightsSynced += hResult.synced;
-						// Write hardcover_highlights_synced_at to frontmatter
-						try {
-							if (await app.vault.adapter.exists(filePath)) {
-								let content = await app.vault.adapter.read(filePath);
-								content = content.replace(/^hardcover_highlights_synced_at: .*\n/gm, "");
-								content = content.replace(
-									/\n---\n/,
-									`\nhardcover_highlights_synced_at: ${hResult.newSyncedAt}\n---\n`
-								);
-								await app.vault.adapter.write(filePath, content);
+						const hResult = await syncKOReaderHighlights(
+							hardcoverId,
+							editionId,
+							bookData.highlights,
+							bookData.pageCount,
+							journalMap ?? {},
+							settings.hardcoverHighlightsPrivacy,
+							settings.hardcoverToken,
+							(done, total) => {
+								if (total > 5) {
+									progressNotice.setMessage(
+										`MoonSync: Syncing highlights — ${bookData.book.title} (${done}/${total})`
+									);
+								}
 							}
-						} catch { /* ignore */ }
+						);
+
+						highlightsSynced += hResult.synced;
+						highlightsDeleted += hResult.deleted;
+
+						if (cachedBook) {
+							cachedBook.hardcoverJournalMap = hResult.journalMap;
+							if (targetCache === cache) hcCacheModified = true;
+							else hcKoreaderCacheModified = true;
+						}
+					} else {
+						const hResult = await syncBookHighlights(
+							hardcoverId,
+							editionId,
+							bookData.highlights,
+							bookData.pageCount,
+							lastSyncedAt,
+							settings.hardcoverHighlightsPrivacy,
+							settings.hardcoverToken,
+							(done, total) => {
+								if (total > 5) {
+									progressNotice.setMessage(
+										`MoonSync: Syncing highlights — ${bookData.book.title} (${done}/${total})`
+									);
+								}
+							}
+						);
+
+						if (hResult.synced > 0) {
+							highlightsSynced += hResult.synced;
+							// Write hardcover_highlights_synced_at to frontmatter
+							try {
+								if (await app.vault.adapter.exists(filePath)) {
+									let content = await app.vault.adapter.read(filePath);
+									content = content.replace(/^hardcover_highlights_synced_at: .*\n/gm, "");
+									content = content.replace(
+										/\n---\n/,
+										`\nhardcover_highlights_synced_at: ${hResult.newSyncedAt}\n---\n`
+									);
+									await app.vault.adapter.write(filePath, content);
+								}
+							} catch { /* ignore */ }
+						}
 					}
 				}
 
-				if (highlightsSynced > 0) {
-					console.debug(`MoonSync: Synced ${highlightsSynced} highlights to Hardcover`);
+				if (hcCacheModified) await saveCache(app, outputPath, cache);
+				if (hcKoreaderCacheModified && koreaderCache) await saveCache(app, koreaderOutputPath, koreaderCache);
+
+				if (highlightsSynced > 0 || highlightsDeleted > 0) {
+					console.debug(`MoonSync: Synced ${highlightsSynced} highlights to Hardcover${highlightsDeleted > 0 ? `, removed ${highlightsDeleted}` : ""}`);
 				}
 			} catch (error) {
 				console.debug("MoonSync: Hardcover highlights sync failed", error);
