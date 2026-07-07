@@ -169,6 +169,7 @@ export function generateKOReaderBookNote(
 		if (bookData.readingStatus) {
 			const label = bookData.readingStatus === "finished" ? "Finished"
 				: bookData.readingStatus === "reading" ? "Reading"
+				: bookData.readingStatus === "unread" ? "Unread"
 				: bookData.readingStatus;
 			lines.push(`> - **Status:** ${label}`);
 		}

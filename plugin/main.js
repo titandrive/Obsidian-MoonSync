@@ -8205,7 +8205,7 @@ async function fetchAllBooks(syncPath) {
       const coverFilePath = (0, import_path3.join)(bookDir, coverFilename);
       const hasCover = await fileExists(coverFilePath);
       const { isbn10, isbn13 } = splitIsbn(sidecar.isbn);
-      const readingStatus = (_d = progressData == null ? void 0 : progressData.readingStatus) != null ? _d : progressPercent === null ? null : progressPercent >= 99 ? "finished" : progressPercent > 0 ? "reading" : null;
+      const readingStatus = (_d = progressData == null ? void 0 : progressData.readingStatus) != null ? _d : progressPercent === null ? null : progressPercent >= 99 ? "finished" : progressPercent > 0 ? "reading" : "unread";
       return {
         hash,
         title: sidecar.title,
@@ -8385,7 +8385,7 @@ function generateKOReaderBookNote(bookData, settings, cachedInfo, coverPath, rea
       lines.push(`> - **Page:** ${bookData.currentPage} of ${bookData.pageCount}`);
     }
     if (bookData.readingStatus) {
-      const label = bookData.readingStatus === "finished" ? "Finished" : bookData.readingStatus === "reading" ? "Reading" : bookData.readingStatus;
+      const label = bookData.readingStatus === "finished" ? "Finished" : bookData.readingStatus === "reading" ? "Reading" : bookData.readingStatus === "unread" ? "Unread" : bookData.readingStatus;
       lines.push(`> - **Status:** ${label}`);
     }
     if (bookData.lastUpdatedAt) {

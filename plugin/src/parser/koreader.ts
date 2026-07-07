@@ -169,13 +169,16 @@ export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[
 
 			const { isbn10, isbn13 } = splitIsbn(sidecar.isbn);
 
-			// Prefer the real reading status from progress.json; fall back to a
-			// rough approximation from progress percent if it's not present.
+			// Prefer the real reading status from progress.json; fall back to a rough
+			// approximation from progress percent if it's not present. Percentage alone
+			// can't distinguish "unread" from "did not finish" (an abandoned book at 40%
+			// looks identical to one actively being read at 40%), so DNF isn't derivable
+			// here — only unread/reading/finished are.
 			const readingStatus = progressData?.readingStatus ?? (
 				progressPercent === null ? null
 					: progressPercent >= 99 ? "finished"
 					: progressPercent > 0 ? "reading"
-					: null
+					: "unread"
 			);
 
 			return {
