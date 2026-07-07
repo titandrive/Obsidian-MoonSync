@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting, TextComponent, normalizePath, Notice, requestUrl } from "obsidian";
 import type MoonSyncPlugin from "../main";
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
 import { platform } from "os";
@@ -153,7 +153,7 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			const koreaderPathSetting = new Setting(container)
 				.setName("KOReader sync path")
 				.setDesc(
-					"Path to the mounted KOReader sync folder (contains library.json, sync/, and books/ subfolders)."
+					"Path to the mounted KOReader sync folder (contains sync/ and books/ subfolders)."
 				)
 				.addText((text) => {
 					koreaderTextComponent = text;
@@ -754,17 +754,31 @@ export class MoonSyncSettingTab extends PluginSettingTab {
 			return;
 		}
 
-		// KOReader syncest format: library.json at root
-		const hasLibrary = existsSync(join(path, "library.json"));
+		// KOReader syncest format: books live in sync/<bookHash>/ subfolders — that's
+		// what MoonSync actually scans, so validate against that instead of library.json
+		// (which is optional and often not present).
+		const syncPath = join(path, "sync");
+		if (!existsSync(syncPath)) {
+			validationEl.createSpan({
+				text: "⚠ No \"sync\" folder found at this path",
+				attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
+			});
+			return;
+		}
 
-		if (hasLibrary) {
+		let hasBooks = false;
+		try {
+			hasBooks = readdirSync(syncPath, { withFileTypes: true }).some((e) => e.isDirectory());
+		} catch { /* treat as no books */ }
+
+		if (hasBooks) {
 			validationEl.createSpan({
 				text: "✓ KOReader sync folder found",
 				attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" }
 			});
 		} else {
 			validationEl.createSpan({
-				text: "⚠ Folder exists but no library.json found",
+				text: "⚠ \"sync\" folder found, but no books yet",
 				attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
 			});
 		}

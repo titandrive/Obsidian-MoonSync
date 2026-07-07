@@ -1,42 +1,51 @@
 # MoonSync
 
-Sync your reading highlights, notes, and progress from **Moon+ Reader** and **[Readest](https://readest.com)** to **Obsidian** and **[Hardcover.app](https://hardcover.app)**.
+Sync your reading highlights, notes, and progress from **Moon+ Reader** and **KOReader** to **Obsidian** and **[Hardcover.app](https://hardcover.app)**.
 
 > [!NOTE]
-> MoonSync is a **desktop-only** plugin. It requires access to your reader's sync folder on disk (via Dropbox, WebDAV, or FTP), which is not available on mobile.
+> MoonSync is a **desktop-only** plugin. It requires access to your reader's sync folder on disk (via Dropbox, WebDAV, or FTP for Moon+ Reader; via the [syncest](https://github.com/titandrive/syncest) companion tool for KOReader), which is not available on mobile.
 
 <img src="assets/BookScreenshot.png" alt="Book note example" width="420">
 
 ## Features
 
-- **Moon+ Reader & Readest Support** — Sync highlights, progress, and metadata from both Moon+ Reader and Readest
+- **Moon+ Reader & KOReader Support** — Sync highlights, progress, and metadata from both Moon+ Reader and KOReader
 - **Obsidian Sync** — Automatically create and update book notes with highlights, reading progress, covers, and metadata
-- **Hardcover Sync** — Push reading status and progress to [Hardcover.app](https://hardcover.app) so your library stays up to date across platforms
+- **Hardcover Sync** — Push reading status and progress to [Hardcover.app](https://hardcover.app) so your library stays up to date across platforms, including exact ISBN-based book matching for KOReader books
 - **Rich Metadata** — Book covers, descriptions, genres, series info, reading time, and ratings — sourced from [Hardcover](https://hardcover.app) (recommended), your reader's sync data, or Google Books and Open Library as a fallback
 - **Library Index** — Auto-generated index with cover collage, stats, and an Obsidian Bases database view
-- **Highlight Colors** — Preserve Moon+ Reader highlight colors as styled callouts
+- **Highlight Colors** — Preserve highlight colors as styled callouts
 - **File Watcher** — Automatically sync when reader cache files change (ideal for always-on servers)
 - **Smart Updates** — Only syncs when highlights or progress actually change
-- **Manual Book Notes** — Track books read outside of Moon+ Reader or Readest with manually created notes
+- **Manual Book Notes** — Track books read outside of Moon+ Reader or KOReader with manually created notes
 
 ## How It Works
 
-Moon+ Reader and Readest sync your reading data to the cloud (Dropbox, WebDAV, or FTP). MoonSync reads that data and creates rich book notes in Obsidian. If Hardcover sync is enabled, it also updates your reading status there.
+Moon+ Reader syncs your reading data to the cloud (Dropbox, WebDAV, or FTP). KOReader's sync data is exported to a local folder by the [syncest](https://github.com/titandrive/syncest) companion tool. MoonSync reads that data and creates rich book notes in Obsidian. If Hardcover sync is enabled, it also updates your reading status there.
 
-**Data flow:** Moon+ Reader / Readest → Cloud Sync → MoonSync → Obsidian + Hardcover
+**Data flow:** Moon+ Reader → Cloud Sync → MoonSync → Obsidian + Hardcover
 
-## Readest Support
+**Data flow:** KOReader → [syncest](https://github.com/titandrive/syncest) → MoonSync → Obsidian + Hardcover
 
-MoonSync fully supports [Readest](https://readest.com), an open-source desktop e-reader. Readest support requires **WebDAV sync** to be enabled in Readest (added in Readest v0.11.3) — MoonSync reads the sync data Readest writes to your WebDAV folder, not local app storage.
+## KOReader Support
 
-To use MoonSync with Readest:
-1. Enable WebDAV sync in Readest's settings and point it at your WebDAV server
-2. In MoonSync settings, set the **Readest Data Path** to the `Readest/` folder inside your WebDAV sync directory (e.g. `.../webdav/Readest/`)
-3. Before syncing MoonSync, **manually trigger a sync in Readest** — Readest does not sync to WebDAV automatically, so you need to push your data each time before running MoonSync
+MoonSync supports [KOReader](https://koreader.rocks/), the open-source e-reader for e-ink devices. KOReader has no built-in cloud sync for highlights and progress, so MoonSync requires a companion tool, **[syncest](https://github.com/titandrive/syncest)**, to export that data from your device into a folder MoonSync can read.
 
-MoonSync uses `library.json` as the authoritative source for Readest book titles and metadata, and cross-references Hardcover for enriched data. Highlights and reading progress are read from Readest's per-book cache files in that same folder.
+To use MoonSync with KOReader:
+1. Set up [syncest](https://github.com/titandrive/syncest) to export your KOReader library — see that repo for setup instructions
+2. In MoonSync settings, set the **KOReader Sync Path** to the folder syncest writes to
+3. Run syncest to export your latest highlights and progress before syncing MoonSync (unless your syncest setup runs automatically)
 
-Readest notes are stored in a `Books/Readest/` subfolder, separate from Moon+ Reader notes (`Books/MoonReader/`), so the two libraries stay organized independently.
+MoonSync discovers books by scanning the `sync/<bookHash>/` subfolders syncest creates directly — each folder's `progress.json`, `annotations.json`, and metadata sidecar (`_<title>.json`) together describe one book. Covers are read from the matching `books/<bookHash>/` folder.
+
+KOReader notes are stored in a `Books/KOReader/` subfolder, separate from Moon+ Reader notes (`Books/MoonReader/`), so the two libraries stay organized independently.
+
+### KOReader Highlight Behavior
+
+- Plain bookmarks (KOReader auto-labels these "in CHAPTER X" with no highlighted text) are skipped — they carry no substance. A bookmark with a note attached is still kept.
+- Deleting a highlight in KOReader removes the corresponding entry from Hardcover's reading journal on your next sync (not just locally) — MoonSync tracks each highlight by its own stable id, not just a timestamp cutoff.
+- Reading status (reading / finished / unread) is read from syncest's `progress.json` if present, otherwise estimated from progress percentage. "Did not finish" can't be estimated this way — an abandoned book and one still being read can sit at the same percentage — so that status requires an explicit signal from syncest.
+- If a book has an ISBN available, MoonSync matches it to Hardcover by ISBN first — an exact match with no fuzzy title/author guessing involved — before falling back to search.
 
 ## Moon+ Reader — How It Works
 
@@ -74,15 +83,15 @@ If "Sync my shelf" is not enabled, MoonSync falls back to discovering books from
 | To Obsidian | To Hardcover |
 |---|---|
 | Book highlights with timestamps and colors | Reading status (Want to Read, Currently Reading, Read) |
-| Reading progress (percentage and chapter) | Reading progress (page count) |
-| Book metadata (title, author, publisher, genres, series) | Book matched by title/author |
+| Reading progress (percentage and chapter/page) | Reading progress (page count) |
+| Book metadata (title, author, publisher, genres, series) | Book matched by title/author, or by ISBN for KOReader |
 | Book covers and descriptions | |
 | Reading time and statistics | |
 
 ### Requirements
 
-- [Moon+ Reader](https://play.google.com/store/apps/details?id=com.flyersoft.moonreader) and/or [Readest](https://readest.com)
-- [Dropbox Desktop App](https://www.dropbox.com/desktop) or mounted WebDAV/FTP server (required for Moon+ Reader; also required for Readest — point MoonSync at the `Readest/` subfolder in your WebDAV directory)
+- [Moon+ Reader](https://play.google.com/store/apps/details?id=com.flyersoft.moonreader) and/or [KOReader](https://koreader.rocks/) with [syncest](https://github.com/titandrive/syncest)
+- [Dropbox Desktop App](https://www.dropbox.com/desktop) or mounted WebDAV/FTP server (required for Moon+ Reader)
 - [Obsidian](https://obsidian.md/download)
 - [BRAT](https://github.com/TfTHacker/obsidian42-brat)
 
@@ -118,7 +127,7 @@ Once MoonSync is installed, you will need to configure it before it can complete
 2. Enable MoonSync
 3. Click on the settings Cog to open up MoonSync settings.
 4. Under configuration, browse to your Moon+ Reader sync folder on your computer. For Dropbox this is typically `.../Dropbox/Apps/Books/`. For WebDAV/FTP, point it to your mounted server. MoonSync will validate that it can find the correct cache files.
-5. If using Readest, set the **Readest Data Path** to your Readest data folder.
+5. If using KOReader, set the **KOReader Sync Path** to the folder [syncest](https://github.com/titandrive/syncest) writes to.
 6. Press Sync
 
 <img src="assets/validate.png" alt="Validate" width="500">
@@ -157,16 +166,16 @@ With "Sync reading progress" enabled, MoonSync also updates your Hardcover libra
 - **99%+ progress** → Read
 - Books without progress data are skipped
 
-MoonSync searches Hardcover by title to find matching books. Once matched, the `hardcover_id` is saved to your note's frontmatter so future syncs are instant. If the wrong book is matched, use the **Update Hardcover Link** command to correct it.
+MoonSync searches Hardcover by ISBN first when one is available (KOReader books via syncest), otherwise by title, to find matching books. Once matched, the `hardcover_id` is saved to your note's frontmatter so future syncs are instant. If the wrong book is matched, use the **Update Hardcover Link** command to correct it.
 
 #### My Notes
 Every book note contains a section called "My Notes". You can add your own thoughts and notes here. As your reading progresses, MoonSync will continue to update your reading progress and add new highlights. Anything added in "My Notes" will be preserved.
 
 #### Typical Sync Workflow
-1. Read your book and make highlights in Moon+ Reader or Readest
+1. Read your book and make highlights in Moon+ Reader or KOReader
 2. Sync your progress to the cloud:
    - **Moon+ Reader**: trigger a sync to Dropbox/WebDAV/FTP from within the app
-   - **Readest**: manually trigger a WebDAV sync from Readest's settings — it does not sync automatically
+   - **KOReader**: run [syncest](https://github.com/titandrive/syncest) to export your latest highlights and progress
 3. Trigger MoonSync by opening Obsidian or clicking the ribbon button
 4. Your highlights and reading progress should immediately become available
 
@@ -190,14 +199,14 @@ Once you have exported your notes, you can import it using the command palette:
 4. MoonSync will automatically create a new book note, find matching metadata, and update the index & base files.
 
 ## Custom & Manual Books
-Sometimes you may have books you wish to keep track of that you read outside of Moon+ Reader or Readest. MoonSync supports creating custom book notes and tracking manually created notes in your library index.
+Sometimes you may have books you wish to keep track of that you read outside of Moon+ Reader or KOReader. MoonSync supports creating custom book notes and tracking manually created notes in your library index.
 
 ### Creating a Book Note
 1. Open the Command Palette and select `MoonSync: Create Book Note`
 2. Search for your book in the search prompt
 3. Select your book
 
-MoonSync will import all available metadata and create a new book note in `/Books`. You can then enter your favorite highlights and notes. If in the future you begin reading that same book in Moon+ Reader or Readest and make highlights, MoonSync will intelligently update the note so you won't lose your past notes.
+MoonSync will import all available metadata and create a new book note in `/Books`. You can then enter your favorite highlights and notes. If in the future you begin reading that same book in Moon+ Reader or KOReader and make highlights, MoonSync will intelligently update the note so you won't lose your past notes.
 
 ### Organizing Manual Notes
 
@@ -212,7 +221,7 @@ MoonSync provides several commands accessible via the command palette (`Cmd/Ctrl
 <img src="assets/CommandPalette.png" alt="Command Palette" width="420">
 
 ### Sync Now
-Synchronize all books from Moon+ Reader and Readest. Only updates notes when highlights or progress have changed.
+Synchronize all books from Moon+ Reader and KOReader. Only updates notes when highlights or progress have changed.
 
 ### Import Note
 Import highlights from a manual Moon Reader export. Useful for one-time imports or when cloud sync isn't available.
@@ -236,15 +245,15 @@ MoonSync has a variety of settings to customize how the plugin works. Default se
 These settings configure how MoonSync works.
 #### Configuration
 - **Moon Reader Sync Path** - path to your Moon+ Reader sync folder (Dropbox, mounted WebDAV, or FTP). For Dropbox this is typically `.../Dropbox/Apps/Books`. The plugin automatically looks for the hidden `.Moon+/Cache` folder inside.
-- **Readest Data Path** - path to the `Readest/` folder inside your WebDAV sync directory. Requires WebDAV sync to be enabled in Readest.
-- **Output Folder** - Where your book notes will be stored. Default: `/Books`. Moon+ Reader notes go into a `MoonReader/` subfolder, Readest notes into `Readest/`, and manual notes into `Manual Notes/` (if organizing is enabled).
+- **KOReader Sync Path** - path to the folder [syncest](https://github.com/titandrive/syncest) exports your KOReader library to (contains `sync/` and `books/` subfolders).
+- **Output Folder** - Where your book notes will be stored. Default: `/Books`. Moon+ Reader notes go into a `MoonReader/` subfolder, KOReader notes into `KOReader/`, and manual notes into `Manual Notes/` (if organizing is enabled).
 
 #### Sync Options
 - **Sync Now** - Trigger manual sync
 - **Sync on Startup** - Automatically sync when Obsidian starts
 - **Show Ribbon Icon** - Show sync button in the ribbon menu
-- **Track Books Without Highlights** - Track all books in your library, not just ones with highlights. When "Sync my shelf" is enabled in Moon Reader, this discovers your entire library from the sync data. Otherwise, it tracks books that have reading progress but no highlights yet.
-- **Automatic Sync** - Automatically sync when reader cache files are updated. Best suited when Obsidian is hosted on an always-on server. Uses a 3-second debounce to batch rapid file writes.
+- **Track Books Without Highlights** - Track all books in your library, not just ones with highlights. When "Sync my shelf" is enabled in Moon Reader, this discovers your entire library from the sync data.
+- **Automatic Sync** - Automatically sync when Moon+ Reader or KOReader sync files are updated. Best suited when Obsidian is hosted on an always-on server. Uses a 3-second debounce to batch rapid file writes.
 
 #### Maintenance
 - **Organize Manual Books** - Move notes with `manual_note: true` in their frontmatter into a `Books/Manual Notes/` subfolder. Applies immediately when the toggle is enabled.
@@ -285,6 +294,7 @@ MoonSync automatically generates an index and base note to give you different wa
 - **API Token** - Your Hardcover bearer token
 - **Test Connection** - Verify your token is working
 - **Sync Reading Progress** - When enabled, MoonSync pushes your reading status and progress to your Hardcover library after each sync. Turn this off if you only want Hardcover for metadata
+- **Sync Highlights** - When enabled, MoonSync pushes your highlights and notes to Hardcover's reading journal. For KOReader, deleting a highlight also removes it from Hardcover on your next sync.
 
 ### About the Index and Base Notes
 
@@ -337,7 +347,7 @@ No, but it's recommended. Hardcover provides significantly better metadata (titl
 <details>
 <summary>Does MoonSync work on mobile?</summary>
 
-Not currently. MoonSync requires access to your reader's sync folder on disk (via Dropbox, WebDAV, or FTP for Moon+ Reader, or local app data for Readest), which is only available on desktop.
+Not currently. MoonSync requires access to your reader's sync folder on disk (via Dropbox, WebDAV, or FTP for Moon+ Reader, or the syncest export folder for KOReader), which is only available on desktop.
 </details>
 
 <details>
@@ -347,21 +357,21 @@ Cloud sync (Dropbox, WebDAV, FTP) is a Pro-only feature, so automatic syncing re
 </details>
 
 <details>
-<summary>Does MoonSync support Readest?</summary>
+<summary>Does MoonSync support KOReader?</summary>
 
-Yes. MoonSync fully supports [Readest](https://readest.com), but requires **WebDAV sync** to be enabled in Readest. Point the **Readest Data Path** setting at the `Readest/` folder inside your WebDAV sync directory and MoonSync will pick up highlights, progress, and metadata. Readest notes are stored in `Books/Readest/` and Moon+ Reader notes in `Books/MoonReader/`.
+Yes. MoonSync supports [KOReader](https://koreader.rocks/), but requires the **[syncest](https://github.com/titandrive/syncest)** companion tool to export your KOReader library into a folder MoonSync can read — KOReader has no built-in cloud sync for highlights and progress. Point the **KOReader Sync Path** setting at that folder and MoonSync will pick up highlights, progress, and metadata. KOReader notes are stored in `Books/KOReader/` and Moon+ Reader notes in `Books/MoonReader/`.
 </details>
 
 <details>
 <summary>Can I use MoonSync with Kindle or other e-readers?</summary>
 
-No. MoonSync is designed specifically for Moon+ Reader and Readest. It reads the file formats unique to those apps.
+No. MoonSync is designed specifically for Moon+ Reader and KOReader. It reads the file formats/export data unique to those apps.
 </details>
 
 <details>
 <summary>Does MoonSync support PDFs?</summary>
 
-Yes. Moon+ Reader supports PDFs, and MoonSync will pick up highlights and progress from PDF files just like EPUBs.
+Yes. Both Moon+ Reader and KOReader support PDFs, and MoonSync will pick up highlights and progress from PDF files just like EPUBs.
 </details>
 
 <details>
@@ -371,13 +381,13 @@ MoonSync preserves anything you write in the "My Notes" section of each book not
 </details>
 
 <details>
-<summary>What happens if I delete a highlight in Moon Reader?</summary>
+<summary>What happens if I delete a highlight in Moon Reader or KOReader?</summary>
 
-MoonSync reflects your Moon Reader data — if you delete a highlight in Moon Reader and sync, it will be removed from your Obsidian note as well.
+MoonSync reflects your reader's data — if you delete a highlight and sync, it will be removed from your Obsidian note as well. For KOReader specifically, it's also removed from Hardcover's reading journal if you have highlight sync enabled (as long as that highlight was originally synced under MoonSync 2.0.7 or later).
 </details>
 
 <details>
-<summary>What happens if I delete a book or its sync data from Moon Reader?</summary>
+<summary>What happens if I delete a book or its sync data from Moon Reader/KOReader?</summary>
 
 Nothing. Your Obsidian book notes are independent files — MoonSync will never delete or modify them just because the source data is gone. They remain in your vault as-is.
 </details>
@@ -385,7 +395,7 @@ Nothing. Your Obsidian book notes are independent files — MoonSync will never 
 <details>
 <summary>How often does MoonSync sync?</summary>
 
-By default, MoonSync syncs once when Obsidian starts. You can also trigger a manual sync anytime via the ribbon icon or command palette. If you enable "Automatic Sync," it watches your sync folder for changes and syncs within a few seconds of Moon Reader or Readest updating its files.
+By default, MoonSync syncs once when Obsidian starts. You can also trigger a manual sync anytime via the ribbon icon or command palette. If you enable "Automatic Sync," it watches your sync folder(s) for changes and syncs within a few seconds of Moon Reader or KOReader/syncest updating its files.
 </details>
 
 <details>
@@ -397,14 +407,14 @@ You can toggle individual sections on or off (description, progress, covers, hig
 <details>
 <summary>How does Hardcover progress sync work?</summary>
 
-Whenever your progress changes in Moon+ Reader or Readest, and Hardcover sync is enabled, MoonSync will push that to Hardcover. Your progress (percent and page number) will be reflected in Hardcover. It will also update the reading status of books (Currently Reading, Read) automatically. When a book changes from 0%, it will update the status from Want to Read to Currently Reading. When the progress gets to 99%, the book will be marked as Read.
+Whenever your progress changes in Moon+ Reader or KOReader, and Hardcover sync is enabled, MoonSync will push that to Hardcover. Your progress (percent and page number) will be reflected in Hardcover. It will also update the reading status of books (Currently Reading, Read) automatically. When a book changes from 0%, it will update the status from Want to Read to Currently Reading. When the progress gets to 99%, the book will be marked as Read.
 
 </details>
 
 
 ## Privacy & Security
 
-- **Read-only access**: MoonSync only reads from your sync folder. It never modifies your Moon+ Reader or Readest data.
+- **Read-only access**: MoonSync only reads from your sync folder(s). It never modifies your Moon+ Reader data, and never writes back to the folder syncest exports your KOReader data to.
 - **Local processing**: All data stays on your machine. Highlights and reading progress are read locally from your sync folder. Metadata and covers are fetched from external APIs (Hardcover, Google Books, Open Library) and cached locally.
 - **Caching**: API responses are cached locally to minimize external requests.
 
@@ -420,14 +430,14 @@ Whenever your progress changes in Moon+ Reader or Readest, and Hardcover sync is
 - Enable "Track books without highlights" in MoonSync settings
 - Enable "Sync books across devices" in Moon Reader's sync settings for full library discovery
 - If using "Sync my shelf", make sure you've synced at least once from Moon Reader after enabling it
-- For Readest, verify the **Readest Data Path** points to the correct folder
+- For KOReader, verify the **KOReader Sync Path** points to the folder [syncest](https://github.com/titandrive/syncest) writes to, and that you've run syncest at least once since adding the book
 
 ### Progress not showing
-- Progress requires a `.po` file for the book (Moon+ Reader) or a progress entry in Readest's data
+- Progress requires a `.po` file for the book (Moon+ Reader) or a `progress.json` entry from syncest (KOReader)
 - Open the book in your reader and let it sync
 
 ### Covers/descriptions not loading
-- Check your internet connection (only needed if "Sync my shelf" is not enabled)
+- Check your internet connection (only needed if "Sync my shelf" is not enabled, or metadata isn't available from syncest)
 - Some books (especially new releases) may not be in Google Books/Open Library
 - Use "Fetch Book Cover" or "Fetch Book Metadata" to manually search for the correct edition
 

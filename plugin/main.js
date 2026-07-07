@@ -6379,7 +6379,7 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       let koreaderTextComponent;
       let koreaderValidationEl;
       const koreaderPathSetting = new import_obsidian2.Setting(container).setName("KOReader sync path").setDesc(
-        "Path to the mounted KOReader sync folder (contains library.json, sync/, and books/ subfolders)."
+        "Path to the mounted KOReader sync folder (contains sync/ and books/ subfolders)."
       ).addText((text) => {
         koreaderTextComponent = text;
         text.setPlaceholder("/Volumes/webdav/syncest").setValue(this.plugin.settings.koreaderSyncPath).onChange(async (value) => {
@@ -6757,15 +6757,27 @@ var MoonSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       });
       return;
     }
-    const hasLibrary = (0, import_fs.existsSync)((0, import_path.join)(path, "library.json"));
-    if (hasLibrary) {
+    const syncPath = (0, import_path.join)(path, "sync");
+    if (!(0, import_fs.existsSync)(syncPath)) {
+      validationEl.createSpan({
+        text: '\u26A0 No "sync" folder found at this path',
+        attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
+      });
+      return;
+    }
+    let hasBooks = false;
+    try {
+      hasBooks = (0, import_fs.readdirSync)(syncPath, { withFileTypes: true }).some((e) => e.isDirectory());
+    } catch (e) {
+    }
+    if (hasBooks) {
       validationEl.createSpan({
         text: "\u2713 KOReader sync folder found",
         attr: { style: "color: var(--text-success); font-size: 0.85em; margin-top: 0.5em; display: block;" }
       });
     } else {
       validationEl.createSpan({
-        text: "\u26A0 Folder exists but no library.json found",
+        text: '\u26A0 "sync" folder found, but no books yet',
         attr: { style: "color: var(--text-warning); font-size: 0.85em; margin-top: 0.5em; display: block;" }
       });
     }
