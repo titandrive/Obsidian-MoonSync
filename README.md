@@ -29,7 +29,7 @@ Moon+ Reader syncs your reading data to the cloud (Dropbox, WebDAV, or FTP). KOR
 
 ## KOReader Support
 
-MoonSync supports [KOReader](https://koreader.rocks/), the open-source e-reader for e-ink devices. KOReader has no built-in cloud sync for highlights and progress, so MoonSync requires a companion tool, **[syncest](https://github.com/titandrive/syncest)**, to export that data from your device into a folder MoonSync can read.
+MoonSync supports [KOReader](https://koreader.rocks/), the open-source e-reader for e-ink devices. KOReader has its own cloud sync, but MoonSync doesn't read that format directly — it requires a companion tool, **[syncest](https://github.com/titandrive/syncest)**, to export your highlights and progress into a folder MoonSync can read.
 
 To use MoonSync with KOReader:
 1. Set up [syncest](https://github.com/titandrive/syncest) to export your KOReader library — see that repo for setup instructions
@@ -359,7 +359,7 @@ Cloud sync (Dropbox, WebDAV, FTP) is a Pro-only feature, so automatic syncing re
 <details>
 <summary>Does MoonSync support KOReader?</summary>
 
-Yes. MoonSync supports [KOReader](https://koreader.rocks/), but requires the **[syncest](https://github.com/titandrive/syncest)** companion tool to export your KOReader library into a folder MoonSync can read — KOReader has no built-in cloud sync for highlights and progress. Point the **KOReader Sync Path** setting at that folder and MoonSync will pick up highlights, progress, and metadata. KOReader notes are stored in `Books/KOReader/` and Moon+ Reader notes in `Books/MoonReader/`.
+Yes. MoonSync supports [KOReader](https://koreader.rocks/), but requires the **[syncest](https://github.com/titandrive/syncest)** companion tool to export your KOReader library into a folder MoonSync can read — MoonSync doesn't read KOReader's own cloud sync format directly. Point the **KOReader Sync Path** setting at that folder and MoonSync will pick up highlights, progress, and metadata. KOReader notes are stored in `Books/KOReader/` and Moon+ Reader notes in `Books/MoonReader/`.
 </details>
 
 <details>
