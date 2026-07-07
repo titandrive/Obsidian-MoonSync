@@ -249,9 +249,13 @@ export function mergeKOReaderNote(
 		const hcUrl = existingContent.match(/^hardcover_url: .+$/m);
 		if (hcUrl) hardcoverFields.push(hcUrl[0]);
 	}
-	// hardcover_progress is never written by the generator, always preserve it.
+	// hardcover_progress and hardcover_highlights_synced_at are never written by the
+	// generator, always preserve them — losing the latter makes every highlight look
+	// "never synced" and re-pushes all of them as duplicate Hardcover journal entries.
 	const hcProgress = existingContent.match(/^hardcover_progress: .+$/m);
 	if (hcProgress) hardcoverFields.push(hcProgress[0]);
+	const hcHighlightsSyncedAt = existingContent.match(/^hardcover_highlights_synced_at: .+$/m);
+	if (hcHighlightsSyncedAt) hardcoverFields.push(hcHighlightsSyncedAt[0]);
 
 	let fresh = generateKOReaderBookNote(bookData, settings, cachedInfo, coverPath, readingTime);
 

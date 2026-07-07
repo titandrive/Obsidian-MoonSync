@@ -8365,6 +8365,9 @@ function mergeKOReaderNote(existingContent, bookData, settings, cachedInfo, cove
   const hcProgress = existingContent.match(/^hardcover_progress: .+$/m);
   if (hcProgress)
     hardcoverFields.push(hcProgress[0]);
+  const hcHighlightsSyncedAt = existingContent.match(/^hardcover_highlights_synced_at: .+$/m);
+  if (hcHighlightsSyncedAt)
+    hardcoverFields.push(hcHighlightsSyncedAt[0]);
   let fresh = generateKOReaderBookNote(bookData, settings, cachedInfo, coverPath, readingTime);
   if (hardcoverFields.length > 0) {
     fresh = fresh.replace(/\n---\n/, `
