@@ -297,6 +297,11 @@ export interface SyncResult {
 	errors: string[];
 	failedBooks: { title: string; error: string }[];
 	hardcoverUpdated?: number;
+	// The book data actually used for this sync's index (freshly parsed, or reused from
+	// a prior sync when this source was scoped out) — callers can cache these to pass
+	// back in as cachedMoonReaderBooks/cachedKOReaderBooks on the next scoped sync.
+	moonReaderBooksForIndex?: BookData[];
+	koreaderBooksForIndex?: BookData[];
 }
 
 /**
@@ -305,7 +310,13 @@ export interface SyncResult {
 export async function syncFromMoonReader(
 	app: App,
 	settings: MoonSyncSettings,
-	wasmPath: string
+	wasmPath: string,
+	// When a source-specific file watcher fires, only that source needs reprocessing —
+	// the other source's data for the index is reused from the caller's last sync
+	// instead of being expensively re-parsed for no reason.
+	sourceScope?: "moonreader" | "koreader",
+	cachedMoonReaderBooks?: BookData[],
+	cachedKOReaderBooks?: BookData[]
 ): Promise<SyncResult> {
 	const result: SyncResult = {
 		success: false,
@@ -386,7 +397,7 @@ export async function syncFromMoonReader(
 		let booksWithHighlights: BookData[] = [];
 		let booksWithSufficientMetadata = new Set<number>();
 
-		if (settings.moonReaderEnabled) {
+		if (settings.moonReaderEnabled && sourceScope !== "koreader") {
 			if (!settings.syncPath) {
 				result.errors.push("Moon Reader sync path not configured");
 			} else {
@@ -610,7 +621,7 @@ export async function syncFromMoonReader(
 
 		// --- KOReader source ---
 		const koreaderBooksForIndex: BookData[] = [];
-		if (settings.koreaderEnabled && settings.koreaderSyncPath) {
+		if (settings.koreaderEnabled && settings.koreaderSyncPath && sourceScope !== "moonreader") {
 			progressNotice.setMessage("MoonSync: Parsing KOReader books...");
 
 			if (!await app.vault.adapter.exists(koreaderOutputPath)) {
@@ -1116,6 +1127,20 @@ export async function syncFromMoonReader(
 			}
 		}
 
+		// A scoped sync (triggered by one source's watcher) skips reprocessing the other
+		// source entirely — reuse its last-known data for the index instead of showing it
+		// as empty. It'll refresh next time that source is actually synced. Computed
+		// unconditionally (not just when the index is shown) so the caller always gets
+		// back the right data to cache for next time.
+		const indexMoonReaderBooks = sourceScope === "koreader" && booksWithHighlights.length === 0
+			? (cachedMoonReaderBooks ?? booksWithHighlights)
+			: booksWithHighlights;
+		const indexKOReaderBooks = sourceScope === "moonreader" && koreaderBooksForIndex.length === 0
+			? (cachedKOReaderBooks ?? koreaderBooksForIndex)
+			: koreaderBooksForIndex;
+		result.moonReaderBooksForIndex = indexMoonReaderBooks;
+		result.koreaderBooksForIndex = indexKOReaderBooks;
+
 		// Update index note if enabled (written to base output folder)
 		if (settings.showIndex) {
 			const indexPath = normalizePath(`${baseOutputPath}/${settings.indexNoteTitle}.md`);
@@ -1147,8 +1172,8 @@ export async function syncFromMoonReader(
 					}
 				}
 
-				await updateIndexNote(app, baseOutputPath, booksWithHighlights, settings,
-					koreaderBooksForIndex.length > 0 ? koreaderBooksForIndex : undefined,
+				await updateIndexNote(app, baseOutputPath, indexMoonReaderBooks, settings,
+					indexKOReaderBooks.length > 0 ? indexKOReaderBooks : undefined,
 					customBooks);
 			}
 		}

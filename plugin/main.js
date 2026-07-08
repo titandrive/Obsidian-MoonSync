@@ -9599,7 +9599,7 @@ async function migrateToSubdirectories(app, settings) {
     }
   }
 }
-async function syncFromMoonReader(app, settings, wasmPath) {
+async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMoonReaderBooks, cachedKOReaderBooks) {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
   const result = {
     success: false,
@@ -9646,7 +9646,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
     const koreaderOutputPath = useSeparateDirs ? (0, import_obsidian7.normalizePath)(`${baseOutputPath}/KOReader`) : (0, import_obsidian7.normalizePath)(settings.outputFolder);
     let booksWithHighlights = [];
     let booksWithSufficientMetadata = /* @__PURE__ */ new Set();
-    if (settings.moonReaderEnabled) {
+    if (settings.moonReaderEnabled && sourceScope !== "koreader") {
       if (!settings.syncPath) {
         result.errors.push("Moon Reader sync path not configured");
       } else {
@@ -9813,7 +9813,7 @@ async function syncFromMoonReader(app, settings, wasmPath) {
       await saveCache(app, outputPath, cache);
     }
     const koreaderBooksForIndex = [];
-    if (settings.koreaderEnabled && settings.koreaderSyncPath) {
+    if (settings.koreaderEnabled && settings.koreaderSyncPath && sourceScope !== "moonreader") {
       progressNotice.setMessage("MoonSync: Parsing KOReader books...");
       if (!await app.vault.adapter.exists(koreaderOutputPath)) {
         await app.vault.createFolder(koreaderOutputPath);
@@ -10245,6 +10245,10 @@ hardcover_highlights_synced_at: ${hResult.newSyncedAt}
         console.debug("MoonSync: Hardcover highlights sync failed", error);
       }
     }
+    const indexMoonReaderBooks = sourceScope === "koreader" && booksWithHighlights.length === 0 ? cachedMoonReaderBooks != null ? cachedMoonReaderBooks : booksWithHighlights : booksWithHighlights;
+    const indexKOReaderBooks = sourceScope === "moonreader" && koreaderBooksForIndex.length === 0 ? cachedKOReaderBooks != null ? cachedKOReaderBooks : koreaderBooksForIndex : koreaderBooksForIndex;
+    result.moonReaderBooksForIndex = indexMoonReaderBooks;
+    result.koreaderBooksForIndex = indexKOReaderBooks;
     if (settings.showIndex) {
       const indexPath = (0, import_obsidian7.normalizePath)(`${baseOutputPath}/${settings.indexNoteTitle}.md`);
       const indexExists = await app.vault.adapter.exists(indexPath);
@@ -10274,9 +10278,9 @@ hardcover_highlights_synced_at: ${hResult.newSyncedAt}
         await updateIndexNote(
           app,
           baseOutputPath,
-          booksWithHighlights,
+          indexMoonReaderBooks,
           settings,
-          koreaderBooksForIndex.length > 0 ? koreaderBooksForIndex : void 0,
+          indexKOReaderBooks.length > 0 ? indexKOReaderBooks : void 0,
           customBooks
         );
       }
@@ -11121,6 +11125,10 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
     this.koreaderFileWatcher = null;
     this.koreaderWatchDebounceTimer = null;
     this.isSyncing = false;
+    // Last-known book data per source, reused for the index when a scoped sync (one
+    // source's watcher firing) skips reprocessing the other source entirely.
+    this.cachedMoonReaderBooks = [];
+    this.cachedKOReaderBooks = [];
   }
   async onload() {
     console.log("MoonSync: BUILD 2026-03-03-B loaded");
@@ -11216,7 +11224,7 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
     document.body.classList.toggle("moonsync-hide-description", !this.settings.showDescription);
     document.body.classList.toggle("moonsync-hide-highlight-colors", !this.settings.showHighlightColors);
   }
-  async runSync() {
+  async runSync(sourceScope) {
     if (!this.settings.syncPath) {
       new import_obsidian8.Notice("MoonSync: Please configure the sync path in settings");
       return;
@@ -11231,8 +11239,15 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
       const result = await syncFromMoonReader(
         this.app,
         this.settings,
-        wasmPath
+        wasmPath,
+        sourceScope,
+        this.cachedMoonReaderBooks,
+        this.cachedKOReaderBooks
       );
+      if (result.moonReaderBooksForIndex)
+        this.cachedMoonReaderBooks = result.moonReaderBooksForIndex;
+      if (result.koreaderBooksForIndex)
+        this.cachedKOReaderBooks = result.koreaderBooksForIndex;
       showSyncResults(this.app, result, this.settings);
     } catch (error) {
       console.error("MoonSync sync error:", error);
@@ -11257,7 +11272,7 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
           clearTimeout(this.watchDebounceTimer);
         this.watchDebounceTimer = setTimeout(() => {
           console.log("MoonSync: File change detected, syncing...");
-          void this.runSync();
+          void this.runSync("moonreader");
         }, 3e3);
       });
       this.fileWatcher.on("error", (err) => {
@@ -11298,7 +11313,7 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
             clearTimeout(this.koreaderWatchDebounceTimer);
           this.koreaderWatchDebounceTimer = setTimeout(() => {
             console.log("MoonSync: KOReader file change detected, syncing...");
-            void this.runSync();
+            void this.runSync("koreader");
           }, 3e3);
         }
       );

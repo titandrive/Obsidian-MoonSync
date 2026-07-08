@@ -19,6 +19,10 @@ export default class MoonSyncPlugin extends Plugin {
 	private koreaderFileWatcher: FSWatcher | null = null;
 	private koreaderWatchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private isSyncing = false;
+	// Last-known book data per source, reused for the index when a scoped sync (one
+	// source's watcher firing) skips reprocessing the other source entirely.
+	private cachedMoonReaderBooks: BookData[] = [];
+	private cachedKOReaderBooks: BookData[] = [];
 
 	async onload() {
 		console.log("MoonSync: BUILD 2026-03-03-B loaded");
@@ -129,7 +133,7 @@ export default class MoonSyncPlugin extends Plugin {
 		document.body.classList.toggle("moonsync-hide-highlight-colors", !this.settings.showHighlightColors);
 	}
 
-	async runSync(): Promise<void> {
+	async runSync(sourceScope?: "moonreader" | "koreader"): Promise<void> {
 		if (!this.settings.syncPath) {
 			new Notice("MoonSync: Please configure the sync path in settings");
 			return;
@@ -147,8 +151,13 @@ export default class MoonSyncPlugin extends Plugin {
 			const result = await syncFromMoonReader(
 				this.app,
 				this.settings,
-				wasmPath
+				wasmPath,
+				sourceScope,
+				this.cachedMoonReaderBooks,
+				this.cachedKOReaderBooks
 			);
+			if (result.moonReaderBooksForIndex) this.cachedMoonReaderBooks = result.moonReaderBooksForIndex;
+			if (result.koreaderBooksForIndex) this.cachedKOReaderBooks = result.koreaderBooksForIndex;
 			showSyncResults(this.app, result, this.settings);
 		} catch (error) {
 			console.error("MoonSync sync error:", error);
@@ -175,7 +184,7 @@ export default class MoonSyncPlugin extends Plugin {
 				if (this.watchDebounceTimer) clearTimeout(this.watchDebounceTimer);
 				this.watchDebounceTimer = setTimeout(() => {
 					console.log("MoonSync: File change detected, syncing...");
-					void this.runSync();
+					void this.runSync("moonreader");
 				}, 3000);
 			});
 
@@ -221,7 +230,7 @@ export default class MoonSyncPlugin extends Plugin {
 					if (this.koreaderWatchDebounceTimer) clearTimeout(this.koreaderWatchDebounceTimer);
 					this.koreaderWatchDebounceTimer = setTimeout(() => {
 						console.log("MoonSync: KOReader file change detected, syncing...");
-						void this.runSync();
+						void this.runSync("koreader");
 					}, 3000);
 				}
 			);
