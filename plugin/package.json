@@ -1,6 +1,6 @@
 {
 	"name": "moonsync",
-	"version": "2.0.7",
+	"version": "2.0.8",
 	"description": "Sync reading highlights, notes, and progress from Moon Reader and KOReader to Obsidian",
 	"main": "main.js",
 	"scripts": {
