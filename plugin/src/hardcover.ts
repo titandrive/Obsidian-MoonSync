@@ -17,6 +17,8 @@ export interface HardcoverSyncResult {
 	newIds: { title: string; author: string; hardcoverId: number; slug: string }[];
 	/** Titles of books that were successfully updated */
 	updatedTitles: string[];
+	/** Titles whose Hardcover edition association was checked */
+	editionCheckedTitles: string[];
 	/** Titles of books not found on Hardcover (so we can mark them to avoid retrying) */
 	notFoundTitles: string[];
 	/** Map of title -> slug for all successfully synced books (for building URLs) */
@@ -29,6 +31,13 @@ interface HardcoverBookMatch {
 	id: number;
 	title: string;
 	slug: string;
+	pages: number | null;
+	editionId?: number | null;
+}
+
+interface HardcoverSyncDetails {
+	slug: string;
+	editionId: number | null;
 	pages: number | null;
 }
 
@@ -229,12 +238,24 @@ export async function lookupBookBySlug(
 				title
 				slug
 				pages
+				default_physical_edition { id pages }
+				default_ebook_edition { id pages }
 			}
 		}`;
 		const result = await hardcoverGraphQL(query, token);
 		if (result.data?.books?.length > 0) {
 			const book = result.data.books[0];
-			return { id: book.id, title: book.title, slug: book.slug, pages: book.pages ?? null };
+			const editions = [book.default_ebook_edition, book.default_physical_edition];
+			const edition = editions.find((candidate: any) =>
+				candidate?.id && candidate?.pages && candidate.pages > 0
+			);
+			return {
+				id: book.id,
+				title: book.title,
+				slug: book.slug,
+				pages: edition?.pages ?? book.pages ?? null,
+				editionId: edition?.id ?? null,
+			};
 		}
 	} catch (error) {
 		console.debug("MoonSync: Hardcover slug lookup failed", error);
@@ -607,6 +628,43 @@ async function searchHardcoverBook(
 	return null;
 }
 
+/**
+ * Resolve a real, page-bearing Hardcover edition for progress updates.
+ * Hardcover reading progress belongs to an edition, not just the parent book.
+ */
+async function getHardcoverSyncDetails(
+	bookId: number,
+	token: string
+): Promise<HardcoverSyncDetails> {
+	await rateLimitDelay();
+	const query = `{
+		books(where: { id: { _eq: ${bookId} } }, limit: 1) {
+			slug
+			default_physical_edition { id pages }
+			default_ebook_edition { id pages }
+			editions(where: { pages: { _gt: 0 } }, limit: 1) {
+				id
+				pages
+			}
+		}
+	}`;
+	const result = await hardcoverGraphQL(query, token);
+	const book = result.data?.books?.[0];
+	const editions = [
+		book?.default_ebook_edition,
+		book?.default_physical_edition,
+		book?.editions?.[0],
+	];
+	const edition = editions.find((candidate: any) =>
+		candidate?.id && candidate?.pages && candidate.pages > 0
+	);
+	return {
+		slug: book?.slug ?? "",
+		editionId: edition?.id ?? null,
+		pages: edition?.pages ?? null,
+	};
+}
+
 // ---- Mutations using proper GraphQL variables (matching KOReader plugin) ----
 
 const USER_BOOK_PARTS = `
@@ -719,7 +777,8 @@ export async function updateHardcoverBook(
 	statusId: number,
 	progress: number,
 	pages: number | null,
-	token: string
+	token: string,
+	preferredEditionId: number | null = null
 ): Promise<UpdateResult> {
 	try {
 		const today = new Date().toISOString().split("T")[0];
@@ -754,7 +813,11 @@ export async function updateHardcoverBook(
 		// Exception: always allow Read → Currently Reading (re-read scenario).
 		const isReread = myUserBook?.status_id === STATUS_READ && statusId === STATUS_CURRENTLY_READING;
 		const isDNF = myUserBook?.status_id === STATUS_DNF;
-		const needsStatusChange = !myUserBook || (myUserBook.status_id !== statusId && (!isDNF || progressIncreased || isReread));
+		const needsEditionRepair = !!preferredEditionId &&
+			(!myUserBook?.edition_id || !myUserBook?.edition?.pages);
+		const needsStatusChange = !myUserBook ||
+			(myUserBook.status_id !== statusId && (!isDNF || progressIncreased || isReread)) ||
+			needsEditionRepair;
 
 		if (needsStatusChange) {
 			await rateLimitDelay();
@@ -765,9 +828,13 @@ export async function updateHardcoverBook(
 					privacy_setting_id: privacySettingId,
 				}
 			};
-			// Include edition_id if we know it from existing user_book
-			if (myUserBook?.edition_id) {
-				insertVars.object.edition_id = myUserBook.edition_id;
+			// Keep a valid selected edition, otherwise attach the page-bearing
+			// default edition resolved for this book.
+			const statusEditionId = myUserBook?.edition?.pages > 0
+				? myUserBook.edition_id
+				: preferredEditionId;
+			if (statusEditionId) {
+				insertVars.object.edition_id = statusEditionId;
 			}
 			console.debug(`MoonSync: Hardcover book ${bookId} — insert_user_book vars:`, JSON.stringify(insertVars));
 			const statusResult = await hardcoverGraphQL(INSERT_USER_BOOK, token, insertVars);
@@ -802,7 +869,9 @@ export async function updateHardcoverBook(
 			return { success: false, badEdition: true };
 		}
 
-		return await updateProgressForBook(bookId, myUserBook, progress, pages, today, token);
+		return await updateProgressForBook(
+			bookId, myUserBook, progress, pages, preferredEditionId, today, token
+		);
 	} catch (error) {
 		console.debug(`MoonSync: Hardcover update failed for book ${bookId}`, error);
 		return { success: false, badEdition: false };
@@ -855,6 +924,7 @@ async function updateProgressForBook(
 	myUserBook: any,
 	progress: number,
 	pages: number | null,
+	preferredEditionId: number | null,
 	today: string,
 	token: string
 ): Promise<UpdateResult> {
@@ -862,16 +932,16 @@ async function updateProgressForBook(
 		return { success: true, badEdition: false };
 	}
 
-	// Use edition pages if available, fall back to book-level pages.
-	// Don't lock reads to a 0-page edition — pass null so Hardcover keeps whatever edition the user set.
+	// Use the user's selected edition when it has pages. Otherwise repair the
+	// association with the page-bearing default edition resolved above.
 	const rawEditionPages = myUserBook.edition?.pages;
 	const editionId: number | null = (rawEditionPages && rawEditionPages > 0)
 		? (myUserBook.edition?.id ?? myUserBook.edition_id ?? null)
-		: null;
+		: preferredEditionId;
 	const editionPages = rawEditionPages || pages;
 	console.debug(`MoonSync: Hardcover book ${bookId} — editionId: ${editionId}, edition pages: ${myUserBook.edition?.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
-	if (!editionPages || editionPages <= 0) {
-		console.debug(`MoonSync: Hardcover book ${bookId} — no page count, skipping progress`);
+	if (!editionId || !editionPages || editionPages <= 0) {
+		console.debug(`MoonSync: Hardcover book ${bookId} — no page-bearing edition, skipping progress`);
 		// Do not let the caller persist hardcover_progress for an update that was
 		// never sent. Leaving it unsynced allows a later run to retry after page
 		// metadata becomes available.
@@ -922,6 +992,7 @@ async function updateProgressForBook(
 			id: existingReadId,
 			object: {
 				progress_pages: progressPages,
+				edition_id: editionId,
 				started_at: existingStartedAt ?? today,
 				progress_seconds: 0,
 			},
@@ -944,6 +1015,7 @@ async function updateProgressForBook(
 					id: firstRead.id,
 					object: {
 						progress_pages: progressPages,
+						edition_id: editionId,
 						started_at: firstRead.started_at,
 						finished_at: firstRead.finished_at,
 						progress_seconds: 0,
@@ -999,6 +1071,7 @@ export async function syncBooksToHardcover(
 		booksFailed: 0,
 		newIds: [],
 		updatedTitles: [],
+		editionCheckedTitles: [],
 		notFoundTitles: [],
 		slugs: new Map(),
 		pages: new Map(),
@@ -1020,6 +1093,7 @@ export async function syncBooksToHardcover(
 			let hardcoverId = book.hardcoverId;
 			let pages: number | null = book.cachedPages ?? null;
 			let slug = book.cachedSlug ?? "";
+			let editionId: number | null = null;
 
 			// Search for book if no ID from frontmatter
 			if (hardcoverId === null) {
@@ -1036,24 +1110,23 @@ export async function syncBooksToHardcover(
 					result.notFoundTitles.push(book.title);
 					continue;
 				}
-			} else if (!slug || !pages) {
-				// A cached slug does not imply that page metadata was cached too.
-				// Fetch whenever either value is missing.
-				try {
-					await rateLimitDelay();
-					const detailQuery = `{ books(where: { id: { _eq: ${hardcoverId} } }, limit: 1) { slug pages default_physical_edition { pages } default_ebook_edition { pages } } }`;
-					const detailResult = await hardcoverGraphQL(detailQuery, token);
-					const detail = detailResult.data?.books?.[0];
-					pages = detail?.pages || detail?.default_physical_edition?.pages || detail?.default_ebook_edition?.pages || pages;
-					slug = detail?.slug ?? slug;
-				} catch { /* ignore */ }
 			}
+
+			// Always resolve the edition used for this changed progress value.
+			// A book-level page count without an edition id produces broken
+			// "Add page count" reading cards on Hardcover.
+			try {
+				const details = await getHardcoverSyncDetails(hardcoverId, token);
+				editionId = details.editionId;
+				pages = details.pages ?? pages;
+				slug = details.slug || slug;
+			} catch { /* updateHardcoverBook will safely reject a missing edition */ }
 
 			// Determine status based on progress
 			const p = book.progress!;
 			const statusId = p >= 99 ? STATUS_READ : p > 0 ? STATUS_CURRENTLY_READING : STATUS_WANT_TO_READ;
 
-			let updated = await updateHardcoverBook(hardcoverId, statusId, p, pages, token);
+			let updated = await updateHardcoverBook(hardcoverId, statusId, p, pages, token, editionId);
 
 			// If edition is bad, search for a working one and retry
 			if (updated.badEdition) {
@@ -1064,9 +1137,14 @@ export async function syncBooksToHardcover(
 					pages = match.pages ?? pages;
 					slug = match.slug;
 					result.newIds.push({ title: book.title, author: book.author, hardcoverId, slug });
-					updated = await updateHardcoverBook(hardcoverId, statusId, p, pages, token);
+					const details = await getHardcoverSyncDetails(hardcoverId, token);
+					editionId = details.editionId;
+					pages = details.pages ?? pages;
+					slug = details.slug || slug;
+					updated = await updateHardcoverBook(hardcoverId, statusId, p, pages, token, editionId);
 				}
 			}
+			result.editionCheckedTitles.push(book.title);
 
 			if (updated.success) {
 				result.booksUpdated++;

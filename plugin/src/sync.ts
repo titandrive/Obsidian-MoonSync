@@ -863,7 +863,8 @@ export async function syncFromMoonReader(
 							}
 						} catch { /* ignore */ }
 						const currentProgress = b.progress.toFixed(1);
-						if (lastSyncedProgress &&
+						if (cachedBook?.hardcoverEditionChecked &&
+							lastSyncedProgress &&
 							lastSyncedProgress.replace(/["%]/g, "") === currentProgress) continue;
 						entries.push({
 							item: {
@@ -984,6 +985,23 @@ export async function syncFromMoonReader(
 								if (ref.bookCache === cache) cacheModified = true;
 								else koreaderCacheModified = true;
 							}
+						}
+					}
+
+					// This audit is intentionally one-time. Mark checked books even
+					// when Hardcover has no page-bearing edition so unchanged progress
+					// does not trigger another full-library retry.
+					for (const title of hcResult.editionCheckedTitles) {
+						const entry = [...dedupMap.values()].find(
+							e => e.item.title === title
+						);
+						if (!entry) continue;
+						for (const ref of entry.cacheRefs) {
+							const cachedEntry = getCachedInfo(ref.bookCache, ref.title, ref.author);
+							if (!cachedEntry) continue;
+							cachedEntry.hardcoverEditionChecked = true;
+							if (ref.bookCache === cache) cacheModified = true;
+							else koreaderCacheModified = true;
 						}
 					}
 

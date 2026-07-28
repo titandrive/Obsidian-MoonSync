@@ -864,7 +864,14 @@ export default class MoonSyncPlugin extends Plugin {
 			if (progress !== null && progress > 0) {
 				progressNotice.setMessage("MoonSync: Syncing progress to Hardcover...");
 				const statusId = progress >= 99 ? 3 : 2; // STATUS_READ or STATUS_CURRENTLY_READING
-				await updateHardcoverBook(book.id, statusId, progress, book.pages, this.settings.hardcoverToken);
+				await updateHardcoverBook(
+					book.id,
+					statusId,
+					progress,
+					book.pages,
+					this.settings.hardcoverToken,
+					book.editionId ?? null
+				);
 			}
 
 			progressNotice.hide();
