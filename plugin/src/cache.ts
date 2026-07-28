@@ -87,6 +87,10 @@ export function setCachedInfo(
 ): void {
 	const key = getCacheKey(title, author);
 	cache[key] = {
+		// Preserve Hardcover sync bookkeeping when refreshing metadata. Replacing
+		// the whole entry erased edition-audit state and caused every book to be
+		// reprocessed on each sync.
+		...cache[key],
 		...info,
 		fetchedAt: Date.now(),
 	};

@@ -863,8 +863,7 @@ export async function syncFromMoonReader(
 							}
 						} catch { /* ignore */ }
 						const currentProgress = b.progress.toFixed(1);
-						if (cachedBook?.hardcoverEditionChecked &&
-							lastSyncedProgress &&
+						if (lastSyncedProgress &&
 							lastSyncedProgress.replace(/["%]/g, "") === currentProgress) continue;
 						entries.push({
 							item: {

@@ -8907,6 +8907,10 @@ function getCachedInfo(cache, title, author) {
 function setCachedInfo(cache, title, author, info) {
   const key = getCacheKey(title, author);
   cache[key] = {
+    // Preserve Hardcover sync bookkeeping when refreshing metadata. Replacing
+    // the whole entry erased edition-audit state and caused every book to be
+    // reprocessed on each sync.
+    ...cache[key],
     ...info,
     fetchedAt: Date.now()
   };
@@ -10057,7 +10061,7 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
             } catch (e) {
             }
             const currentProgress = b.progress.toFixed(1);
-            if ((cachedBook == null ? void 0 : cachedBook.hardcoverEditionChecked) && lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress)
+            if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress)
               continue;
             entries.push({
               item: {
