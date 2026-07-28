@@ -9999,8 +9999,7 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
             } catch (e) {
             }
             const currentProgress = b.progress.toFixed(1);
-            const hasConfirmedHardcoverPages = (cachedBook == null ? void 0 : cachedBook.hardcoverPages) != null;
-            if (hasConfirmedHardcoverPages && lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress)
+            if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress)
               continue;
             entries.push({
               item: {

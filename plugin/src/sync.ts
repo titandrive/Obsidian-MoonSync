@@ -863,12 +863,7 @@ export async function syncFromMoonReader(
 							}
 						} catch { /* ignore */ }
 						const currentProgress = b.progress.toFixed(1);
-						// Older versions recorded hardcover_progress even when the page
-						// update was skipped. Retry those entries until a usable Hardcover
-						// page count has been confirmed and cached.
-						const hasConfirmedHardcoverPages = cachedBook?.hardcoverPages != null;
-						if (hasConfirmedHardcoverPages &&
-							lastSyncedProgress &&
+						if (lastSyncedProgress &&
 							lastSyncedProgress.replace(/["%]/g, "") === currentProgress) continue;
 						entries.push({
 							item: {
