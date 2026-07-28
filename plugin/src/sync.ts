@@ -52,7 +52,10 @@ function koReaderToBookData(ko: KOReaderBookData, coverVaultPath: string | null,
 		isbn10: ko.isbn10,
 		isbn13: ko.isbn13,
 		language: ko.language,
-		previousTitle: null,
+		// Preserve the source title as the stable cache identity when Hardcover
+		// supplies a curated display title. Cache entries are keyed by the source
+		// title, while notes and the index use the effective title.
+		previousTitle: title !== ko.title ? ko.title : null,
 		hardcoverId: null,
 		hardcoverSlug: null,
 		source: "koreader",
@@ -845,7 +848,10 @@ export async function syncFromMoonReader(
 					const entries: HcEntry[] = [];
 					for (const b of books) {
 						if (b.progress === null) continue;
-						const cachedBook = getCachedInfo(srcCache, b.book.title, b.book.author);
+						const cacheTitle = b.source === "koreader"
+							? (b.previousTitle ?? b.book.title)
+							: b.book.title;
+						const cachedBook = getCachedInfo(srcCache, cacheTitle, b.book.author);
 						const hcLookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title)
 							? cachedBook.title : b.book.title;
 						const filePath = normalizePath(`${srcPath}/${generateFilename(hcLookupTitle)}.md`);
@@ -878,7 +884,7 @@ export async function syncFromMoonReader(
 							},
 							lastReadTimestamp: b.lastReadTimestamp,
 							notePaths: [filePath],
-							cacheRefs: [{ bookCache: srcCache, title: b.book.title, author: b.book.author }],
+							cacheRefs: [{ bookCache: srcCache, title: cacheTitle, author: b.book.author }],
 						});
 					}
 					return entries;
@@ -1033,7 +1039,10 @@ export async function syncFromMoonReader(
 					const targetCache = srcPath === outputPath ? cache : (koreaderCache ?? cache);
 
 					// Find note and read hardcover_id + hardcover_highlights_synced_at
-					const cachedBook = getCachedInfo(targetCache, bookData.book.title, bookData.book.author);
+					const cacheTitle = isKOReader
+						? (bookData.previousTitle ?? bookData.book.title)
+						: bookData.book.title;
+					const cachedBook = getCachedInfo(targetCache, cacheTitle, bookData.book.author);
 					const lookupTitle = (cachedBook?.source === "hardcover" && cachedBook.title && bookData.source !== "koreader")
 						? cachedBook.title : bookData.book.title;
 					const filePath = normalizePath(`${srcPath}/${generateFilename(lookupTitle)}.md`);

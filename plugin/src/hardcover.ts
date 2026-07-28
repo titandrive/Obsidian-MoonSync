@@ -1305,6 +1305,71 @@ export interface HardcoverKOReaderHighlightSyncResult {
 	journalMap: Record<string, number | null>;
 }
 
+interface ExistingJournalEntry {
+	id: number;
+	entry: string;
+	event: string;
+}
+
+/**
+ * Recover journal ids when an older title/cache-key mismatch prevented MoonSync
+ * from persisting its KOReader highlight map. Exact text + event matching avoids
+ * reinserting entries that are already present on Hardcover.
+ */
+async function findExistingJournalEntries(
+	bookId: number,
+	token: string
+): Promise<ExistingJournalEntry[]> {
+	try {
+		await rateLimitDelay();
+		const query = `
+			query ExistingReadingJournals($bookId: Int!) {
+				me {
+					reading_journals(
+						where: {
+							book_id: { _eq: $bookId },
+							event: { _in: ["quote", "note"] }
+						}
+					) {
+						id
+						entry
+						event
+					}
+				}
+			}`;
+		const response = await hardcoverGraphQL(query, token, { bookId });
+		const entries = response.data?.me?.[0]?.reading_journals;
+		if (!Array.isArray(entries)) return [];
+		return entries
+			.filter((entry: any) => entry?.id && typeof entry?.entry === "string")
+			.map((entry: any) => ({
+				id: Number(entry.id),
+				entry: entry.entry,
+				event: entry.event,
+			}));
+	} catch (error) {
+		console.debug(`MoonSync: Could not recover existing journals for book ${bookId}`, error);
+		return [];
+	}
+}
+
+function highlightJournalContent(
+	highlight: MoonReaderHighlight
+): { text: string; event: "quote" | "note" } {
+	const hasText = !!(highlight.originalText && highlight.originalText.trim());
+	const hasNote = !!(highlight.note && highlight.note.trim());
+	if (hasText && hasNote) {
+		return {
+			text: `${highlight.originalText.trim()}\n\n${highlight.note.trim()}`,
+			event: "quote",
+		};
+	}
+	if (hasText) {
+		return { text: highlight.originalText.trim(), event: "quote" };
+	}
+	return { text: highlight.note.trim(), event: "note" };
+}
+
 /**
  * Sync KOReader highlights to Hardcover's reading journal using a stable
  * per-highlight id map (KOReader annotation id -> Hardcover journal entry id),
@@ -1333,28 +1398,33 @@ export async function syncKOReaderHighlights(
 		return hasContent && !!h.highlightId;
 	});
 	const currentIds = new Set(withContent.map(h => h.highlightId as string));
+
+	// Recover maps lost by the old KOReader source-title/curated-title mismatch.
+	// Only exact entry matches are adopted; unmatched highlights still insert normally.
+	if (Object.keys(result.journalMap).length === 0 && withContent.length > 0) {
+		const existingEntries = await findExistingJournalEntries(bookId, token);
+		const unusedEntries = new Set(existingEntries.map(entry => entry.id));
+		for (const highlight of withContent) {
+			const expected = highlightJournalContent(highlight);
+			const match = existingEntries.find(entry =>
+				unusedEntries.has(entry.id) &&
+				entry.event === expected.event &&
+				entry.entry.trim() === expected.text
+			);
+			if (match) {
+				result.journalMap[highlight.highlightId as string] = match.id;
+				unusedEntries.delete(match.id);
+			}
+		}
+	}
+
 	const toInsert = withContent.filter(h => !(h.highlightId as string in result.journalMap));
 
 	for (let i = 0; i < toInsert.length; i++) {
 		const h = toInsert[i];
 		onProgress?.(i, toInsert.length);
 
-		const hasText = !!(h.originalText && h.originalText.trim());
-		const hasNote = !!(h.note && h.note.trim());
-
-		let text: string;
-		let eventType: "quote" | "note";
-
-		if (hasText && hasNote) {
-			text = `${h.originalText.trim()}\n\n${h.note.trim()}`;
-			eventType = "quote";
-		} else if (hasText) {
-			text = h.originalText.trim();
-			eventType = "quote";
-		} else {
-			text = h.note.trim();
-			eventType = "note";
-		}
+		const { text, event: eventType } = highlightJournalContent(h);
 
 		// KOReader highlights have actual page numbers in position
 		const entryId = await insertJournalEntry(

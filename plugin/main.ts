@@ -226,12 +226,14 @@ export default class MoonSyncPlugin extends Plugin {
 					const name = filename.toString();
 					if (!name.endsWith(".json")) return;
 
-					// Debounce: wait 3 seconds after last change before syncing
+					// WebDAV/syncest writes a batch of JSON files for one logical push.
+					// Wait for the batch to go quiet so progress.json, annotations.json,
+					// and metadata sidecars do not each start their own full sync.
 					if (this.koreaderWatchDebounceTimer) clearTimeout(this.koreaderWatchDebounceTimer);
 					this.koreaderWatchDebounceTimer = setTimeout(() => {
 						console.log("MoonSync: KOReader file change detected, syncing...");
 						void this.runSync("koreader");
-					}, 3000);
+					}, 10000);
 				}
 			);
 

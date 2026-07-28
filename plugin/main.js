@@ -1041,6 +1041,55 @@ ${h.note.trim()}`;
   onProgress == null ? void 0 : onProgress(toSync.length, toSync.length);
   return result;
 }
+async function findExistingJournalEntries(bookId, token) {
+  var _a, _b, _c;
+  try {
+    await rateLimitDelay();
+    const query = `
+			query ExistingReadingJournals($bookId: Int!) {
+				me {
+					reading_journals(
+						where: {
+							book_id: { _eq: $bookId },
+							event: { _in: ["quote", "note"] }
+						}
+					) {
+						id
+						entry
+						event
+					}
+				}
+			}`;
+    const response = await hardcoverGraphQL(query, token, { bookId });
+    const entries = (_c = (_b = (_a = response.data) == null ? void 0 : _a.me) == null ? void 0 : _b[0]) == null ? void 0 : _c.reading_journals;
+    if (!Array.isArray(entries))
+      return [];
+    return entries.filter((entry) => (entry == null ? void 0 : entry.id) && typeof (entry == null ? void 0 : entry.entry) === "string").map((entry) => ({
+      id: Number(entry.id),
+      entry: entry.entry,
+      event: entry.event
+    }));
+  } catch (error) {
+    console.debug(`MoonSync: Could not recover existing journals for book ${bookId}`, error);
+    return [];
+  }
+}
+function highlightJournalContent(highlight) {
+  const hasText = !!(highlight.originalText && highlight.originalText.trim());
+  const hasNote = !!(highlight.note && highlight.note.trim());
+  if (hasText && hasNote) {
+    return {
+      text: `${highlight.originalText.trim()}
+
+${highlight.note.trim()}`,
+      event: "quote"
+    };
+  }
+  if (hasText) {
+    return { text: highlight.originalText.trim(), event: "quote" };
+  }
+  return { text: highlight.note.trim(), event: "note" };
+}
 async function syncKOReaderHighlights(bookId, editionId, highlights, totalPages, journalMap, privacySetting, token, onProgress) {
   const result = {
     synced: 0,
@@ -1053,26 +1102,25 @@ async function syncKOReaderHighlights(bookId, editionId, highlights, totalPages,
     return hasContent && !!h.highlightId;
   });
   const currentIds = new Set(withContent.map((h) => h.highlightId));
+  if (Object.keys(result.journalMap).length === 0 && withContent.length > 0) {
+    const existingEntries = await findExistingJournalEntries(bookId, token);
+    const unusedEntries = new Set(existingEntries.map((entry) => entry.id));
+    for (const highlight of withContent) {
+      const expected = highlightJournalContent(highlight);
+      const match = existingEntries.find(
+        (entry) => unusedEntries.has(entry.id) && entry.event === expected.event && entry.entry.trim() === expected.text
+      );
+      if (match) {
+        result.journalMap[highlight.highlightId] = match.id;
+        unusedEntries.delete(match.id);
+      }
+    }
+  }
   const toInsert = withContent.filter((h) => !(h.highlightId in result.journalMap));
   for (let i = 0; i < toInsert.length; i++) {
     const h = toInsert[i];
     onProgress == null ? void 0 : onProgress(i, toInsert.length);
-    const hasText = !!(h.originalText && h.originalText.trim());
-    const hasNote = !!(h.note && h.note.trim());
-    let text;
-    let eventType;
-    if (hasText && hasNote) {
-      text = `${h.originalText.trim()}
-
-${h.note.trim()}`;
-      eventType = "quote";
-    } else if (hasText) {
-      text = h.originalText.trim();
-      eventType = "quote";
-    } else {
-      text = h.note.trim();
-      eventType = "note";
-    }
+    const { text, event: eventType } = highlightJournalContent(h);
     const entryId = await insertJournalEntry(
       bookId,
       editionId,
@@ -9452,7 +9500,10 @@ function koReaderToBookData(ko, coverVaultPath, effectiveTitle) {
     isbn10: ko.isbn10,
     isbn13: ko.isbn13,
     language: ko.language,
-    previousTitle: null,
+    // Preserve the source title as the stable cache identity when Hardcover
+    // supplies a curated display title. Cache entries are keyed by the source
+    // title, while notes and the index use the effective title.
+    previousTitle: title !== ko.title ? ko.title : null,
     hardcoverId: null,
     hardcoverSlug: null,
     source: "koreader"
@@ -9662,7 +9713,7 @@ async function migrateToSubdirectories(app, settings) {
   }
 }
 async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMoonReaderBooks, cachedKOReaderBooks) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
   const result = {
     success: false,
     booksProcessed: 0,
@@ -10037,12 +10088,13 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
       try {
         progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
         const buildEntries = async (books, srcPath, srcCache) => {
-          var _a2, _b2;
+          var _a2, _b2, _c2;
           const entries = [];
           for (const b of books) {
             if (b.progress === null)
               continue;
-            const cachedBook = getCachedInfo(srcCache, b.book.title, b.book.author);
+            const cacheTitle = b.source === "koreader" ? (_a2 = b.previousTitle) != null ? _a2 : b.book.title : b.book.title;
+            const cachedBook = getCachedInfo(srcCache, cacheTitle, b.book.author);
             const hcLookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title ? cachedBook.title : b.book.title;
             const filePath = (0, import_obsidian7.normalizePath)(`${srcPath}/${generateFilename(hcLookupTitle)}.md`);
             let hardcoverId = null;
@@ -10072,11 +10124,11 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
                 cachedSlug: cachedBook == null ? void 0 : cachedBook.hardcoverSlug,
                 // Hardcover prefers page-based progress. Use its cached
                 // count first, then metadata already known by MoonSync.
-                cachedPages: (_b2 = (_a2 = cachedBook == null ? void 0 : cachedBook.hardcoverPages) != null ? _a2 : b.pageCount) != null ? _b2 : void 0
+                cachedPages: (_c2 = (_b2 = cachedBook == null ? void 0 : cachedBook.hardcoverPages) != null ? _b2 : b.pageCount) != null ? _c2 : void 0
               },
               lastReadTimestamp: b.lastReadTimestamp,
               notePaths: [filePath],
-              cacheRefs: [{ bookCache: srcCache, title: b.book.title, author: b.book.author }]
+              cacheRefs: [{ bookCache: srcCache, title: cacheTitle, author: b.book.author }]
             });
           }
           return entries;
@@ -10218,7 +10270,8 @@ ${fields.join("\n")}
             continue;
           const isKOReader = bookData.source === "koreader";
           const targetCache = srcPath === outputPath ? cache : koreaderCache != null ? koreaderCache : cache;
-          const cachedBook = getCachedInfo(targetCache, bookData.book.title, bookData.book.author);
+          const cacheTitle = isKOReader ? (_m = bookData.previousTitle) != null ? _m : bookData.book.title : bookData.book.title;
+          const cachedBook = getCachedInfo(targetCache, cacheTitle, bookData.book.author);
           const lookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title && bookData.source !== "koreader" ? cachedBook.title : bookData.book.title;
           const filePath = (0, import_obsidian7.normalizePath)(`${srcPath}/${generateFilename(lookupTitle)}.md`);
           let hardcoverId = null;
@@ -11396,7 +11449,7 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
           this.koreaderWatchDebounceTimer = setTimeout(() => {
             console.log("MoonSync: KOReader file change detected, syncing...");
             void this.runSync("koreader");
-          }, 3e3);
+          }, 1e4);
         }
       );
       this.koreaderFileWatcher.on("error", (err) => {
