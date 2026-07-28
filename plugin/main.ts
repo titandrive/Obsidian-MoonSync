@@ -233,7 +233,7 @@ export default class MoonSyncPlugin extends Plugin {
 					this.koreaderWatchDebounceTimer = setTimeout(() => {
 						console.log("MoonSync: KOReader file change detected, syncing...");
 						void this.runSync("koreader");
-					}, 10000);
+					}, 5000);
 				}
 			);
 

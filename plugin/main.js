@@ -11449,7 +11449,7 @@ var MoonSyncPlugin = class extends import_obsidian8.Plugin {
           this.koreaderWatchDebounceTimer = setTimeout(() => {
             console.log("MoonSync: KOReader file change detected, syncing...");
             void this.runSync("koreader");
-          }, 1e4);
+          }, 5e3);
         }
       );
       this.koreaderFileWatcher.on("error", (err) => {
