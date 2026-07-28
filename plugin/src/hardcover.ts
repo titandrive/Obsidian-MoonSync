@@ -872,7 +872,10 @@ async function updateProgressForBook(
 	console.debug(`MoonSync: Hardcover book ${bookId} — editionId: ${editionId}, edition pages: ${myUserBook.edition?.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
 	if (!editionPages || editionPages <= 0) {
 		console.debug(`MoonSync: Hardcover book ${bookId} — no page count, skipping progress`);
-		return { success: true, badEdition: false };
+		// Do not let the caller persist hardcover_progress for an update that was
+		// never sent. Leaving it unsynced allows a later run to retry after page
+		// metadata becomes available.
+		return { success: false, badEdition: false };
 	}
 
 	const progressPages = Math.round((progress / 100) * editionPages);
@@ -1023,7 +1026,9 @@ export async function syncBooksToHardcover(
 				const match = await searchHardcoverBook(book.title, book.author, token);
 				if (match) {
 					hardcoverId = match.id;
-					pages = match.pages;
+					// Prefer Hardcover's count, but keep a local metadata count when
+					// Hardcover's matched book/default edition has no pages.
+					pages = match.pages ?? pages;
 					slug = match.slug;
 					result.newIds.push({ title: book.title, author: book.author, hardcoverId, slug });
 				} else {
@@ -1031,15 +1036,16 @@ export async function syncBooksToHardcover(
 					result.notFoundTitles.push(book.title);
 					continue;
 				}
-			} else if (!slug) {
-				// Have ID but need pages and slug — only fetch if not cached
+			} else if (!slug || !pages) {
+				// A cached slug does not imply that page metadata was cached too.
+				// Fetch whenever either value is missing.
 				try {
 					await rateLimitDelay();
 					const detailQuery = `{ books(where: { id: { _eq: ${hardcoverId} } }, limit: 1) { slug pages default_physical_edition { pages } default_ebook_edition { pages } } }`;
 					const detailResult = await hardcoverGraphQL(detailQuery, token);
 					const detail = detailResult.data?.books?.[0];
 					pages = detail?.pages || detail?.default_physical_edition?.pages || detail?.default_ebook_edition?.pages || pages;
-					slug = detail?.slug ?? "";
+					slug = detail?.slug ?? slug;
 				} catch { /* ignore */ }
 			}
 
@@ -1055,7 +1061,7 @@ export async function syncBooksToHardcover(
 				const match = await searchHardcoverBook(book.title, book.author, token, hardcoverId);
 				if (match) {
 					hardcoverId = match.id;
-					pages = match.pages;
+					pages = match.pages ?? pages;
 					slug = match.slug;
 					result.newIds.push({ title: book.title, author: book.author, hardcoverId, slug });
 					updated = await updateHardcoverBook(hardcoverId, statusId, p, pages, token);

@@ -722,7 +722,7 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
   console.debug(`MoonSync: Hardcover book ${bookId} \u2014 editionId: ${editionId}, edition pages: ${(_e = myUserBook.edition) == null ? void 0 : _e.pages}, book pages: ${pages}, using: ${editionPages}, progress: ${progress}%`);
   if (!editionPages || editionPages <= 0) {
     console.debug(`MoonSync: Hardcover book ${bookId} \u2014 no page count, skipping progress`);
-    return { success: true, badEdition: false };
+    return { success: false, badEdition: false };
   }
   const progressPages = Math.round(progress / 100 * editionPages);
   const allReads = (_f = myUserBook.user_book_reads) != null ? _f : [];
@@ -806,7 +806,7 @@ async function updateProgressForBook(bookId, myUserBook, progress, pages, today,
   return { success: true, badEdition: false };
 }
 async function syncBooksToHardcover(books, token, onProgress) {
-  var _a, _b, _c, _d, _e, _f, _g;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
   const result = {
     booksUpdated: 0,
     booksFailed: 0,
@@ -833,7 +833,7 @@ async function syncBooksToHardcover(books, token, onProgress) {
         const match = await searchHardcoverBook(book.title, book.author, token);
         if (match) {
           hardcoverId = match.id;
-          pages = match.pages;
+          pages = (_c = match.pages) != null ? _c : pages;
           slug = match.slug;
           result.newIds.push({ title: book.title, author: book.author, hardcoverId, slug });
         } else {
@@ -841,14 +841,14 @@ async function syncBooksToHardcover(books, token, onProgress) {
           result.notFoundTitles.push(book.title);
           continue;
         }
-      } else if (!slug) {
+      } else if (!slug || !pages) {
         try {
           await rateLimitDelay();
           const detailQuery = `{ books(where: { id: { _eq: ${hardcoverId} } }, limit: 1) { slug pages default_physical_edition { pages } default_ebook_edition { pages } } }`;
           const detailResult = await hardcoverGraphQL(detailQuery, token);
-          const detail = (_d = (_c = detailResult.data) == null ? void 0 : _c.books) == null ? void 0 : _d[0];
-          pages = (detail == null ? void 0 : detail.pages) || ((_e = detail == null ? void 0 : detail.default_physical_edition) == null ? void 0 : _e.pages) || ((_f = detail == null ? void 0 : detail.default_ebook_edition) == null ? void 0 : _f.pages) || pages;
-          slug = (_g = detail == null ? void 0 : detail.slug) != null ? _g : "";
+          const detail = (_e = (_d = detailResult.data) == null ? void 0 : _d.books) == null ? void 0 : _e[0];
+          pages = (detail == null ? void 0 : detail.pages) || ((_f = detail == null ? void 0 : detail.default_physical_edition) == null ? void 0 : _f.pages) || ((_g = detail == null ? void 0 : detail.default_ebook_edition) == null ? void 0 : _g.pages) || pages;
+          slug = (_h = detail == null ? void 0 : detail.slug) != null ? _h : slug;
         } catch (e) {
         }
       }
@@ -860,7 +860,7 @@ async function syncBooksToHardcover(books, token, onProgress) {
         const match = await searchHardcoverBook(book.title, book.author, token, hardcoverId);
         if (match) {
           hardcoverId = match.id;
-          pages = match.pages;
+          pages = (_i = match.pages) != null ? _i : pages;
           slug = match.slug;
           result.newIds.push({ title: book.title, author: book.author, hardcoverId, slug });
           updated = await updateHardcoverBook(hardcoverId, statusId, p, pages, token);
@@ -9975,6 +9975,7 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
       try {
         progressNotice.setMessage("MoonSync: Syncing to Hardcover...");
         const buildEntries = async (books, srcPath, srcCache) => {
+          var _a2, _b2;
           const entries = [];
           for (const b of books) {
             if (b.progress === null)
@@ -9998,7 +9999,8 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
             } catch (e) {
             }
             const currentProgress = b.progress.toFixed(1);
-            if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress)
+            const hasConfirmedHardcoverPages = (cachedBook == null ? void 0 : cachedBook.hardcoverPages) != null;
+            if (hasConfirmedHardcoverPages && lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress)
               continue;
             entries.push({
               item: {
@@ -10007,7 +10009,9 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
                 progress: b.progress,
                 hardcoverId,
                 cachedSlug: cachedBook == null ? void 0 : cachedBook.hardcoverSlug,
-                cachedPages: cachedBook == null ? void 0 : cachedBook.hardcoverPages
+                // Hardcover prefers page-based progress. Use its cached
+                // count first, then metadata already known by MoonSync.
+                cachedPages: (_b2 = (_a2 = cachedBook == null ? void 0 : cachedBook.hardcoverPages) != null ? _a2 : b.pageCount) != null ? _b2 : void 0
               },
               lastReadTimestamp: b.lastReadTimestamp,
               notePaths: [filePath],

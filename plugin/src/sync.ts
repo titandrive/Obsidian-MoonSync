@@ -863,7 +863,13 @@ export async function syncFromMoonReader(
 							}
 						} catch { /* ignore */ }
 						const currentProgress = b.progress.toFixed(1);
-						if (lastSyncedProgress && lastSyncedProgress.replace(/["%]/g, "") === currentProgress) continue;
+						// Older versions recorded hardcover_progress even when the page
+						// update was skipped. Retry those entries until a usable Hardcover
+						// page count has been confirmed and cached.
+						const hasConfirmedHardcoverPages = cachedBook?.hardcoverPages != null;
+						if (hasConfirmedHardcoverPages &&
+							lastSyncedProgress &&
+							lastSyncedProgress.replace(/["%]/g, "") === currentProgress) continue;
 						entries.push({
 							item: {
 								title: b.book.title,
@@ -871,7 +877,9 @@ export async function syncFromMoonReader(
 								progress: b.progress,
 								hardcoverId,
 								cachedSlug: cachedBook?.hardcoverSlug,
-								cachedPages: cachedBook?.hardcoverPages,
+								// Hardcover prefers page-based progress. Use its cached
+								// count first, then metadata already known by MoonSync.
+								cachedPages: cachedBook?.hardcoverPages ?? b.pageCount ?? undefined,
 							},
 							lastReadTimestamp: b.lastReadTimestamp,
 							notePaths: [filePath],
