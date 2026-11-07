@@ -8294,7 +8294,7 @@ async function fetchAllBooks(syncPath) {
   }
   const books = await Promise.all(
     hashDirs.map(async (hash) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
       const bookDir = (0, import_path3.join)(syncPath, "books", hash);
       const syncDir = (0, import_path3.join)(syncRoot, hash);
       const progressData = await readJson((0, import_path3.join)(syncDir, "progress.json"));
@@ -8311,6 +8311,8 @@ async function fetchAllBooks(syncPath) {
         }
       );
       const config = (_c = (_b = progressData == null ? void 0 : progressData.configs) == null ? void 0 : _b[0]) != null ? _c : null;
+      const progressTimes = ((_d = progressData == null ? void 0 : progressData.configs) != null ? _d : []).map((c) => c.updatedAt).filter((t) => typeof t === "number" && t > 0).map((t) => t < 1e12 ? t * 1e3 : t);
+      const lastProgressAt = progressTimes.length > 0 ? Math.max(...progressTimes) : null;
       let progressPercent = null;
       let currentPage = null;
       let pageCount = null;
@@ -8323,29 +8325,31 @@ async function fetchAllBooks(syncPath) {
       const coverFilePath = (0, import_path3.join)(bookDir, coverFilename);
       const hasCover = await fileExists(coverFilePath);
       const { isbn10, isbn13 } = splitIsbn(sidecar.isbn);
-      const readingStatus = (_d = progressData == null ? void 0 : progressData.readingStatus) != null ? _d : progressPercent === null ? null : progressPercent >= 99 ? "finished" : progressPercent > 0 ? "reading" : "unread";
+      const readingStatus = (_e = progressData == null ? void 0 : progressData.readingStatus) != null ? _e : progressPercent === null ? null : progressPercent >= 99 ? "finished" : progressPercent > 0 ? "reading" : "unread";
       return {
         hash,
         title: sidecar.title,
         // Some sidecars join multiple contributors with literal newlines
         // (e.g. graphic novels crediting author/illustrator/adapter) — that
         // breaks YAML frontmatter, so normalize to a comma-separated list.
-        author: ((_e = sidecar.author) != null ? _e : "").replace(/\n+/g, ", ").trim(),
+        author: ((_f = sidecar.author) != null ? _f : "").replace(/\n+/g, ", ").trim(),
         progress: progressPercent,
         currentPage,
         pageCount,
         readingStatus,
-        lastUpdatedAt: (_g = (_f = sidecar.updatedAt) != null ? _f : sidecar.bookUpdatedAt) != null ? _g : null,
+        // The sidecar's timestamps track metadata edits, not reading; progress.json
+        // is updated whenever the reading position moves.
+        lastUpdatedAt: (_h = (_g = lastProgressAt != null ? lastProgressAt : sidecar.updatedAt) != null ? _g : sidecar.bookUpdatedAt) != null ? _h : null,
         annotations,
         coverPath: hasCover ? coverFilePath : null,
         isbn10,
         isbn13,
-        publisher: (_i = (_h = sidecar.metadata) == null ? void 0 : _h.publisher) != null ? _i : null,
-        publishedDate: (_k = (_j = sidecar.metadata) == null ? void 0 : _j.published) != null ? _k : null,
-        series: (_m = (_l = sidecar.metadata) == null ? void 0 : _l.series) != null ? _m : null,
-        seriesIndex: (_o = (_n = sidecar.metadata) == null ? void 0 : _n.series_index) != null ? _o : null,
-        language: (_q = (_p = sidecar.metadata) == null ? void 0 : _p.language) != null ? _q : null,
-        description: ((_r = sidecar.metadata) == null ? void 0 : _r.description) ? stripHtml(sidecar.metadata.description) : null
+        publisher: (_j = (_i = sidecar.metadata) == null ? void 0 : _i.publisher) != null ? _j : null,
+        publishedDate: (_l = (_k = sidecar.metadata) == null ? void 0 : _k.published) != null ? _l : null,
+        series: (_n = (_m = sidecar.metadata) == null ? void 0 : _m.series) != null ? _n : null,
+        seriesIndex: (_p = (_o = sidecar.metadata) == null ? void 0 : _o.series_index) != null ? _p : null,
+        language: (_r = (_q = sidecar.metadata) == null ? void 0 : _q.language) != null ? _r : null,
+        description: ((_s = sidecar.metadata) == null ? void 0 : _s.description) ? stripHtml(sidecar.metadata.description) : null
       };
     })
   );
@@ -10038,8 +10042,10 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
                   const existingProgress = parseFrontmatterField(fm, "progress");
                   const currentHash = computeKOReaderHash(book.annotations);
                   const currentProgress = book.progress !== null ? `${book.progress.toFixed(1)}%` : null;
+                  const existingLastRead = parseFrontmatterField(fm, "last_read");
+                  const currentLastRead = book.lastUpdatedAt ? new Date(book.lastUpdatedAt).toISOString().split("T")[0] : null;
                   const looksCorrupted = /<\/?(p|div|br|strong|em|li)\b[^>]*>|&#\d+;/i.test(existingContent);
-                  if (existingHash === currentHash && existingProgress === currentProgress && prefetchedInfo2 === void 0 && !looksCorrupted) {
+                  if (existingHash === currentHash && existingProgress === currentProgress && existingLastRead === currentLastRead && prefetchedInfo2 === void 0 && !looksCorrupted) {
                     skipBook = true;
                   }
                 }

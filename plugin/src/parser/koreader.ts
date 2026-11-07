@@ -153,6 +153,12 @@ export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[
 			);
 
 			const config = progressData?.configs?.[0] ?? null;
+			const progressTimes = (progressData?.configs ?? [])
+				.map((c) => c.updatedAt)
+				.filter((t): t is number => typeof t === "number" && t > 0)
+				// Values below 1e12 can't be milliseconds (that's 2001); treat them as seconds.
+				.map((t) => (t < 1e12 ? t * 1000 : t));
+			const lastProgressAt = progressTimes.length > 0 ? Math.max(...progressTimes) : null;
 			let progressPercent: number | null = null;
 			let currentPage: number | null = null;
 			let pageCount: number | null = null;
@@ -192,7 +198,9 @@ export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[
 				currentPage,
 				pageCount,
 				readingStatus,
-				lastUpdatedAt: sidecar.updatedAt ?? sidecar.bookUpdatedAt ?? null,
+				// The sidecar's timestamps track metadata edits, not reading; progress.json
+				// is updated whenever the reading position moves.
+				lastUpdatedAt: lastProgressAt ?? sidecar.updatedAt ?? sidecar.bookUpdatedAt ?? null,
 				annotations,
 				coverPath: hasCover ? coverFilePath : null,
 				isbn10,

@@ -770,6 +770,10 @@ export async function syncFromMoonReader(
 									const existingProgress = parseFrontmatterField(fm, "progress");
 									const currentHash = computeKOReaderHash(book.annotations);
 									const currentProgress = book.progress !== null ? `${book.progress.toFixed(1)}%` : null;
+									const existingLastRead = parseFrontmatterField(fm, "last_read");
+									const currentLastRead = book.lastUpdatedAt
+										? new Date(book.lastUpdatedAt).toISOString().split("T")[0]
+										: null;
 									// Force a rewrite of notes written before HTML-stripping existed —
 									// otherwise an unchanged book's corrupted description (and everything
 									// after it, which Obsidian can fail to render past unclosed HTML) is
@@ -777,6 +781,7 @@ export async function syncFromMoonReader(
 									const looksCorrupted = /<\/?(p|div|br|strong|em|li)\b[^>]*>|&#\d+;/i.test(existingContent);
 									if (existingHash === currentHash &&
 										existingProgress === currentProgress &&
+										existingLastRead === currentLastRead &&
 										prefetchedInfo === undefined &&
 										!looksCorrupted) {
 										skipBook = true;
