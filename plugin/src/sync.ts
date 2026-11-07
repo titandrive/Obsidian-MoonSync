@@ -2209,6 +2209,33 @@ function updateCustomBookFrontmatter(
 
 
 /**
+ * Rewrite each book's note-relative coverPath ("moonsync-covers/x.jpg") to a path
+ * relative to the output folder, based on where the cover file actually exists.
+ * Notes stay in MoonReader/, KOReader/ or Manual Notes/ even after the settings
+ * that put them there change, so the current settings can't be trusted for this.
+ */
+async function resolveIndexCovers(
+	app: App,
+	books: BookData[],
+	settings: MoonSyncSettings
+): Promise<BookData[]> {
+	const base = normalizePath(settings.outputFolder);
+	const subfolders = ["", "MoonReader", "KOReader", "Manual Notes"];
+
+	return Promise.all(books.map(async (book) => {
+		if (!book.coverPath) return book;
+		const preferred = book.source === "koreader" ? "KOReader" : "MoonReader";
+		for (const sub of [preferred, ...subfolders.filter(s => s !== preferred)]) {
+			const rel = sub ? `${sub}/${book.coverPath}` : book.coverPath;
+			if (await app.vault.adapter.exists(normalizePath(`${base}/${rel}`))) {
+				return { ...book, coverPath: rel };
+			}
+		}
+		return { ...book, coverPath: null };
+	}));
+}
+
+/**
  * Update the index note with summary and links to all books
  * Merges Moon+ Reader books with any manually-created book notes in the folder
  */
@@ -2227,7 +2254,11 @@ async function updateIndexNote(
 		? mergeBookLists(moonReaderBooks, customBooks)
 		: moonReaderBooks;
 
-	const markdown = generateIndexNote(allMrBooks, settings, koreaderBooks);
+	const markdown = generateIndexNote(
+		await resolveIndexCovers(app, allMrBooks, settings),
+		settings,
+		koreaderBooks && await resolveIndexCovers(app, koreaderBooks, settings)
+	);
 
 	if (await app.vault.adapter.exists(indexPath)) {
 		await app.vault.adapter.write(indexPath, markdown);

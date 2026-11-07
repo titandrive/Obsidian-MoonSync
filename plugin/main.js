@@ -8778,11 +8778,9 @@ function generateIndexNote(books, settings, readestBooks) {
         );
       }
       const coversToShow = settings.coverCollageLimit > 0 ? sortedCovers.slice(0, settings.coverCollageLimit) : sortedCovers;
-      const bothEnabled = settings.moonReaderEnabled && settings.koreaderEnabled;
       const coverImgs = coversToShow.map((book) => {
         const noteFilename = generateFilename(book.book.title);
-        const coverSrc = bothEnabled && book.source === "koreader" ? `KOReader/${book.coverPath}` : bothEnabled && book.source === "moonreader" ? `MoonReader/${book.coverPath}` : book.coverPath;
-        return `<a class="internal-link" href="${noteFilename}"><img src="${coverSrc}" style="height: 120px; width: auto;"></a>`;
+        return `<a class="internal-link" href="${noteFilename}"><img src="${book.coverPath}" style="height: 120px; width: auto;"></a>`;
       }).join(" ");
       lines.push(coverImgs);
       lines.push("");
@@ -8841,7 +8839,7 @@ function generateBaseFile(settings) {
   const lines = [];
   lines.push("filters:");
   lines.push("  and:");
-  lines.push(`    - file.folder == "${outputFolder}"`);
+  lines.push(`    - file.inFolder("${outputFolder}")`);
   lines.push(`    - file.name != "${indexTitle}"`);
   lines.push(`    - file.name != "${baseTitle}"`);
   lines.push('    - file.ext == "md"');
@@ -11067,10 +11065,30 @@ function updateCustomBookFrontmatter(content, bookInfo, settings) {
   lines.push("---");
   return lines.join("\n") + contentAfterFrontmatter;
 }
+async function resolveIndexCovers(app, books, settings) {
+  const base = (0, import_obsidian7.normalizePath)(settings.outputFolder);
+  const subfolders = ["", "MoonReader", "KOReader", "Manual Notes"];
+  return Promise.all(books.map(async (book) => {
+    if (!book.coverPath)
+      return book;
+    const preferred = book.source === "koreader" ? "KOReader" : "MoonReader";
+    for (const sub of [preferred, ...subfolders.filter((s) => s !== preferred)]) {
+      const rel = sub ? `${sub}/${book.coverPath}` : book.coverPath;
+      if (await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${base}/${rel}`))) {
+        return { ...book, coverPath: rel };
+      }
+    }
+    return { ...book, coverPath: null };
+  }));
+}
 async function updateIndexNote(app, outputPath, moonReaderBooks, settings, koreaderBooks, customBooks) {
   const indexPath = (0, import_obsidian7.normalizePath)(`${outputPath}/${settings.indexNoteTitle}.md`);
   const allMrBooks = customBooks && customBooks.length > 0 ? mergeBookLists(moonReaderBooks, customBooks) : moonReaderBooks;
-  const markdown = generateIndexNote(allMrBooks, settings, koreaderBooks);
+  const markdown = generateIndexNote(
+    await resolveIndexCovers(app, allMrBooks, settings),
+    settings,
+    koreaderBooks && await resolveIndexCovers(app, koreaderBooks, settings)
+  );
   if (await app.vault.adapter.exists(indexPath)) {
     await app.vault.adapter.write(indexPath, markdown);
   } else {

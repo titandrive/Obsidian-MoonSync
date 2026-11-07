@@ -278,15 +278,10 @@ export function generateIndexNote(
 				? sortedCovers.slice(0, settings.coverCollageLimit)
 				: sortedCovers;
 
-			const bothEnabled = settings.moonReaderEnabled && settings.koreaderEnabled;
+			// coverPath is already resolved relative to the output folder by updateIndexNote
 			const coverImgs = coversToShow.map(book => {
 				const noteFilename = generateFilename(book.book.title);
-				const coverSrc = bothEnabled && book.source === "koreader"
-					? `KOReader/${book.coverPath}`
-					: bothEnabled && book.source === "moonreader"
-						? `MoonReader/${book.coverPath}`
-						: book.coverPath;
-				return `<a class="internal-link" href="${noteFilename}"><img src="${coverSrc}" style="height: 120px; width: auto;"></a>`;
+				return `<a class="internal-link" href="${noteFilename}"><img src="${book.coverPath}" style="height: 120px; width: auto;"></a>`;
 			}).join(" ");
 			lines.push(coverImgs);
 			lines.push("");
@@ -370,7 +365,8 @@ export function generateBaseFile(settings: MoonSyncSettings): string {
 	// Filters section - exclude index and database files
 	lines.push("filters:");
 	lines.push("  and:");
-	lines.push(`    - file.folder == "${outputFolder}"`);
+	// inFolder also matches the MoonReader/, KOReader/ and Manual Notes/ subfolders
+	lines.push(`    - file.inFolder("${outputFolder}")`);
 	lines.push(`    - file.name != "${indexTitle}"`);
 	lines.push(`    - file.name != "${baseTitle}"`);
 	lines.push('    - file.ext == "md"');
