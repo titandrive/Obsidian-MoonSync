@@ -770,10 +770,21 @@ export async function syncFromMoonReader(
 						if (!coverVaultPath) {
 							const downloadedName = `${noteFilename}.jpg`;
 							const downloadedPath = normalizePath(`${koreaderCoversFolder}/${downloadedName}`);
+							// KOReader doesn't hand over its cover on every sync, so reuse any cover already
+							// saved for this book: KOReader's earlier export (.png, named after the source
+							// title) or a downloaded one (.jpg), under either the source or the note's title.
+							let savedCover: string | null = null;
+							for (const name of new Set([generateFilename(book.title), noteFilename])) {
+								for (const ext of ["png", "jpg"]) {
+									if (!savedCover && await app.vault.adapter.exists(normalizePath(`${koreaderCoversFolder}/${name}.${ext}`))) {
+										savedCover = `moonsync-covers/${name}.${ext}`;
+									}
+								}
+							}
 							if (existingCover && await app.vault.adapter.exists(normalizePath(`${koreaderOutputPath}/${existingCover}`))) {
 								coverVaultPath = existingCover;
-							} else if (await app.vault.adapter.exists(downloadedPath)) {
-								coverVaultPath = `moonsync-covers/${downloadedName}`;
+							} else if (savedCover) {
+								coverVaultPath = savedCover;
 							} else {
 								let coverUrl = prefetchedInfo?.coverUrl ?? null;
 								const coverCache = getCachedInfo(koreaderCache, book.title, book.author);

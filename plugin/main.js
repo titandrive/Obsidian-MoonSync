@@ -10037,10 +10037,18 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
             if (!coverVaultPath) {
               const downloadedName = `${noteFilename}.jpg`;
               const downloadedPath = (0, import_obsidian7.normalizePath)(`${koreaderCoversFolder}/${downloadedName}`);
+              let savedCover = null;
+              for (const name of /* @__PURE__ */ new Set([generateFilename(book.title), noteFilename])) {
+                for (const ext of ["png", "jpg"]) {
+                  if (!savedCover && await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${koreaderCoversFolder}/${name}.${ext}`))) {
+                    savedCover = `moonsync-covers/${name}.${ext}`;
+                  }
+                }
+              }
               if (existingCover && await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${koreaderOutputPath}/${existingCover}`))) {
                 coverVaultPath = existingCover;
-              } else if (await app.vault.adapter.exists(downloadedPath)) {
-                coverVaultPath = `moonsync-covers/${downloadedName}`;
+              } else if (savedCover) {
+                coverVaultPath = savedCover;
               } else {
                 let coverUrl = (_i = prefetchedInfo2 == null ? void 0 : prefetchedInfo2.coverUrl) != null ? _i : null;
                 const coverCache = getCachedInfo(koreaderCache, book.title, book.author);
