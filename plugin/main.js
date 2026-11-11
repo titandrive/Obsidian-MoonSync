@@ -9715,7 +9715,7 @@ async function migrateToSubdirectories(app, settings) {
   }
 }
 async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMoonReaderBooks, cachedKOReaderBooks) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
   const result = {
     success: false,
     booksProcessed: 0,
@@ -9977,7 +9977,7 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
         progressNotice.setMessage("MoonSync: Processing KOReader books...");
         for (const book of koBooks) {
           try {
-            const coverVaultPath = (_a = coverVaultPaths.get(book.hash)) != null ? _a : null;
+            let coverVaultPath = (_a = coverVaultPaths.get(book.hash)) != null ? _a : null;
             const cachedInfo = getCachedInfo(koreaderCache, book.title, book.author);
             const prefetchKey = `${book.title}|${book.author}`;
             const prefetchedInfo2 = prefetchedKOReader.get(prefetchKey);
@@ -10032,8 +10032,35 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
                 }
               }
             }
+            const noteExists = await app.vault.adapter.exists(noteFilePath);
+            const existingCover = noteExists ? parseFrontmatterField((_h = extractFrontmatter(await app.vault.adapter.read(noteFilePath))) != null ? _h : "", "cover") : null;
+            if (!coverVaultPath) {
+              const downloadedName = `${noteFilename}.jpg`;
+              const downloadedPath = (0, import_obsidian7.normalizePath)(`${koreaderCoversFolder}/${downloadedName}`);
+              if (existingCover && await app.vault.adapter.exists((0, import_obsidian7.normalizePath)(`${koreaderOutputPath}/${existingCover}`))) {
+                coverVaultPath = existingCover;
+              } else if (await app.vault.adapter.exists(downloadedPath)) {
+                coverVaultPath = `moonsync-covers/${downloadedName}`;
+              } else {
+                let coverUrl = (_i = prefetchedInfo2 == null ? void 0 : prefetchedInfo2.coverUrl) != null ? _i : null;
+                const coverCache = getCachedInfo(koreaderCache, book.title, book.author);
+                if (!coverUrl && coverCache && !coverCache.coverAttempted) {
+                  coverUrl = (_l = (_k = await fetchBookInfo((_j = effectiveCachedInfo == null ? void 0 : effectiveCachedInfo.title) != null ? _j : book.title, book.author, hardcoverToken2)) == null ? void 0 : _k.coverUrl) != null ? _l : null;
+                  coverCache.coverAttempted = true;
+                  koreaderCacheModified = true;
+                }
+                const imageData = coverUrl ? await downloadCover(coverUrl) : null;
+                if (imageData) {
+                  if (!await app.vault.adapter.exists(koreaderCoversFolder)) {
+                    await app.vault.createFolder(koreaderCoversFolder);
+                  }
+                  await app.vault.adapter.writeBinary(downloadedPath, imageData);
+                  coverVaultPath = `moonsync-covers/${downloadedName}`;
+                }
+              }
+            }
             let skipBook = false;
-            if (await app.vault.adapter.exists(noteFilePath)) {
+            if (noteExists) {
               try {
                 const existingContent = await app.vault.adapter.read(noteFilePath);
                 const fm = extractFrontmatter(existingContent);
@@ -10045,7 +10072,7 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
                   const existingLastRead = parseFrontmatterField(fm, "last_read");
                   const currentLastRead = book.lastUpdatedAt ? new Date(book.lastUpdatedAt).toISOString().split("T")[0] : null;
                   const looksCorrupted = /<\/?(p|div|br|strong|em|li)\b[^>]*>|&#\d+;/i.test(existingContent);
-                  if (existingHash === currentHash && existingProgress === currentProgress && existingLastRead === currentLastRead && prefetchedInfo2 === void 0 && !looksCorrupted) {
+                  if (existingHash === currentHash && existingProgress === currentProgress && existingLastRead === currentLastRead && existingCover === coverVaultPath && prefetchedInfo2 === void 0 && !looksCorrupted) {
                     skipBook = true;
                   }
                 }
@@ -10141,7 +10168,7 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
         const koreaderEntries = koreaderBooksForIndex.length > 0 && koreaderCache ? await buildEntries(koreaderBooksForIndex, koreaderOutputPath, koreaderCache) : [];
         const dedupMap = /* @__PURE__ */ new Map();
         for (const entry of [...mrEntries, ...koreaderEntries]) {
-          const key = entry.item.hardcoverId ? `id:${entry.item.hardcoverId}` : `ta:${entry.item.title.toLowerCase()}|${((_h = entry.item.author) != null ? _h : "").toLowerCase()}`;
+          const key = entry.item.hardcoverId ? `id:${entry.item.hardcoverId}` : `ta:${entry.item.title.toLowerCase()}|${((_m = entry.item.author) != null ? _m : "").toLowerCase()}`;
           const existing = dedupMap.get(key);
           if (!existing) {
             dedupMap.set(key, {
@@ -10151,9 +10178,9 @@ async function syncFromMoonReader(app, settings, wasmPath, sourceScope, cachedMo
               cacheRefs: [...entry.cacheRefs]
             });
           } else {
-            const entryTs = (_i = entry.lastReadTimestamp) != null ? _i : 0;
-            const existingTs = (_j = existing.lastReadTimestamp) != null ? _j : 0;
-            const entryWins = entryTs !== existingTs ? entryTs > existingTs : ((_k = entry.item.progress) != null ? _k : 0) > ((_l = existing.item.progress) != null ? _l : 0);
+            const entryTs = (_n = entry.lastReadTimestamp) != null ? _n : 0;
+            const existingTs = (_o = existing.lastReadTimestamp) != null ? _o : 0;
+            const entryWins = entryTs !== existingTs ? entryTs > existingTs : ((_p = entry.item.progress) != null ? _p : 0) > ((_q = existing.item.progress) != null ? _q : 0);
             if (entryWins) {
               existing.item.progress = entry.item.progress;
               existing.lastReadTimestamp = entry.lastReadTimestamp;
@@ -10274,7 +10301,7 @@ ${fields.join("\n")}
             continue;
           const isKOReader = bookData.source === "koreader";
           const targetCache = srcPath === outputPath ? cache : koreaderCache != null ? koreaderCache : cache;
-          const cacheTitle = isKOReader ? (_m = bookData.previousTitle) != null ? _m : bookData.book.title : bookData.book.title;
+          const cacheTitle = isKOReader ? (_r = bookData.previousTitle) != null ? _r : bookData.book.title : bookData.book.title;
           const cachedBook = getCachedInfo(targetCache, cacheTitle, bookData.book.author);
           const lookupTitle = (cachedBook == null ? void 0 : cachedBook.source) === "hardcover" && cachedBook.title && bookData.source !== "koreader" ? cachedBook.title : bookData.book.title;
           const filePath = (0, import_obsidian7.normalizePath)(`${srcPath}/${generateFilename(lookupTitle)}.md`);

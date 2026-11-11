@@ -692,7 +692,7 @@ export async function syncFromMoonReader(
 				progressNotice.setMessage("MoonSync: Processing KOReader books...");
 				for (const book of koBooks) {
 					try {
-						const coverVaultPath = coverVaultPaths.get(book.hash) ?? null;
+						let coverVaultPath = coverVaultPaths.get(book.hash) ?? null;
 						const cachedInfo = getCachedInfo(koreaderCache, book.title, book.author);
 
 						// Apply prefetched metadata to cache
@@ -759,9 +759,44 @@ export async function syncFromMoonReader(
 							}
 						}
 
+						// The note is regenerated on every write, so the cover has to be resolved here:
+						// KOReader's exported cover, else whatever cover the note already has (e.g. from
+						// "Fetch book cover"), else one downloaded on an earlier sync, else the online
+						// lookup's cover — the same fallback Moon Reader books get in processBook.
+						const noteExists = await app.vault.adapter.exists(noteFilePath);
+						const existingCover = noteExists
+							? parseFrontmatterField(extractFrontmatter(await app.vault.adapter.read(noteFilePath)) ?? "", "cover")
+							: null;
+						if (!coverVaultPath) {
+							const downloadedName = `${noteFilename}.jpg`;
+							const downloadedPath = normalizePath(`${koreaderCoversFolder}/${downloadedName}`);
+							if (existingCover && await app.vault.adapter.exists(normalizePath(`${koreaderOutputPath}/${existingCover}`))) {
+								coverVaultPath = existingCover;
+							} else if (await app.vault.adapter.exists(downloadedPath)) {
+								coverVaultPath = `moonsync-covers/${downloadedName}`;
+							} else {
+								let coverUrl = prefetchedInfo?.coverUrl ?? null;
+								const coverCache = getCachedInfo(koreaderCache, book.title, book.author);
+								if (!coverUrl && coverCache && !coverCache.coverAttempted) {
+									// Metadata was cached before covers were fetched for KOReader books: look once.
+									coverUrl = (await fetchBookInfo(effectiveCachedInfo?.title ?? book.title, book.author, hardcoverToken))?.coverUrl ?? null;
+									coverCache.coverAttempted = true;
+									koreaderCacheModified = true;
+								}
+								const imageData = coverUrl ? await downloadCover(coverUrl) : null;
+								if (imageData) {
+									if (!await app.vault.adapter.exists(koreaderCoversFolder)) {
+										await app.vault.createFolder(koreaderCoversFolder);
+									}
+									await app.vault.adapter.writeBinary(downloadedPath, imageData);
+									coverVaultPath = `moonsync-covers/${downloadedName}`;
+								}
+							}
+						}
+
 						// Skip-if-unchanged: compare highlights_hash and progress
 						let skipBook = false;
-						if (await app.vault.adapter.exists(noteFilePath)) {
+						if (noteExists) {
 							try {
 								const existingContent = await app.vault.adapter.read(noteFilePath);
 								const fm = extractFrontmatter(existingContent);
@@ -782,6 +817,7 @@ export async function syncFromMoonReader(
 									if (existingHash === currentHash &&
 										existingProgress === currentProgress &&
 										existingLastRead === currentLastRead &&
+										existingCover === coverVaultPath &&
 										prefetchedInfo === undefined &&
 										!looksCorrupted) {
 										skipBook = true;

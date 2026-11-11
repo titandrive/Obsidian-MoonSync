@@ -16,6 +16,7 @@ export interface CachedBookInfo {
 	hardcoverSlug?: string; // Hardcover URL slug
 	hardcoverPages?: number; // Page count from Hardcover edition (for progress calculation)
 	hardcoverEditionChecked?: boolean; // edition association checked/repaired by 2.0.11+
+	coverAttempted?: boolean; // online cover lookup already tried for a KOReader book with no exported cover
 	// Maps a highlight's stable source id (e.g. a KOReader annotation id) to the
 	// Hardcover reading_journal entry id it created — null means "known to already
 	// exist on Hardcover, but the real entry id wasn't captured" (grandfathered from
