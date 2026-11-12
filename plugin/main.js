@@ -8353,7 +8353,30 @@ async function fetchAllBooks(syncPath) {
       };
     })
   );
-  return books.filter((b) => b !== null);
+  return mergeDuplicateCopies(books.filter((b) => b !== null));
+}
+function mergeDuplicateCopies(books) {
+  var _a, _b, _c;
+  const byKey = /* @__PURE__ */ new Map();
+  for (const book of books) {
+    const key = `${book.title.trim().toLowerCase()}|${book.author.trim().toLowerCase()}`;
+    const other = byKey.get(key);
+    if (!other) {
+      byKey.set(key, book);
+      continue;
+    }
+    const [keep, drop] = ((_a = book.lastUpdatedAt) != null ? _a : 0) > ((_b = other.lastUpdatedAt) != null ? _b : 0) ? [book, other] : [other, book];
+    const seen = new Set(keep.annotations.map((a) => {
+      var _a2;
+      return `${a.text}|${(_a2 = a.note) != null ? _a2 : ""}`;
+    }));
+    const extra = drop.annotations.filter((a) => {
+      var _a2;
+      return !seen.has(`${a.text}|${(_a2 = a.note) != null ? _a2 : ""}`);
+    });
+    byKey.set(key, { ...keep, annotations: [...keep.annotations, ...extra], coverPath: (_c = keep.coverPath) != null ? _c : drop.coverPath });
+  }
+  return [...byKey.values()];
 }
 
 // src/writer/koreader-markdown.ts

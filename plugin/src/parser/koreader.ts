@@ -215,5 +215,25 @@ export async function fetchAllBooks(syncPath: string): Promise<KOReaderBookData[
 		})
 	);
 
-	return books.filter((b): b is KOReaderBookData => b !== null);
+	return mergeDuplicateCopies(books.filter((b): b is KOReaderBookData => b !== null));
+}
+
+/**
+ * The same book opened from two files (e.g. a re-downloaded EPUB) gets two hashes, so KOReader
+ * syncs it twice with separate progress. Both copies map to one note and one Hardcover book, and
+ * syncing them separately made progress flip between the two on every sync. Keep the most
+ * recently read copy, with the highlights from both.
+ */
+function mergeDuplicateCopies(books: KOReaderBookData[]): KOReaderBookData[] {
+	const byKey = new Map<string, KOReaderBookData>();
+	for (const book of books) {
+		const key = `${book.title.trim().toLowerCase()}|${book.author.trim().toLowerCase()}`;
+		const other = byKey.get(key);
+		if (!other) { byKey.set(key, book); continue; }
+		const [keep, drop] = (book.lastUpdatedAt ?? 0) > (other.lastUpdatedAt ?? 0) ? [book, other] : [other, book];
+		const seen = new Set(keep.annotations.map((a) => `${a.text}|${a.note ?? ""}`));
+		const extra = drop.annotations.filter((a) => !seen.has(`${a.text}|${a.note ?? ""}`));
+		byKey.set(key, { ...keep, annotations: [...keep.annotations, ...extra], coverPath: keep.coverPath ?? drop.coverPath });
+	}
+	return [...byKey.values()];
 }
