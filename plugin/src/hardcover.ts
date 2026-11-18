@@ -870,7 +870,7 @@ export async function updateHardcoverBook(
 		}
 
 		return await updateProgressForBook(
-			bookId, myUserBook, progress, pages, preferredEditionId, today, token
+			bookId, myUserBook, progress, pages, preferredEditionId, today, token, statusId
 		);
 	} catch (error) {
 		console.debug(`MoonSync: Hardcover update failed for book ${bookId}`, error);
@@ -926,7 +926,8 @@ async function updateProgressForBook(
 	pages: number | null,
 	preferredEditionId: number | null,
 	today: string,
-	token: string
+	token: string,
+	statusId: number
 ): Promise<UpdateResult> {
 	if (progress <= 0) {
 		return { success: true, badEdition: false };
@@ -1024,6 +1025,28 @@ async function updateProgressForBook(
 				console.debug(`MoonSync: Hardcover book ${bookId} — updating first read ${firstRead.id} for display progress`);
 				await hardcoverGraphQL(UPDATE_USER_BOOK_READ, token, displayVars);
 			}
+		}
+	} else if (statusId === STATUS_READ && finishedReads.length > 0) {
+		// The book is being marked Read and setting that status just closed the current read, so
+		// there's no open one. Put the final progress on the read that was just finished instead of
+		// starting a new read (which Hardcover would show as a re-read begun today).
+		const lastFinished = finishedReads[finishedReads.length - 1];
+		await rateLimitDelay();
+		const vars = {
+			id: lastFinished.id,
+			object: {
+				progress_pages: progressPages,
+				edition_id: editionId,
+				started_at: lastFinished.started_at,
+				finished_at: lastFinished.finished_at,
+				progress_seconds: 0,
+			},
+		};
+		console.debug(`MoonSync: Hardcover book ${bookId} — finished, updating last read ${lastFinished.id} instead of starting a new one`);
+		const updateResult = await hardcoverGraphQL(UPDATE_USER_BOOK_READ, token, vars);
+		const updateData = updateResult.data?.update_user_book_read;
+		if (updateData?.error) {
+			console.debug(`MoonSync: Hardcover update_user_book_read error for book ${bookId}: ${updateData.error}`);
 		}
 	} else {
 		// No unfinished read exists — create new read entry
